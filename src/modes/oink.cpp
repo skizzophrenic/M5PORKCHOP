@@ -1067,10 +1067,16 @@ void OinkMode::update() {
                         stateStartTime = now;
                         break;
                     }
-                    if (!c5HandshakeRequested && MonsterC5::isConnected()) {
-                        MonsterC5::requestHandshake(targetBssid);
-                        c5HandshakeRequested = true;
-                        Serial.println("[OINK] 5GHz attack routed to C5");
+                    if (!c5HandshakeRequested) {
+                        // Don't queue a new attack while C5 is busy (e.g., importing a capture).
+                        if (!MonsterC5::isReady()) {
+                            break;
+                        }
+                        if (MonsterC5::requestHandshake(targetBssid)) {
+                            c5HandshakeRequested = true;
+                            attackStartTime = now;  // start timeout from actual request
+                            Serial.println("[OINK] 5GHz attack routed to C5");
+                        }
                     }
 
                     // Poll C5 result

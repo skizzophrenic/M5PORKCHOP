@@ -85,7 +85,7 @@ enum class SpectrumFilter : uint8_t {
     HIDDEN     // Hidden SSIDs only
 };
 
-// Spectrum view band. 5GHz view renders data sourced from MonsterC5 scan cache.
+// Spectrum view band. 5GHz view renders data sourced from NetworkRecon (C5-injected scan results).
 enum class SpectrumBand : uint8_t {
     BAND_24 = 0,
     BAND_5  = 1

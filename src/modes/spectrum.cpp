@@ -51,8 +51,8 @@ const float MAX_CENTER_MHZ = 2472.0f;      // Channel 13 (2.4GHz)
 const float BAND_MIN_MHZ = 2400.0f;        // 2.4GHz band edge (approx)
 const float BAND_MAX_MHZ = 2483.5f;        // 2.4GHz band edge (approx)
 // 5GHz view (rendered from MonsterC5 scan cache)
-const float DEFAULT_CENTER5_MHZ = 5180.0f; // Ch36
-const float DEFAULT_WIDTH5_MHZ  = 200.0f;  // Wider viewport for 5GHz
+const float DEFAULT_CENTER5_MHZ = 5500.0f; // Mid-band (seamless overview)
+const float DEFAULT_WIDTH5_MHZ  = 240.0f;  // Scrollable viewport (similar density to 2.4GHz view)
 const float MIN_CENTER5_MHZ = 5180.0f;     // Ch36
 const float MAX_CENTER5_MHZ = 5825.0f;     // Ch165
 const float BAND5_MIN_MHZ = 5150.0f;       // Display start (approx UNII-1 lower)
@@ -61,6 +61,24 @@ const float LOBE_HALF_WIDTH_MHZ = 15.0f;   // Gaussian half-width
 const float LOBE_STEP_MHZ = 0.5f;          // Frequency step for lobe drawing
 const float PAN_STEP_MHZ = 5.0f;           // 2.4GHz pan step (MHz)
 const float PAN_STEP5_MHZ = 20.0f;         // 5GHz pan step (MHz) ~ 20MHz channel
+
+static inline float clampCenter5GHz(float centerMHz, float widthMHz) {
+    // Keep the viewport fully inside the displayed 5GHz band. If the viewport is wider
+    // than the band, pin to mid-band so the display stays seamless.
+    if (widthMHz <= 0.01f) {
+        return (BAND5_MIN_MHZ + BAND5_MAX_MHZ) * 0.5f;
+    }
+
+    float half = widthMHz * 0.5f;
+    float minCenter = BAND5_MIN_MHZ + half;
+    float maxCenter = BAND5_MAX_MHZ - half;
+    if (minCenter > maxCenter) {
+        return (BAND5_MIN_MHZ + BAND5_MAX_MHZ) * 0.5f;
+    }
+    if (centerMHz < minCenter) return minCenter;
+    if (centerMHz > maxCenter) return maxCenter;
+    return centerMHz;
+}
 
 // Timing
 const uint32_t UPDATE_INTERVAL_MS = 100;   // 10 FPS update rate
@@ -640,33 +658,39 @@ void SpectrumMode::updateRenderSnapshot() {
     if (staleMs < 1000) staleMs = 1000;
     if (staleMs > 60000) staleMs = 60000;
 
-    // 5GHz view: build render snapshot from C5 scan cache (no dual-band split).
+    // 5GHz view: build render snapshot from NetworkRecon (C5-injected networks).
     if (viewBand == SpectrumBand::BAND_5) {
         // Collapse-by-SSID is currently 2.4GHz-only.
         mergeSsidCount = 0;
         collapse = false;
 
         size_t count = 0;
-        uint8_t total = MonsterC5::getScanCount();
-        for (uint8_t i = 0; i < total; i++) {
-            const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-            if (!e || e->channel <= 14) continue;
-            if (e->rssi < minRssi) continue;
-            if (count >= MAX_SPECTRUM_NETWORKS) break;
+        {
+            // Copy out a snapshot while holding the recon vector lock. This makes 5GHz display
+            // stable across scans and avoids depending on MonsterC5's "last scan only" cache.
+            NetworkRecon::CriticalSection lock;
+            const auto& recon = NetworkRecon::getNetworks();
+            for (size_t i = 0; i < recon.size(); i++) {
+                const DetectedNetwork& net = recon[i];
+                if (net.channel <= 14) continue;
+                if (net.rssi < minRssi) continue;
+                if (count >= MAX_SPECTRUM_NETWORKS) break;
 
-            SpectrumRenderNet& out = renderNets[count];
-            memcpy(out.bssid, e->bssid, 6);
-            out.channel = e->channel;
-            out.rssi = e->rssi;
-            out.authmode = (wifi_auth_mode_t)e->authmode;
-            out.hasPMF = true;  // Unknown from scan output; don't show "[DEAUTH]" in UI.
-            out.isHidden = (e->ssid[0] == '\0');
-            out.displayFreqMHz = channelToFreq(e->channel);
-            count++;
+                SpectrumRenderNet& out = renderNets[count];
+                memcpy(out.bssid, net.bssid, 6);
+                out.channel = net.channel;
+                out.rssi = net.rssi;
+                out.authmode = net.authmode;
+                // C5 scan output doesn't expose PMF reliably; be conservative.
+                out.hasPMF = true;
+                out.isHidden = net.isHidden || (net.ssid[0] == '\0');
+                out.displayFreqMHz = channelToFreq(net.channel);
+                count++;
+            }
         }
         renderCount = (uint16_t)count;
 
-        // Maintain selection by BSSID across scan swaps.
+        // Maintain selection by BSSID across snapshot rebuilds.
         if (selectedC5Valid) {
             int idx = findC5IndexByBssid(selectedC5Bssid);
             if (idx >= 0) {
@@ -682,47 +706,47 @@ void SpectrumMode::updateRenderSnapshot() {
         if (!selectedC5Valid) {
             int bestIdx = -1;
             int8_t bestRssi = -127;
-            for (uint8_t i = 0; i < total; i++) {
-                const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-                if (!e || e->channel <= 14) continue;
-                if (e->rssi < minRssi) continue;
-                SpectrumRenderNet tmp = {};
-                tmp.channel = e->channel;
-                tmp.rssi = e->rssi;
-                tmp.authmode = (wifi_auth_mode_t)e->authmode;
-                tmp.hasPMF = true;
-                tmp.isHidden = (e->ssid[0] == '\0');
-                if (!matchesFilterRender(tmp)) continue;
-                if (bestIdx < 0 || e->rssi > bestRssi) {
+            for (uint16_t i = 0; i < renderCount; i++) {
+                const SpectrumRenderNet& n = renderNets[i];
+                if (!matchesFilterRender(n)) continue;
+                if (bestIdx < 0 || n.rssi > bestRssi) {
                     bestIdx = (int)i;
-                    bestRssi = e->rssi;
+                    bestRssi = n.rssi;
                 }
             }
             if (bestIdx >= 0) {
-                const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)bestIdx);
-                if (e) {
-                    selectedC5Index = bestIdx;
-                    memcpy(selectedC5Bssid, e->bssid, 6);
-                    selectedC5Valid = true;
-                    // Center view on the default selection.
-                    viewCenterMHz = channelToFreq(e->channel);
-                    viewCenter5MHz = viewCenterMHz;
-                }
+                selectedC5Index = bestIdx;
+                memcpy(selectedC5Bssid, renderNets[bestIdx].bssid, 6);
+                selectedC5Valid = true;
+                // Center view on the default selection.
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[bestIdx].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
             }
         }
 
         // Selected snapshot for status bar + highlight
         renderSelected.valid = false;
-        if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)total) {
-            const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)selectedC5Index);
-            if (e && e->channel > 14) {
+        if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)renderCount) {
+            DetectedNetwork dn = {};
+            if (NetworkRecon::findNetwork(selectedC5Bssid, &dn) && dn.channel > 14) {
                 renderSelected.valid = true;
-                memcpy(renderSelected.bssid, e->bssid, 6);
-                strncpy(renderSelected.ssid, e->ssid, 32);
+                memcpy(renderSelected.bssid, dn.bssid, 6);
+                strncpy(renderSelected.ssid, dn.ssid, 32);
                 renderSelected.ssid[32] = 0;
-                renderSelected.channel = e->channel;
-                renderSelected.rssi = e->rssi;
-                renderSelected.authmode = (wifi_auth_mode_t)e->authmode;
+                renderSelected.channel = dn.channel;
+                renderSelected.rssi = dn.rssi;
+                renderSelected.authmode = dn.authmode;
+                renderSelected.hasPMF = true;
+                renderSelected.wasRevealed = false;
+            } else {
+                // Fallback: still allow highlighting the selected lobe even if metadata lookup fails.
+                const SpectrumRenderNet& rn = renderNets[selectedC5Index];
+                renderSelected.valid = true;
+                memcpy(renderSelected.bssid, rn.bssid, 6);
+                renderSelected.ssid[0] = 0;
+                renderSelected.channel = rn.channel;
+                renderSelected.rssi = rn.rssi;
+                renderSelected.authmode = rn.authmode;
                 renderSelected.hasPMF = true;
                 renderSelected.wasRevealed = false;
             }
@@ -864,10 +888,10 @@ void SpectrumMode::updateRenderSnapshot() {
 
 bool SpectrumMode::has5GHzScanData() {
     if (!MonsterC5::isConnected()) return false;
-    uint8_t total = MonsterC5::getScanCount();
-    for (uint8_t i = 0; i < total; i++) {
-        const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-        if (e && e->channel > 14) return true;
+    NetworkRecon::CriticalSection lock;
+    const auto& recon = NetworkRecon::getNetworks();
+    for (size_t i = 0; i < recon.size(); i++) {
+        if (recon[i].channel > 14) return true;
     }
     return false;
 }
@@ -893,7 +917,10 @@ void SpectrumMode::setViewBand(SpectrumBand band) {
     } else {
         viewCenterMHz = viewCenter5MHz;
         viewWidthMHz = viewWidth5MHz;
-        viewCenterMHz = constrain(viewCenterMHz, MIN_CENTER5_MHZ, MAX_CENTER5_MHZ);
+        // Clamp center so the viewport stays within the displayed 5GHz band.
+        viewCenterMHz = clampCenter5GHz(viewCenterMHz, viewWidthMHz);
+        viewCenter5MHz = viewCenterMHz;
+        viewWidth5MHz = viewWidthMHz;
     }
 
     // Any modal prompt should close on band switch.
@@ -902,11 +929,8 @@ void SpectrumMode::setViewBand(SpectrumBand band) {
 
 int SpectrumMode::findC5IndexByBssid(const uint8_t* bssid) {
     if (!bssid) return -1;
-    uint8_t total = MonsterC5::getScanCount();
-    for (uint8_t i = 0; i < total; i++) {
-        const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-        if (!e || e->channel <= 14) continue;
-        if (memcmp(e->bssid, bssid, 6) == 0) {
+    for (uint16_t i = 0; i < renderCount; i++) {
+        if (memcmp(renderNets[i].bssid, bssid, 6) == 0) {
             return (int)i;
         }
     }
@@ -914,37 +938,23 @@ int SpectrumMode::findC5IndexByBssid(const uint8_t* bssid) {
 }
 
 int SpectrumMode::findNextC5Index(int startIndex, int direction) {
-    uint8_t total = MonsterC5::getScanCount();
-    if (total == 0) return -1;
+    int total = (int)renderCount;
+    if (total <= 0) return -1;
     if (direction == 0) return -1;
     direction = (direction > 0) ? 1 : -1;
 
-    int minRssi = Config::wifi().spectrumMinRssi;
-    if (minRssi < RSSI_MIN) minRssi = RSSI_MIN;
-    if (minRssi > RSSI_MAX) minRssi = RSSI_MAX;
-
     int idx = startIndex;
-    if (idx < 0 || idx >= (int)total) {
-        idx = (direction > 0) ? -1 : (int)total;
+    if (idx < 0 || idx >= total) {
+        idx = (direction > 0) ? -1 : total;
     }
 
-    for (uint16_t step = 0; step < total; step++) {
+    for (int step = 0; step < total; step++) {
         idx += direction;
-        if (idx < 0) idx = (int)total - 1;
-        if (idx >= (int)total) idx = 0;
+        if (idx < 0) idx = total - 1;
+        if (idx >= total) idx = 0;
 
-        const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)idx);
-        if (!e || e->channel <= 14) continue;
-        if (e->rssi < minRssi) continue;
-
-        SpectrumRenderNet tmp = {};
-        tmp.channel = e->channel;
-        tmp.rssi = e->rssi;
-        tmp.authmode = (wifi_auth_mode_t)e->authmode;
-        tmp.hasPMF = true;
-        tmp.isHidden = (e->ssid[0] == '\0');
-        if (!matchesFilterRender(tmp)) continue;
-
+        const SpectrumRenderNet& net = renderNets[idx];
+        if (!matchesFilterRender(net)) continue;
         return idx;
     }
 
@@ -984,15 +994,16 @@ void SpectrumMode::handleInput() {
             viewCenterMHz = fmax(MIN_CENTER_MHZ, viewCenterMHz - PAN_STEP_MHZ);
             viewCenter24MHz = viewCenterMHz;
         } else {
-            float next = viewCenterMHz - PAN_STEP5_MHZ;
-            if (next < MIN_CENTER5_MHZ) {
-                // Wrap from 5GHz → 2.4GHz
+            float half = viewWidthMHz * 0.5f;
+            float leftEdge = viewCenterMHz - half;
+            if (leftEdge <= (BAND5_MIN_MHZ + 0.01f)) {
+                // Wrap from 5GHz → 2.4GHz (seamless band scroll)
                 setViewBand(SpectrumBand::BAND_24);
                 viewCenterMHz = MAX_CENTER_MHZ;
                 viewCenter24MHz = viewCenterMHz;
                 Display::showToast("2.4GHZ");
             } else {
-                viewCenterMHz = fmax(MIN_CENTER5_MHZ, next);
+                viewCenterMHz = clampCenter5GHz(viewCenterMHz - PAN_STEP5_MHZ, viewWidthMHz);
                 viewCenter5MHz = viewCenterMHz;
             }
         }
@@ -1004,7 +1015,8 @@ void SpectrumMode::handleInput() {
                 if (MonsterC5::isConnected()) {
                     // Wrap from 2.4GHz → 5GHz (scan-backed)
                     setViewBand(SpectrumBand::BAND_5);
-                    viewCenterMHz = MIN_CENTER5_MHZ;
+                    // Start at the left edge of the 5GHz band, respecting viewport width.
+                    viewCenterMHz = clampCenter5GHz(BAND5_MIN_MHZ + viewWidthMHz * 0.5f, viewWidthMHz);
                     viewCenter5MHz = viewCenterMHz;
                     Display::showToast("5GHZ");
                     // Ensure we kick off a scan if none has happened yet.
@@ -1020,7 +1032,7 @@ void SpectrumMode::handleInput() {
                 viewCenter24MHz = viewCenterMHz;
             }
         } else {
-            viewCenterMHz = fmin(MAX_CENTER5_MHZ, viewCenterMHz + PAN_STEP5_MHZ);
+            viewCenterMHz = clampCenter5GHz(viewCenterMHz + PAN_STEP5_MHZ, viewWidthMHz);
             viewCenter5MHz = viewCenterMHz;
         }
     }
@@ -1050,21 +1062,7 @@ void SpectrumMode::handleInput() {
                 int idx = findC5IndexByBssid(selectedC5Bssid);
                 if (idx >= 0) {
                     selectedC5Index = idx;
-                    const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)idx);
-                    if (e && e->channel > 14) {
-                        int minRssi = Config::wifi().spectrumMinRssi;
-                        if (minRssi < RSSI_MIN) minRssi = RSSI_MIN;
-                        if (minRssi > RSSI_MAX) minRssi = RSSI_MAX;
-
-                        SpectrumRenderNet tmp = {};
-                        tmp.channel = e->channel;
-                        tmp.rssi = e->rssi;
-                        tmp.authmode = (wifi_auth_mode_t)e->authmode;
-                        tmp.hasPMF = true;
-                        tmp.isHidden = (e->ssid[0] == '\0');
-
-                        keepSelection = (e->rssi >= minRssi) && matchesFilterRender(tmp);
-                    }
+                    keepSelection = matchesFilterRender(renderNets[idx]);
                 } else {
                     selectedC5Valid = false;
                     selectedC5Index = -1;
@@ -1075,14 +1073,11 @@ void SpectrumMode::handleInput() {
             if (!keepSelection) {
                 int next = findNextC5Index(selectedC5Index, +1);
                 if (next >= 0) {
-                    const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)next);
-                    if (e) {
-                        selectedC5Index = next;
-                        memcpy(selectedC5Bssid, e->bssid, 6);
-                        selectedC5Valid = true;
-                        viewCenterMHz = channelToFreq(e->channel);
-                        viewCenter5MHz = viewCenterMHz;
-                    }
+                    selectedC5Index = next;
+                    memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                    selectedC5Valid = true;
+                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                    viewCenter5MHz = viewCenterMHz;
                 } else {
                     selectedC5Valid = false;
                     selectedC5Index = -1;
@@ -1111,14 +1106,11 @@ void SpectrumMode::handleInput() {
         } else if (viewBand == SpectrumBand::BAND_5) {
             int next = findNextC5Index(selectedC5Index, -1);
             if (next >= 0) {
-                const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)next);
-                if (e) {
-                    selectedC5Index = next;
-                    memcpy(selectedC5Bssid, e->bssid, 6);
-                    selectedC5Valid = true;
-                    viewCenterMHz = channelToFreq(e->channel);
-                    viewCenter5MHz = viewCenterMHz;
-                }
+                selectedC5Index = next;
+                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                selectedC5Valid = true;
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
             }
         }
     }
@@ -1140,14 +1132,11 @@ void SpectrumMode::handleInput() {
         } else if (viewBand == SpectrumBand::BAND_5) {
             int next = findNextC5Index(selectedC5Index, +1);
             if (next >= 0) {
-                const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)next);
-                if (e) {
-                    selectedC5Index = next;
-                    memcpy(selectedC5Bssid, e->bssid, 6);
-                    selectedC5Valid = true;
-                    viewCenterMHz = channelToFreq(e->channel);
-                    viewCenter5MHz = viewCenterMHz;
-                }
+                selectedC5Index = next;
+                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                selectedC5Valid = true;
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
             }
         }
     }
@@ -1165,33 +1154,46 @@ void SpectrumMode::handleInput() {
             }
 
             // Ensure we have a valid selection.
+            if (selectedC5Valid) {
+                int idx = findC5IndexByBssid(selectedC5Bssid);
+                if (idx >= 0) {
+                    selectedC5Index = idx;
+                } else {
+                    selectedC5Valid = false;
+                    selectedC5Index = -1;
+                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
+                }
+            }
             if (!selectedC5Valid) {
                 int idx = findNextC5Index(-1, +1);
                 if (idx >= 0) {
-                    const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)idx);
-                    if (e) {
-                        selectedC5Index = idx;
-                        memcpy(selectedC5Bssid, e->bssid, 6);
-                        selectedC5Valid = true;
-                        viewCenterMHz = channelToFreq(e->channel);
-                        viewCenter5MHz = viewCenterMHz;
-                    }
+                    selectedC5Index = idx;
+                    memcpy(selectedC5Bssid, renderNets[idx].bssid, 6);
+                    selectedC5Valid = true;
+                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[idx].channel), viewWidthMHz);
+                    viewCenter5MHz = viewCenterMHz;
                 }
             }
 
-            if (selectedC5Valid) {
-                const C5ScanEntry* e = MonsterC5::getScanEntry((uint8_t)selectedC5Index);
-                if (e && e->channel > 14) {
-                    memcpy(actionBssid, e->bssid, 6);
-                    strncpy(actionSsid, e->ssid, 32);
+            if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)renderCount) {
+                const SpectrumRenderNet& rn = renderNets[selectedC5Index];
+                memcpy(actionBssid, rn.bssid, 6);
+
+                // Pull SSID and latest metadata from recon (scan cache may not include all persisted nets).
+                DetectedNetwork dn = {};
+                if (NetworkRecon::findNetwork(rn.bssid, &dn) && dn.channel > 14) {
+                    strncpy(actionSsid, dn.ssid, 32);
                     actionSsid[32] = 0;
-                    actionChannel = e->channel;
-                    actionRssi = e->rssi;
-                    actionAuthmode = (wifi_auth_mode_t)e->authmode;
-                    actionPromptActive = true;
+                    actionChannel = dn.channel;
+                    actionRssi = dn.rssi;
+                    actionAuthmode = dn.authmode;
                 } else {
-                    Display::showToast("NO 5G SEL");
+                    actionSsid[0] = 0;
+                    actionChannel = rn.channel;
+                    actionRssi = rn.rssi;
+                    actionAuthmode = rn.authmode;
                 }
+                actionPromptActive = true;
             } else {
                 Display::showToast("NO 5G NETS");
             }
@@ -1278,10 +1280,11 @@ void SpectrumMode::handleActionPromptInput() {
 }
 
 void SpectrumMode::drawActionPrompt(M5Canvas& canvas) {
-    const int boxW = 228;
-    const int boxH = 44;
     const int boxX = 6;
-    const int boxY = 18;
+    const int boxW = canvas.width() - (boxX * 2);
+    const int lineH = 10;
+    const int boxH = (lineH * 4) + 10;
+    const int boxY = canvas.height() - boxH - 4;
 
     canvas.fillRect(boxX, boxY, boxW, boxH, COLOR_BG);
     canvas.drawRect(boxX, boxY, boxW, boxH, COLOR_FG);
@@ -1309,14 +1312,16 @@ void SpectrumMode::drawActionPrompt(M5Canvas& canvas) {
     }
 
     canvas.setTextDatum(top_left);
-    canvas.drawString(title, boxX + 6, boxY + 4);
+    const int textX = boxX + 6;
+    const int textY = boxY + 4;
+    canvas.drawString(title, textX, textY);
 
     char meta[32];
     snprintf(meta, sizeof(meta), "CH:%u %ddB %s", actionChannel, actionRssi, authModeToShortString(actionAuthmode));
-    canvas.drawString(meta, boxX + 6, boxY + 16);
+    canvas.drawString(meta, textX, textY + lineH);
 
-    canvas.drawString("[H]HS [P]MON [B]BRO [S]STOP", boxX + 6, boxY + 28);
-    canvas.drawString("[BK] EXIT", boxX + 160, boxY + 28);
+    canvas.drawString("[H]HS  [P]MON  [B]BRO", textX, textY + (lineH * 2));
+    canvas.drawString("[S]STOP  [BK]EXIT", textX, textY + (lineH * 3));
 }
 
 // Handle input when in client monitor overlay [P11] [P13] [P14]
@@ -1558,7 +1563,7 @@ void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
             canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, COLOR_FG);
             
             // Label only when there's space to avoid overlap.
-            if ((x - lastLabelX) >= 18 || ch == 165) {
+            if ((x - lastLabelX) >= 24 || ch == 165) {
                 char lbl[4];
                 snprintf(lbl, sizeof(lbl), "%u", ch);
                 canvas.drawString(lbl, x, CHANNEL_LABEL_Y);
@@ -1583,27 +1588,50 @@ void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
 
 // Draw filter indicator bar at Y=91 (old XP bar area)
 void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
-    // Count networks matching current filter
-    int matchCount = 0;
+    // Count networks matching current filter:
+    // - denom = total matches in band (ignores min RSSI)
+    // - numer = matches that should actually render in the current viewport (min RSSI + intersects view)
+    int matchTotal = 0;
+    int matchInView = 0;
+
+    int minRssi = Config::wifi().spectrumMinRssi;
+    if (minRssi < RSSI_MIN) minRssi = RSSI_MIN;
+    if (minRssi > RSSI_MAX) minRssi = RSSI_MAX;
+
+    float viewLeft = viewCenterMHz - (viewWidthMHz * 0.5f);
+    float viewRight = viewCenterMHz + (viewWidthMHz * 0.5f);
+    const float SINC_HALF_WIDTH = 22.0f;  // Must match drawGaussianLobe() range
+
     if (viewBand == SpectrumBand::BAND_24) {
         for (const auto& net : networks) {
-            if (matchesFilter(net)) matchCount++;
+            if (!matchesFilter(net)) continue;
+            matchTotal++;
+
+            if (net.rssi < minRssi) continue;
+            float c = net.displayFreqMHz;
+            bool intersects = (c + SINC_HALF_WIDTH >= viewLeft) && (c - SINC_HALF_WIDTH <= viewRight);
+            if (intersects) matchInView++;
         }
     } else {
-        // 5GHz: count from C5 scan cache
-        uint8_t total = MonsterC5::getScanCount();
-        for (uint8_t i = 0; i < total; i++) {
-            const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-            if (!e || e->channel <= 14) continue;
+        NetworkRecon::CriticalSection lock;
+        const auto& recon = NetworkRecon::getNetworks();
+        for (size_t i = 0; i < recon.size(); i++) {
+            const DetectedNetwork& net = recon[i];
+            if (net.channel <= 14) continue;
+
             SpectrumRenderNet tmp = {};
-            tmp.channel = e->channel;
-            tmp.rssi = e->rssi;
-            tmp.authmode = (wifi_auth_mode_t)e->authmode;
+            tmp.channel = net.channel;
+            tmp.rssi = net.rssi;
+            tmp.authmode = net.authmode;
             tmp.hasPMF = true;  // Unknown on 5GHz scan output; don't advertise deauthability.
-            tmp.isHidden = (e->ssid[0] == '\0');
-            if (matchesFilterRender(tmp)) {
-                matchCount++;
-            }
+            tmp.isHidden = net.isHidden || (net.ssid[0] == '\0');
+            if (!matchesFilterRender(tmp)) continue;
+            matchTotal++;
+
+            if (net.rssi < minRssi) continue;
+            float c = channelToFreq(net.channel);
+            bool intersects = (c + SINC_HALF_WIDTH >= viewLeft) && (c - SINC_HALF_WIDTH <= viewRight);
+            if (intersects) matchInView++;
         }
     }
     
@@ -1619,11 +1647,11 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
     switch (filter) {
         case SpectrumFilter::VULN:
             filterName = "VULN";
-            suffix = matchCount == 1 ? "TARGET" : "TARGETS";
+            suffix = matchTotal == 1 ? "TARGET" : "TARGETS";
             break;
         case SpectrumFilter::SOFT:
             filterName = "SOFT";
-            suffix = matchCount == 1 ? "TARGET" : "TARGETS";
+            suffix = matchTotal == 1 ? "TARGET" : "TARGETS";
             break;
         case SpectrumFilter::HIDDEN:
             filterName = "HIDDEN";
@@ -1632,11 +1660,11 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
         case SpectrumFilter::ALL:
         default:
             filterName = "ALL";
-            suffix = matchCount == 1 ? "AP" : "APs";
+            suffix = matchTotal == 1 ? "AP" : "APs";
             break;
     }
     
-    snprintf(buf, sizeof(buf), "[F] %s: %d %s", filterName, matchCount, suffix);
+    snprintf(buf, sizeof(buf), "[F] %s: %d/%d %s", filterName, matchInView, matchTotal, suffix);
     canvas.drawString(buf, 2, XP_BAR_Y);
     
     // Stress test indicator (right side)
@@ -1649,14 +1677,20 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
     }
     // 5GHz availability/count (right side, if no stress test)
     else if (has5GHzScanData()) {
-        uint8_t cnt5 = 0;
-        uint8_t total = MonsterC5::getScanCount();
-        for (uint8_t i = 0; i < total; i++) {
-            const C5ScanEntry* e = MonsterC5::getScanEntry(i);
-            if (e && e->channel > 14) cnt5++;
+        uint16_t cnt5 = 0;
+        {
+            NetworkRecon::CriticalSection lock;
+            const auto& recon = NetworkRecon::getNetworks();
+            for (size_t i = 0; i < recon.size(); i++) {
+                if (recon[i].channel > 14) cnt5++;
+            }
         }
         char c5Buf[16];
-        snprintf(c5Buf, sizeof(c5Buf), "5G:%d", cnt5);
+        if (viewBand == SpectrumBand::BAND_5) {
+            snprintf(c5Buf, sizeof(c5Buf), "R>%d", minRssi);
+        } else {
+            snprintf(c5Buf, sizeof(c5Buf), "5G:%u", (unsigned)cnt5);
+        }
         canvas.setTextDatum(top_right);
         canvas.setTextColor(COLOR_ACCENT);
         canvas.drawString(c5Buf, 238, XP_BAR_Y);
@@ -2084,6 +2118,10 @@ void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
 
     size_t start = 0;
     size_t topLimit = Config::wifi().spectrumTopN;
+    // 5GHz scans are typically sparse; always render all matching entries for stability/clarity.
+    if (viewBand == SpectrumBand::BAND_5) {
+        topLimit = 0;
+    }
     if (topLimit > MAX_SPECTRUM_NETWORKS) topLimit = MAX_SPECTRUM_NETWORKS;
     if (topLimit > 0 && visibleCount > topLimit) {
         start = visibleCount - topLimit;
@@ -2783,6 +2821,10 @@ bool SpectrumMode::matchesFilter(const SpectrumNetwork& net) {
 }
 
 bool SpectrumMode::matchesFilterRender(const SpectrumRenderNet& net) {
+    // 5GHz scan output doesn't expose PMF (SOFT) reliably; don't hide networks.
+    if (viewBand == SpectrumBand::BAND_5 && filter == SpectrumFilter::SOFT) {
+        return true;
+    }
     switch (filter) {
         case SpectrumFilter::VULN:
             return isVulnerable(net.authmode);

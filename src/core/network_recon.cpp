@@ -714,6 +714,16 @@ static void cleanupStaleNetworks() {
         uint32_t timeout = STALE_TIMEOUT_MS;  // 60s default (strong signal)
         if (rssi < -75) timeout = 120000;     // Weak: 2 min
         else if (rssi < -50) timeout = 90000; // Medium: 1.5 min
+        // C5 (5GHz) scans are periodic and can miss a network for a scan or two.
+        // Keep external/C5 networks around longer to avoid flicker in UI.
+        if (networks[i].source == NET_SOURCE_C5) {
+            uint32_t interval = Config::c5().scanIntervalMs;
+            if (interval < 5000u) interval = 30000u;
+            uint64_t scaled = (uint64_t)interval * 10u;  // ~10 scan cycles
+            uint32_t c5Timeout = (scaled > 600000u) ? 600000u : (uint32_t)scaled;  // cap 10 minutes
+            if (c5Timeout < 180000u) c5Timeout = 180000u;  // at least 3 minutes
+            if (timeout < c5Timeout) timeout = c5Timeout;
+        }
         if (now - networks[i].lastSeen > timeout) {
             staleIndices[staleCount++] = i;
         }

@@ -1,9 +1,11 @@
 // MonsterC5 - ESP32-C5 Coprocessor Service (JANUS HOG)
 // UART bridge to JanOS/projectZero running on MonsterC5 board.
-// Non-blocking, zero dynamic allocations, max 128 UART bytes per update().
+// Non-blocking, zero dynamic allocations, UART drained in bounded chunks
+// (idle small; transfer mode larger to avoid RX overflow).
 
 #include "monster_c5.h"
 #include "config.h"
+#include "sd_layout.h"
 #include "xp.h"
 #include "heap_gates.h"
 #include "network_recon.h"
@@ -11,7 +13,10 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../ui/display.h"
+#include <SD.h>
+#include <mbedtls/base64.h>
 #include <string.h>
+#include <ctype.h>
 
 // NOTE: Per user request, JANUS HOG uses SERIAL logging only (no SDLog).
 #define C5_LOGF(fmt, ...) Serial.printf("[C5] " fmt "\n", ##__VA_ARGS__)
@@ -32,6 +37,8 @@ enum class SeqStep : uint8_t {
     ATTACK_MONITORING,  // Parsing progress
     CHANNEL_VIEW_ACTIVE,
     PACKET_MONITOR_ACTIVE,
+    IMPORT_LISTING,     // list_dir in progress (tracking newest .pcap)
+    IMPORT_FILE_GET,    // file_get requested; waiting for start/chunks/end
     DONE
 };
 
@@ -77,6 +84,35 @@ static uint32_t lastRxMs = 0;
 static uint32_t stateEnteredMs = 0;
 static uint32_t seqStepEnteredMs = 0;
 
+// Capabilities probe (best-effort)
+static C5Capabilities caps;
+static bool           capsProbePending = false;
+static bool           capsProbeSent = false;
+static uint32_t       capsProbeSentMs = 0;
+
+// Handshake import (C5 SD -> Porkchop SD) state
+static bool     importPendingAuto = false;
+static uint32_t lastHandshakeCapturedMs = 0;
+static uint8_t  lastHandshakeBssid[6] = {0};
+static char     lastHandshakeSsid[33] = {0};
+
+static bool     xferActive = false;
+static bool     xferAwaitingStart = false;
+static uint32_t xferTotalBytes = 0;
+static uint32_t xferWrittenBytes = 0;
+static uint32_t xferCrc = 0xFFFFFFFFu;
+static uint32_t xferLastProgressMs = 0;
+static File     xferFile;
+static char     xferRemotePath[160] = {0};
+static char     xferLocalPath[96] = {0};
+static uint32_t xferExpectedOffset = 0;
+static bool     reconPausedForImport = false;
+
+// Import listing: track newest handshake .pcap by timestamp suffix.
+static bool     importListingActive = false;
+static uint64_t importBestTimestamp = 0;
+static char     importBestFilename[96] = {0};  // base filename only (no dir)
+
 // Connection lifecycle
 static uint8_t  pingAttempts = 0;
 static uint8_t  errorRetries = 0;
@@ -96,8 +132,11 @@ static constexpr uint32_t ATTACK_TIMEOUT_MS     = 60000;
 static constexpr uint32_t STOP_QUIET_MS         = 500;
 static constexpr uint32_t HEARTBEAT_STALE_MS    = 15000;
 static constexpr uint32_t HEARTBEAT_PROBE_MS    = 3000;
-static constexpr uint8_t  MAX_READ_PER_UPDATE   = 128;
+static constexpr uint16_t MAX_READ_PER_UPDATE_IDLE = 128;
+static constexpr uint16_t MAX_READ_PER_UPDATE_XFER = 768;
 static constexpr uint32_t MAX_ERROR_BACKOFF_MS  = 30000;
+static constexpr uint32_t CAPS_PROBE_TIMEOUT_MS = 1500;
+static constexpr uint32_t XFER_STALL_TIMEOUT_MS = 10000;
 
 // ============================================================================
 // Forward Declarations
@@ -113,6 +152,11 @@ static void advanceSequencer();
 static void injectScanIntoRecon();
 static wifi_auth_mode_t mapAuthString(const char* auth);
 static int findBssidInCache(const uint8_t* bssid);
+static bool sanitizeSsidLikeC5(const char* in, char* out, size_t outLen);
+static bool deriveNamingFromC5Filename(const char* filename, uint8_t outBssid[6], char outSsid[33]);
+static void abortTransfer(const char* reason);
+static bool startTransferForRemotePath(const char* remotePath, const uint8_t bssidForName[6], const char* ssidForName);
+static void sendFileGetForRemotePath(const char* remotePath);
 
 // ============================================================================
 // 5GHz Channel Mapping
@@ -166,6 +210,35 @@ void MonsterC5::init() {
     lineOverflow = false;
     lastScanCompleteMs = 0;
 
+    memset(&caps, 0, sizeof(caps));
+    caps.valid = false;
+    capsProbePending = false;
+    capsProbeSent = false;
+    capsProbeSentMs = 0;
+
+    importPendingAuto = false;
+    lastHandshakeCapturedMs = 0;
+    memset(lastHandshakeBssid, 0, sizeof(lastHandshakeBssid));
+    memset(lastHandshakeSsid, 0, sizeof(lastHandshakeSsid));
+
+    importListingActive = false;
+    importBestTimestamp = 0;
+    memset(importBestFilename, 0, sizeof(importBestFilename));
+
+    xferActive = false;
+    xferAwaitingStart = false;
+    xferTotalBytes = 0;
+    xferWrittenBytes = 0;
+    xferCrc = 0xFFFFFFFFu;
+    xferLastProgressMs = 0;
+    if (xferFile) {
+        xferFile.close();
+    }
+    xferRemotePath[0] = '\0';
+    xferLocalPath[0] = '\0';
+    xferExpectedOffset = 0;
+    reconPausedForImport = false;
+
     if (!Config::c5().enabled) {
         return;
     }
@@ -207,8 +280,9 @@ void MonsterC5::update() {
     uint32_t now = millis();
 
     // --- UART RX: drain bytes into lineBuf, process complete lines ---
-    uint8_t bytesRead = 0;
-    while (Serial1.available() && bytesRead < MAX_READ_PER_UPDATE) {
+    uint16_t bytesRead = 0;
+    uint16_t maxRead = (state == C5State::TRANSFERRING) ? MAX_READ_PER_UPDATE_XFER : MAX_READ_PER_UPDATE_IDLE;
+    while (Serial1.available() && bytesRead < maxRead) {
         char c = (char)Serial1.read();
         bytesRead++;
         lastRxMs = now;
@@ -256,6 +330,37 @@ void MonsterC5::update() {
                     setState(C5State::DISCONNECTED);
                 }
             }
+
+            // Capabilities probe (best-effort, one-shot per connect)
+            if (capsProbePending && !capsProbeSent && currentOp == C5Op::NONE) {
+                sendCommand("pork_caps");
+                capsProbeSent = true;
+                capsProbeSentMs = now;
+            }
+            if (capsProbeSent && !caps.valid && (now - capsProbeSentMs) >= CAPS_PROBE_TIMEOUT_MS) {
+                // No response (older firmware). Keep caps.valid=false and stop probing.
+                capsProbePending = false;
+            }
+
+            // Auto-import: after a 5GHz handshake capture, pull the newest C5 handshake to local SD.
+            if (importPendingAuto && currentOp == C5Op::NONE) {
+                if (caps.valid) {
+                    importPendingAuto = false;  // one-shot
+                    if (caps.hasFileGet) {
+                        (void)requestImportNewestHandshake();
+                    } else {
+                        // Don't spam on older firmware; user can still import manually after flashing.
+                        C5_LOGF("Auto-import skipped (file_get unsupported)");
+                    }
+                } else {
+                    // Caps probe still pending: wait rather than skipping.
+                    if (!capsProbePending && capsProbeSent) {
+                        importPendingAuto = false;
+                        C5_LOGF("Auto-import skipped (caps unknown)");
+                    }
+                }
+            }
+
             // Auto-scan timer: periodic 5GHz network discovery
             {
                 uint16_t interval = Config::c5().scanIntervalMs;
@@ -267,6 +372,19 @@ void MonsterC5::update() {
                     }
                 }
             }
+            break;
+
+        case C5State::TRANSFERRING:
+            // Stall detection: if transfer/listing stops making progress, abort.
+            if ((currentOp == C5Op::IMPORT_HANDSHAKES) &&
+                (xferAwaitingStart || xferActive || importListingActive)) {
+                uint32_t lastProgress = xferLastProgressMs ? xferLastProgressMs : stateEnteredMs;
+                if (now - lastProgress >= XFER_STALL_TIMEOUT_MS) {
+                    abortTransfer("XFER TIMEOUT");
+                    break;
+                }
+            }
+            advanceSequencer();
             break;
 
         case C5State::SCANNING: {
@@ -352,6 +470,9 @@ void MonsterC5::shutdown() {
 
     sendCommand("stop");
     delay(50);
+
+    // If a file transfer is in progress, close handles and remove partial output.
+    abortTransfer(nullptr);
     Serial1.end();
 
     if (gpsPaused) {
@@ -388,7 +509,32 @@ bool MonsterC5::isConnected() {
     return state == C5State::CONNECTED ||
            state == C5State::SCANNING ||
            state == C5State::ATTACKING ||
-           state == C5State::MONITORING;
+           state == C5State::MONITORING ||
+           state == C5State::TRANSFERRING;
+}
+
+bool MonsterC5::isBusy() {
+    return (currentOp != C5Op::NONE) ||
+           (state == C5State::SCANNING) ||
+           (state == C5State::ATTACKING) ||
+           (state == C5State::MONITORING) ||
+           (state == C5State::TRANSFERRING);
+}
+
+bool MonsterC5::isReady() {
+    return (state == C5State::CONNECTED) && (currentOp == C5Op::NONE);
+}
+
+const C5Capabilities& MonsterC5::getCapabilities() {
+    return caps;
+}
+
+bool MonsterC5::getTransferProgress(uint32_t* outBytes, uint32_t* outTotal) {
+    if (!outBytes || !outTotal) return false;
+    if (!xferActive && !xferAwaitingStart) return false;
+    *outBytes = xferWrittenBytes;
+    *outTotal = xferTotalBytes;
+    return true;
 }
 
 // ============================================================================
@@ -397,6 +543,7 @@ bool MonsterC5::isConnected() {
 
 bool MonsterC5::requestScan() {
     if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     scanCountWork = 0;
     scanWork5GHzXpAwarded = false;
@@ -419,6 +566,7 @@ bool MonsterC5::requestScan() {
 
 bool MonsterC5::requestHandshake(const uint8_t* bssid) {
     if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     memcpy(targetBssid, bssid, 6);
     targetC5Index = -1;
@@ -448,6 +596,7 @@ bool MonsterC5::requestHandshake(const uint8_t* bssid) {
 
 bool MonsterC5::requestSaeOverflow(const uint8_t* bssid) {
     if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     memcpy(targetBssid, bssid, 6);
     targetC5Index = -1;
@@ -471,6 +620,7 @@ bool MonsterC5::requestSaeOverflow(const uint8_t* bssid) {
 
 bool MonsterC5::requestChannelView() {
     if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     currentOp = C5Op::CHANNEL_VIEW;
     memset(&channelCounts, 0, sizeof(channelCounts));
@@ -492,6 +642,7 @@ bool MonsterC5::requestChannelView() {
 
 bool MonsterC5::requestPacketMonitor(uint8_t channel) {
     if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     currentOp = C5Op::PACKET_MONITOR;
     setState(C5State::MONITORING);
@@ -505,9 +656,64 @@ bool MonsterC5::requestPacketMonitor(uint8_t channel) {
     return true;
 }
 
+bool MonsterC5::requestImportNewestHandshake() {
+    if (!isConnected()) return false;
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
+
+    // We need a local SD card to store imports.
+    if (!Config::isSDAvailable()) {
+        Display::notify(NoticeKind::STATUS, "NO SD FOR IMPORT", 2000, NoticeChannel::TOP_BAR);
+        return false;
+    }
+
+    // Avoid disrupting an active attack sequence.
+    if (state == C5State::ATTACKING || currentOp == C5Op::HANDSHAKE || currentOp == C5Op::SAE_OVERFLOW) {
+        Display::notify(NoticeKind::STATUS, "C5 BUSY (ATTACK)", 2000, NoticeChannel::TOP_BAR);
+        return false;
+    }
+
+    // If caps are known and file_get is missing, fail fast with a clear hint.
+    if (caps.valid && !caps.hasFileGet) {
+        Display::notify(NoticeKind::STATUS, "C5 FW NO FILE_GET", 2500, NoticeChannel::TOP_BAR);
+        return false;
+    }
+
+    // Reduce CPU pressure during transfer; resume once import completes/aborts.
+    reconPausedForImport = false;
+    if (NetworkRecon::isRunning() && !NetworkRecon::isPaused()) {
+        NetworkRecon::pause();
+        reconPausedForImport = true;
+    }
+
+    // Reset listing state
+    importListingActive = false;
+    importBestTimestamp = 0;
+    importBestFilename[0] = '\0';
+
+    currentOp = C5Op::IMPORT_HANDSHAKES;
+    C5State prevState = state;
+    setState(C5State::TRANSFERRING);
+
+    if (prevState != C5State::CONNECTED) {
+        setSeqStep(SeqStep::STOPPING);
+        sendCommand("stop");
+    } else {
+        setSeqStep(SeqStep::IMPORT_LISTING);
+        importListingActive = true;
+        xferLastProgressMs = millis();
+        sendCommand("list_dir lab/handshakes");
+    }
+
+    C5_LOGF("Import requested (newest handshake)");
+    return true;
+}
+
 void MonsterC5::requestStop() {
     if (state == C5State::OFF || state == C5State::DISCONNECTED) return;
     sendCommand("stop");
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) {
+        abortTransfer("C5 STOP");
+    }
     currentOp = C5Op::NONE;
     seqStep = SeqStep::IDLE;
     parsingChannelView = false;
@@ -544,6 +750,7 @@ void MonsterC5::getStatusString(char* buf, uint8_t len) {
         case C5State::SCANNING:     stateStr = "SCANNING"; break;
         case C5State::ATTACKING:    stateStr = "ATTACKING"; break;
         case C5State::MONITORING:   stateStr = "MONITORING"; break;
+        case C5State::TRANSFERRING: stateStr = "XFER"; break;
         case C5State::ERROR:        stateStr = "ERROR"; break;
     }
     snprintf(buf, len, "C5:%s", stateStr);
@@ -593,6 +800,272 @@ static void setSeqStep(SeqStep step) {
 static void processLine(const char* line) {
     if (!line || line[0] == '\0') return;
 
+    // --- Capabilities probe response ---
+    // Expected (patched) format: pork_caps|proto=<n>|file_get=<0|1>|fw=<tag>
+    if (strncmp(line, "pork_caps|", 10) == 0) {
+        memset(&caps, 0, sizeof(caps));
+        caps.valid = true;
+        caps.hasPorkCaps = true;
+        caps.proto = 0;
+        caps.hasFileGet = false;
+        caps.fw[0] = '\0';
+
+        const char* p = line + 10;
+        while (p && *p) {
+            const char* next = strchr(p, '|');
+            size_t len = next ? (size_t)(next - p) : strlen(p);
+            if (len > 0) {
+                if (len >= 6 && strncmp(p, "proto=", 6) == 0) {
+                    caps.proto = (uint8_t)atoi(p + 6);
+                } else if (len >= 9 && strncmp(p, "file_get=", 9) == 0) {
+                    caps.hasFileGet = atoi(p + 9) != 0;
+                } else if (len >= 3 && strncmp(p, "fw=", 3) == 0) {
+                    size_t copyLen = len - 3;
+                    if (copyLen >= sizeof(caps.fw)) copyLen = sizeof(caps.fw) - 1;
+                    memcpy(caps.fw, p + 3, copyLen);
+                    caps.fw[copyLen] = '\0';
+                }
+            }
+            p = next ? (next + 1) : nullptr;
+        }
+
+        capsProbePending = false;
+        C5_LOGF("Caps: proto=%u file_get=%s fw=%s",
+                (unsigned)caps.proto, caps.hasFileGet ? "yes" : "no", caps.fw[0] ? caps.fw : "?");
+        return;
+    }
+
+    // --- File transfer framing (import) ---
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) {
+        if (seqStep == SeqStep::IMPORT_FILE_GET && xferAwaitingStart) {
+            if (strstr(line, "not found") != nullptr ||
+                strstr(line, "Unknown command") != nullptr ||
+                strstr(line, "Unrecognized") != nullptr) {
+                abortTransfer("NO FILE_GET");
+                return;
+            }
+        }
+
+        // file_get_start|<size>|<path>
+        if (strncmp(line, "file_get_start|", 15) == 0) {
+            const char* p = line + 15;
+            char* endp = nullptr;
+            uint32_t size = (uint32_t)strtoul(p, &endp, 10);
+            if (!endp || *endp != '|') {
+                abortTransfer("BAD START");
+                return;
+            }
+            const char* remotePath = endp + 1;
+
+            xferTotalBytes = size;
+            xferWrittenBytes = 0;
+            xferExpectedOffset = 0;
+            xferCrc = 0xFFFFFFFFu;
+            xferLastProgressMs = millis();
+            xferAwaitingStart = false;
+            xferActive = true;
+
+            // Open local file (truncate by delete+create)
+            if (xferLocalPath[0] == '\0') {
+                // Should have been set when we requested import.
+                abortTransfer("NO LOCAL PATH");
+                return;
+            }
+            if (SD.exists(xferLocalPath)) {
+                SD.remove(xferLocalPath);
+            }
+            xferFile = SD.open(xferLocalPath, FILE_WRITE);
+            if (!xferFile) {
+                abortTransfer("SD OPEN FAIL");
+                return;
+            }
+
+            C5_LOGF("XFER start: %lu bytes from %s", (unsigned long)size, remotePath);
+            return;
+        }
+
+        // file_get_chunk|<offset>|<base64>
+        if (strncmp(line, "file_get_chunk|", 15) == 0) {
+            if (!xferActive || !xferFile) {
+                abortTransfer("CHUNK NOFILE");
+                return;
+            }
+            const char* p = line + 15;
+            char* endp = nullptr;
+            uint32_t offset = (uint32_t)strtoul(p, &endp, 10);
+            if (!endp || *endp != '|') {
+                abortTransfer("BAD CHUNK");
+                return;
+            }
+            const char* b64 = endp + 1;
+
+            if (offset != xferExpectedOffset) {
+                abortTransfer("BAD OFFSET");
+                return;
+            }
+
+            // Decode base64 chunk into stack buffer (chunk size is bounded by firmware).
+            static uint8_t decoded[512];
+            size_t outLen = 0;
+            int rc = mbedtls_base64_decode(decoded, sizeof(decoded), &outLen,
+                                           (const unsigned char*)b64, strlen(b64));
+            if (rc != 0 || outLen == 0) {
+                abortTransfer("B64 FAIL");
+                return;
+            }
+
+            size_t written = xferFile.write(decoded, outLen);
+            if (written != outLen) {
+                abortTransfer("SD WRITE FAIL");
+                return;
+            }
+
+            // CRC32 update (same polynomial as PigSync helper).
+            for (size_t i = 0; i < outLen; i++) {
+                xferCrc ^= decoded[i];
+                for (int j = 0; j < 8; j++) {
+                    xferCrc = (xferCrc >> 1) ^ (0xEDB88320u & (uint32_t)-(int)(xferCrc & 1u));
+                }
+            }
+
+            xferWrittenBytes += (uint32_t)outLen;
+            xferExpectedOffset += (uint32_t)outLen;
+            xferLastProgressMs = millis();
+            return;
+        }
+
+        // file_get_end|<size>|<crc32hex>
+        if (strncmp(line, "file_get_end|", 13) == 0) {
+            uint32_t size = 0;
+            uint32_t remoteCrc = 0;
+            bool hasRemoteCrc = false;
+
+            const char* p = line + 13;
+            char* endp = nullptr;
+            size = (uint32_t)strtoul(p, &endp, 10);
+            if (endp && *endp == '|') {
+                remoteCrc = (uint32_t)strtoul(endp + 1, nullptr, 16);
+                hasRemoteCrc = true;
+            }
+
+            if (xferFile) {
+                xferFile.flush();
+                xferFile.close();
+            }
+
+            uint32_t localCrc = ~xferCrc;
+            bool sizeOk = (xferWrittenBytes == xferTotalBytes) && (size == 0 || xferWrittenBytes == size);
+            bool crcOk = (!hasRemoteCrc) || (remoteCrc == localCrc);
+
+            if (sizeOk && crcOk) {
+                Display::notify(NoticeKind::STATUS, "C5 CAPTURE IMPORTED", 2500, NoticeChannel::TOP_BAR);
+                C5_LOGF("XFER complete: %lu bytes crc32=%08lX", (unsigned long)xferWrittenBytes, (unsigned long)localCrc);
+            } else {
+                C5_LOGF("XFER verify fail: wrote=%lu exp=%lu endSize=%lu crcLocal=%08lX crcRemote=%08lX",
+                        (unsigned long)xferWrittenBytes, (unsigned long)xferTotalBytes, (unsigned long)size,
+                        (unsigned long)localCrc, (unsigned long)remoteCrc);
+                abortTransfer("VERIFY FAIL");
+                return;
+            }
+
+            // Cleanup and return to idle
+            xferActive = false;
+            xferAwaitingStart = false;
+            xferTotalBytes = 0;
+            xferWrittenBytes = 0;
+            xferRemotePath[0] = '\0';
+            xferLocalPath[0] = '\0';
+            importListingActive = false;
+            importBestTimestamp = 0;
+            importBestFilename[0] = '\0';
+
+            currentOp = C5Op::NONE;
+            setSeqStep(SeqStep::IDLE);
+            setState(C5State::CONNECTED);
+            if (reconPausedForImport) {
+                NetworkRecon::resume();
+                reconPausedForImport = false;
+            }
+            return;
+        }
+
+        // file_get_error|<reason>
+        if (strncmp(line, "file_get_error|", 15) == 0) {
+            abortTransfer("REMOTE ERROR");
+            return;
+        }
+
+        // list_dir parsing while importing newest handshake
+        if (seqStep == SeqStep::IMPORT_LISTING && importListingActive) {
+            xferLastProgressMs = millis();
+            if (strncmp(line, "No files found", 13) == 0) {
+                abortTransfer("NO FILES");
+                return;
+            }
+            if (strncmp(line, "Found ", 6) == 0) {
+                // Listing complete; kick off transfer for the newest .pcap we saw.
+                importListingActive = false;
+                if (importBestFilename[0] == '\0') {
+                    abortTransfer("NO PCAPS");
+                    return;
+                }
+
+                // Build remote path: lab/handshakes/<filename>
+                snprintf(xferRemotePath, sizeof(xferRemotePath), "lab/handshakes/%s", importBestFilename);
+
+                // Prefer naming from the most recent captured handshake, otherwise derive from filename.
+                uint8_t bssidForName[6] = {0};
+                char ssidForName[33] = {0};
+                bool haveRecentBssid = (lastHandshakeCapturedMs != 0) && ((millis() - lastHandshakeCapturedMs) <= 120000);
+                if (haveRecentBssid) {
+                    memcpy(bssidForName, lastHandshakeBssid, 6);
+                    strncpy(ssidForName, lastHandshakeSsid, sizeof(ssidForName) - 1);
+                    ssidForName[sizeof(ssidForName) - 1] = '\0';
+                }
+
+                if (!startTransferForRemotePath(xferRemotePath, haveRecentBssid ? bssidForName : nullptr,
+                                                haveRecentBssid ? ssidForName : nullptr)) {
+                    abortTransfer("XFER START FAIL");
+                }
+                return;
+            }
+
+            // Parse file line: "<n> <filename>"
+            if (isdigit((unsigned char)line[0])) {
+                const char* p = line;
+                while (isdigit((unsigned char)*p)) p++;
+                while (*p == ' ') p++;
+                if (*p) {
+                    const char* fname = p;
+                    size_t flen = strlen(fname);
+                    if (flen > 5 && strcmp(fname + flen - 5, ".pcap") == 0) {
+                        // Extract timestamp from suffix: ..._<ts>.pcap
+                        char base[96];
+                        if (flen >= sizeof(base)) flen = sizeof(base) - 1;
+                        memcpy(base, fname, flen);
+                        base[flen] = '\0';
+                        char* dot = strrchr(base, '.');
+                        if (dot) *dot = '\0';
+                        char* lastUnd = strrchr(base, '_');
+                        if (lastUnd && isdigit((unsigned char)lastUnd[1])) {
+                            uint64_t ts = strtoull(lastUnd + 1, nullptr, 10);
+                            if (ts >= importBestTimestamp) {
+                                importBestTimestamp = ts;
+                                strncpy(importBestFilename, fname, sizeof(importBestFilename) - 1);
+                                importBestFilename[sizeof(importBestFilename) - 1] = '\0';
+                            }
+                        } else if (importBestFilename[0] == '\0') {
+                            // Fallback: if filenames don't match the expected pattern, still grab the first .pcap.
+                            importBestTimestamp = 0;
+                            strncpy(importBestFilename, fname, sizeof(importBestFilename) - 1);
+                            importBestFilename[sizeof(importBestFilename) - 1] = '\0';
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // --- Pong (connection handshake) ---
     if (strcmp(line, "pong") == 0) {
         if (state == C5State::DISCONNECTED || state == C5State::ERROR) {
@@ -606,6 +1079,13 @@ static void processLine(const char* line) {
                 c5XpAwarded = true;
             }
             C5_LOGF("Board connected");
+
+            // Reset and probe caps on each (re)connect.
+            memset(&caps, 0, sizeof(caps));
+            caps.valid = false;
+            capsProbePending = true;
+            capsProbeSent = false;
+            capsProbeSentMs = 0;
         }
         return;
     }
@@ -674,6 +1154,22 @@ static void processLine(const char* line) {
     if (strstr(line, "Handshake captured for") != nullptr) {
         hsResult = HandshakeResult::CAPTURED;
         C5_LOGF("Handshake captured: %s", line);
+
+        // Capture metadata for auto-import naming.
+        memcpy(lastHandshakeBssid, targetBssid, 6);
+        lastHandshakeCapturedMs = millis();
+        lastHandshakeSsid[0] = '\0';
+        const char* q1 = strchr(line, '\'');
+        const char* q2 = q1 ? strchr(q1 + 1, '\'') : nullptr;
+        if (q1 && q2 && q2 > q1 + 1) {
+            size_t n = (size_t)(q2 - (q1 + 1));
+            if (n >= sizeof(lastHandshakeSsid)) n = sizeof(lastHandshakeSsid) - 1;
+            memcpy(lastHandshakeSsid, q1 + 1, n);
+            lastHandshakeSsid[n] = '\0';
+        }
+
+        // Schedule import once C5 returns to idle.
+        importPendingAuto = true;
         return;
     }
 
@@ -930,13 +1426,22 @@ static void advanceSequencer() {
                         sendCommand("scan_networks");
                         setState(C5State::SCANNING);
                     }
-                } else if (currentOp == C5Op::CHANNEL_VIEW) {
-                    setSeqStep(SeqStep::CHANNEL_VIEW_ACTIVE);
-                    sendCommand("channel_view");
-                    setState(C5State::MONITORING);
-                }
-            }
-            break;
+                 } else if (currentOp == C5Op::CHANNEL_VIEW) {
+                     setSeqStep(SeqStep::CHANNEL_VIEW_ACTIVE);
+                     sendCommand("channel_view");
+                     setState(C5State::MONITORING);
+                 } else if (currentOp == C5Op::IMPORT_HANDSHAKES) {
+                     // List handshakes on the C5 SD, then pull the newest .pcap.
+                     importListingActive = true;
+                     importBestTimestamp = 0;
+                     importBestFilename[0] = '\0';
+                     xferLastProgressMs = millis();
+                     setSeqStep(SeqStep::IMPORT_LISTING);
+                     sendCommand("list_dir lab/handshakes");
+                     setState(C5State::TRANSFERRING);
+                 }
+             }
+             break;
 
         case SeqStep::SCAN_REQUESTED:
             // Fallback: some JanOS builds don't print (or vary) the "WiFi scan completed" marker.
@@ -991,6 +1496,17 @@ static void advanceSequencer() {
             setSeqStep(SeqStep::ATTACK_MONITORING);
             break;
 
+        case SeqStep::IMPORT_LISTING:
+            // list_dir should be quick; if we see nothing for too long, abort.
+            if (elapsed >= 10000) {
+                abortTransfer("LIST TIMEOUT");
+            }
+            break;
+
+        case SeqStep::IMPORT_FILE_GET:
+            // Waiting for file_get_start/chunks/end. Stall detection is handled in update().
+            break;
+
         default:
             break;
     }
@@ -1026,4 +1542,250 @@ static int findBssidInCache(const uint8_t* bssid) {
         }
     }
     return -1;
+}
+
+// ============================================================================
+// Internal: Handshake Import Helpers
+// ============================================================================
+
+static bool sanitizeSsidLikeC5(const char* in, char* out, size_t outLen) {
+    if (!out || outLen == 0) return false;
+    out[0] = '\0';
+    if (!in || in[0] == '\0') return false;
+
+    size_t j = 0;
+    for (size_t i = 0; i < 32 && in[i] && j < outLen - 1; i++) {
+        char c = in[i];
+        bool ok = (isalnum((unsigned char)c) != 0) || (c == '-') || (c == '_') || (c == '.') || (c == ' ');
+        if (!ok) c = '_';
+        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        out[j++] = c;
+    }
+    // Trim trailing spaces/underscores for stable comparisons
+    while (j > 0 && (out[j - 1] == ' ' || out[j - 1] == '_')) {
+        j--;
+    }
+    out[j] = '\0';
+    return j > 0;
+}
+
+static bool isAllHexN(const char* s, size_t n) {
+    if (!s) return false;
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        bool hex = (c >= '0' && c <= '9') ||
+                   (c >= 'A' && c <= 'F') ||
+                   (c >= 'a' && c <= 'f');
+        if (!hex) return false;
+    }
+    return true;
+}
+
+static uint8_t hexByte(const char* p) {
+    auto nib = [](char c) -> uint8_t {
+        if (c >= '0' && c <= '9') return (uint8_t)(c - '0');
+        if (c >= 'A' && c <= 'F') return (uint8_t)(c - 'A' + 10);
+        if (c >= 'a' && c <= 'f') return (uint8_t)(c - 'a' + 10);
+        return 0;
+    };
+    return (uint8_t)((nib(p[0]) << 4) | nib(p[1]));
+}
+
+static bool deriveNamingFromC5Filename(const char* filename, uint8_t outBssid[6], char outSsid[33]) {
+    if (outBssid) memset(outBssid, 0, 6);
+    if (outSsid) outSsid[0] = '\0';
+    if (!filename || filename[0] == '\0' || !outBssid || !outSsid) return false;
+
+    // Strip directories
+    const char* base = filename;
+    const char* slash = strrchr(filename, '/');
+    if (slash) base = slash + 1;
+    const char* bslash = strrchr(base, '\\');
+    if (bslash) base = bslash + 1;
+
+    size_t blen = strlen(base);
+    if (blen < 10) return false;
+
+    char tmp[96];
+    if (blen >= sizeof(tmp)) blen = sizeof(tmp) - 1;
+    memcpy(tmp, base, blen);
+    tmp[blen] = '\0';
+
+    // Remove extension
+    char* dot = strrchr(tmp, '.');
+    if (!dot) return false;
+    *dot = '\0';
+
+    // Parse ..._<mac6>_<ts>
+    char* u3 = strrchr(tmp, '_');
+    if (!u3 || !u3[1] || !isdigit((unsigned char)u3[1])) return false;
+    *u3 = '\0';
+
+    char* u2 = strrchr(tmp, '_');
+    if (!u2 || strlen(u2 + 1) != 6 || !isAllHexN(u2 + 1, 6)) return false;
+
+    uint8_t suffix[3] = { hexByte(u2 + 1), hexByte(u2 + 3), hexByte(u2 + 5) };
+    *u2 = '\0';
+
+    // SSID portion (already C5-sanitized)
+    strncpy(outSsid, tmp[0] ? tmp : "HIDDEN", 32);
+    outSsid[32] = '\0';
+
+    char ssidSafeWant[33] = {0};
+    sanitizeSsidLikeC5(outSsid, ssidSafeWant, sizeof(ssidSafeWant));
+
+    // Find best match from last scan cache by MAC suffix (+ optional SSID match).
+    int bestIdx = -1;
+    int bestScore = 0;
+    int8_t bestRssi = -127;
+    for (uint8_t i = 0; i < scanCountActive; i++) {
+        const C5ScanEntry& e = scanCacheActive[i];
+        if (e.bssid[3] != suffix[0] || e.bssid[4] != suffix[1] || e.bssid[5] != suffix[2]) {
+            continue;
+        }
+
+        int score = 1;
+        char ssidSafeHave[33] = {0};
+        if (sanitizeSsidLikeC5(e.ssid, ssidSafeHave, sizeof(ssidSafeHave)) &&
+            ssidSafeWant[0] && strcmp(ssidSafeHave, ssidSafeWant) == 0) {
+            score = 2;
+        }
+
+        if (score > bestScore || (score == bestScore && e.rssi > bestRssi)) {
+            bestScore = score;
+            bestIdx = (int)i;
+            bestRssi = e.rssi;
+        }
+    }
+
+    if (bestIdx >= 0) {
+        const C5ScanEntry& e = scanCacheActive[bestIdx];
+        memcpy(outBssid, e.bssid, 6);
+        strncpy(outSsid, e.ssid[0] ? e.ssid : outSsid, 32);
+        outSsid[32] = '\0';
+        return true;
+    }
+
+    // Could not derive full BSSID.
+    return false;
+}
+
+static void abortTransfer(const char* reason) {
+    if (xferFile) {
+        xferFile.close();
+    }
+    // Remove partial file to avoid confusing the captures browser.
+    if (xferLocalPath[0] && SD.exists(xferLocalPath)) {
+        SD.remove(xferLocalPath);
+    }
+
+    xferActive = false;
+    xferAwaitingStart = false;
+    xferTotalBytes = 0;
+    xferWrittenBytes = 0;
+    xferRemotePath[0] = '\0';
+    xferLocalPath[0] = '\0';
+    xferExpectedOffset = 0;
+    importListingActive = false;
+    importBestTimestamp = 0;
+    importBestFilename[0] = '\0';
+
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) {
+        currentOp = C5Op::NONE;
+        setSeqStep(SeqStep::IDLE);
+        if (state != C5State::OFF && state != C5State::DISCONNECTED && state != C5State::ERROR) {
+            setState(C5State::CONNECTED);
+        }
+    }
+
+    if (reconPausedForImport) {
+        NetworkRecon::resume();
+        reconPausedForImport = false;
+    }
+
+    if (reason && reason[0]) {
+        Display::notify(NoticeKind::STATUS, reason, 2000, NoticeChannel::TOP_BAR);
+        C5_LOGF("Import aborted: %s", reason);
+    }
+}
+
+static void sendFileGetForRemotePath(const char* remotePath) {
+    if (!remotePath || remotePath[0] == '\0') return;
+
+    char cmd[220];
+    // Quote the path: C5 filenames may include spaces.
+    snprintf(cmd, sizeof(cmd), "file_get \"%s\"", remotePath);
+    sendCommand(cmd);
+}
+
+static bool startTransferForRemotePath(const char* remotePath, const uint8_t bssidForName[6], const char* ssidForName) {
+    if (!remotePath || remotePath[0] == '\0') return false;
+
+    // Reset any prior transfer state (idempotent).
+    if (xferFile) {
+        xferFile.close();
+    }
+    xferActive = false;
+    xferAwaitingStart = true;
+    xferTotalBytes = 0;
+    xferWrittenBytes = 0;
+    xferCrc = 0xFFFFFFFFu;
+    xferExpectedOffset = 0;
+    xferLastProgressMs = millis();
+
+    strncpy(xferRemotePath, remotePath, sizeof(xferRemotePath) - 1);
+    xferRemotePath[sizeof(xferRemotePath) - 1] = '\0';
+
+    const char* dir = SDLayout::handshakesDir();
+    if (!SD.exists(dir)) {
+        if (!SD.mkdir(dir)) {
+            Display::notify(NoticeKind::STATUS, "IMPORT: MKDIR FAIL", 2500, NoticeChannel::TOP_BAR);
+            return false;
+        }
+    }
+
+    uint8_t bssid[6] = {0};
+    char ssid[33] = {0};
+    bool haveName = false;
+
+    if (bssidForName != nullptr) {
+        bool nonZero = false;
+        for (int i = 0; i < 6; i++) nonZero |= (bssidForName[i] != 0);
+        if (nonZero) {
+            memcpy(bssid, bssidForName, 6);
+            if (ssidForName && ssidForName[0]) {
+                strncpy(ssid, ssidForName, 32);
+                ssid[32] = '\0';
+            }
+            haveName = true;
+        }
+    }
+
+    if (!haveName) {
+        // Derive from the C5 filename format if possible.
+        haveName = deriveNamingFromC5Filename(remotePath, bssid, ssid);
+    }
+
+    if (haveName) {
+        SDLayout::buildCaptureFilename(xferLocalPath, sizeof(xferLocalPath),
+                                       dir, ssid, bssid, ".pcap");
+    } else {
+        // Fallback: preserve remote base filename (captures menu will still show it, but without BSSID parsing).
+        const char* base = remotePath;
+        const char* slash = strrchr(remotePath, '/');
+        if (slash) base = slash + 1;
+        size_t blen = strlen(base);
+        if (blen > 70) blen = 70;
+        char localBase[80];
+        memcpy(localBase, base, blen);
+        localBase[blen] = '\0';
+        snprintf(xferLocalPath, sizeof(xferLocalPath), "%s/%s", dir, localBase);
+    }
+
+    setSeqStep(SeqStep::IMPORT_FILE_GET);
+    setState(C5State::TRANSFERRING);
+
+    Display::notify(NoticeKind::STATUS, "IMPORTING FROM C5...", 1500, NoticeChannel::TOP_BAR);
+    sendFileGetForRemotePath(remotePath);
+    return true;
 }

@@ -1015,6 +1015,15 @@ void Porkchop::updateMode() {
                     Display::notify(NoticeKind::STATUS, "CH VIEW STARTED", 1500, NoticeChannel::TOP_BAR);
                 }
             }
+            else if (M5Cardputer.Keyboard.isKeyPressed('i')) {
+                if (MonsterC5::isConnected()) {
+                    if (MonsterC5::requestImportNewestHandshake()) {
+                        Display::notify(NoticeKind::STATUS, "IMPORT STARTED", 1500, NoticeChannel::TOP_BAR);
+                    }
+                } else {
+                    Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            }
             else if (M5Cardputer.Keyboard.isKeyPressed('x')) {
                 MonsterC5::requestStop();
                 Display::notify(NoticeKind::STATUS, "C5 STOP", 1000, NoticeChannel::TOP_BAR);

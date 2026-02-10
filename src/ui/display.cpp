@@ -429,13 +429,34 @@ void Display::update() {
                     mainCanvas.drawString("ATTACKING TARGET...", 4, y);
                     mainCanvas.setTextColor(COLOR_FG);
                     y += 10;
-                } else if (c5st == C5State::MONITORING) {
-                    mainCanvas.drawString("MONITORING...", 4, y);
-                    y += 10;
-                } else {
-                    mainCanvas.drawString("[S]CAN [C]HANVIEW [X]STOP", 4, y);
-                    y += 10;
-                }
+                 } else if (c5st == C5State::TRANSFERRING || op == C5Op::IMPORT_HANDSHAKES) {
+                      mainCanvas.setTextColor(COLOR_ACCENT);
+                      mainCanvas.drawString("IMPORTING FROM C5...", 4, y);
+                      mainCanvas.setTextColor(COLOR_FG);
+                      y += 10;
+
+                      uint32_t done = 0, total = 0;
+                      if (MonsterC5::getTransferProgress(&done, &total) && total > 0) {
+                          char prog[40];
+                          int pct = (int)((done * 100UL) / total);
+                          snprintf(prog, sizeof(prog), "PROGRESS: %d%% (%lu/%lu)", pct,
+                                   (unsigned long)done, (unsigned long)total);
+                          mainCanvas.drawString(prog, 4, y);
+                      } else {
+                          mainCanvas.drawString("PROGRESS: ...", 4, y);
+                      }
+                      y += 10;
+                 } else if (c5st == C5State::MONITORING) {
+                      mainCanvas.drawString("MONITORING...", 4, y);
+                      y += 10;
+                  } else {
+                      mainCanvas.drawString("[S]SCAN  [C]CHVIEW", 4, y);
+                      y += 10;
+                      mainCanvas.drawString("[I]IMPORT  [X]STOP", 4, y);
+                      y += 10;
+                      mainCanvas.drawString("[;]EXIT", 4, y);
+                      y += 10;
+                  }
 
                 uint8_t sc = MonsterC5::getScanCount();
                 uint8_t cnt5 = 0;

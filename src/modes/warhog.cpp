@@ -14,6 +14,7 @@
 #include "../core/heap_policy.h"
 #include "../core/heap_health.h"
 #include "../core/network_recon.h"
+#include "../core/monster_c5.h"
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
 #include "../core/sd_layout.h"
@@ -368,6 +369,7 @@ void WarhogMode::update() {
     static uint32_t lastPhraseTime = 0;
     static bool lastGPSState = false;
     static uint32_t lastHeapCheck = 0;
+    static uint32_t lastC5ScanReqMs = 0;
     
     // Periodic heap monitoring (every 30 seconds)
     if (now - lastHeapCheck >= 30000) {
@@ -431,6 +433,13 @@ void WarhogMode::update() {
     
     // Start new scan if interval elapsed and not already scanning
     if (now - lastScanTime >= scanInterval) {
+        // Best-effort: keep C5 scan data fresh for dual-band logging.
+        if (MonsterC5::isConnected() && MonsterC5::isReady()) {
+            if (lastC5ScanReqMs == 0 || (now - lastC5ScanReqMs) >= 30000) {
+                (void)MonsterC5::requestScan();
+                lastC5ScanReqMs = now;
+            }
+        }
         performScan();
         lastScanTime = now;
     }
@@ -768,6 +777,98 @@ void WarhogMode::processScanResults() {
             }
         }
     }
+
+    // --- Dual-band add-on: 5GHz networks from MonsterC5 (injected into recon) ---
+    if (MonsterC5::isConnected()) {
+        struct C5Net {
+            uint8_t bssid[6];
+            char ssid[33];
+            int8_t rssi;
+            uint8_t channel;
+            wifi_auth_mode_t authmode;
+        };
+
+        static C5Net c5nets[64]; // bounded snapshot, avoids holding recon lock during SD writes
+        uint8_t c5count = 0;
+
+        uint32_t nowMs = millis();
+        NetworkRecon::enterCritical();
+        for (const auto& net : NetworkRecon::getNetworks()) {
+            if (net.source != NET_SOURCE_C5) continue;
+            if (net.channel <= 14 || net.channel > 165) continue;
+            // Keep wardrive output "live" even if UI keeps C5 nets longer.
+            if (nowMs - net.lastSeen > 120000) continue;
+            if (c5count >= (uint8_t)(sizeof(c5nets) / sizeof(c5nets[0]))) break;
+
+            memcpy(c5nets[c5count].bssid, net.bssid, 6);
+            strncpy(c5nets[c5count].ssid, net.ssid, 32);
+            c5nets[c5count].ssid[32] = '\0';
+            c5nets[c5count].rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
+            c5nets[c5count].channel = net.channel;
+            c5nets[c5count].authmode = net.authmode;
+            c5count++;
+        }
+        NetworkRecon::exitCritical();
+
+        for (uint8_t i = 0; i < c5count; i++) {
+            const C5Net& cn = c5nets[i];
+            uint64_t bssidKey = bssidToKey(cn.bssid);
+
+            if (bloomTest(seenBloom, SEEN_BLOOM_MASK, SEEN_BLOOM_HASHES, bssidKey)) {
+                continue;
+            }
+
+            bloomAdd(seenBloom, SEEN_BLOOM_MASK, SEEN_BLOOM_HASHES, bssidKey);
+            bountySeenTotal++;
+            if (bountyPoolCount < BOUNTY_POOL_SIZE) {
+                bountyPool[bountyPoolCount++] = bssidKey;
+            } else {
+                uint32_t pick = esp_random() % bountySeenTotal;
+                if (pick < BOUNTY_POOL_SIZE) {
+                    bountyPool[pick] = bssidKey;
+                }
+            }
+
+            // Basic validation (mirror local scan guards)
+            if (cn.channel == 0 || cn.channel > 165) continue;
+
+            totalNetworks++;
+            newThisScan++;
+
+            switch (cn.authmode) {
+                case WIFI_AUTH_OPEN:
+                    openNetworks++;
+                    XP::addXP(XPEvent::NETWORK_OPEN);
+                    break;
+                case WIFI_AUTH_WEP:
+                    wepNetworks++;
+                    XP::addXP(XPEvent::NETWORK_WEP);
+                    break;
+                case WIFI_AUTH_WPA3_PSK:
+                case WIFI_AUTH_WPA2_WPA3_PSK:
+                    wpaNetworks++;
+                    XP::addXP(XPEvent::NETWORK_WPA3);
+                    break;
+                default:
+                    wpaNetworks++;
+                    XP::addXP(XPEvent::NETWORK_FOUND);
+                    break;
+            }
+
+            if (Config::isSDAvailable() && hasGPS) {
+                appendCSVEntry(cn.bssid, cn.ssid, cn.rssi, cn.channel, cn.authmode,
+                               gpsData.latitude, gpsData.longitude, gpsData.altitude);
+
+                double accuracy = gpsData.hdop > 0 ? gpsData.hdop * 5.0 : 10.0;
+                appendWigleEntry(cn.bssid, cn.ssid, cn.rssi, cn.channel, cn.authmode,
+                                 gpsData.latitude, gpsData.longitude, gpsData.altitude, accuracy);
+
+                savedCount++;
+                geotaggedThisScan++;
+                XP::addXP(XPEvent::WARHOG_LOGGED);
+            }
+        }
+    }
     
     // Trigger mood update if we found new networks
     if (newThisScan > 0) {
@@ -880,4 +981,3 @@ void WarhogMode::generateFilename(char* buf, size_t bufSize, const char* ext) {
                 millis(), (uint16_t)esp_random(), ext);
     }
 }
-

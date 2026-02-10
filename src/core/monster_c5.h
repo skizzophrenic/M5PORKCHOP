@@ -16,6 +16,7 @@ enum class C5State : uint8_t {
     SCANNING,       // scan_networks in progress
     ATTACKING,      // handshake/sae/deauth running on C5
     MONITORING,     // channel_view or packet_monitor running
+    TRANSFERRING,   // SD file transfer (handshake import)
     ERROR           // Backoff retry (exponential: 5/10/20/30s)
 };
 
@@ -27,7 +28,8 @@ enum class C5Op : uint8_t {
     CHANNEL_VIEW,
     PACKET_MONITOR,
     SNIFFER_DOG,
-    BLACKOUT
+    BLACKOUT,
+    IMPORT_HANDSHAKES
 };
 
 enum class HandshakeResult : uint8_t {
@@ -54,6 +56,16 @@ struct C5ChannelCounts {
     bool valid;
 };
 
+// Capabilities/version probe result for the connected C5 firmware.
+// Filled opportunistically; valid=false means "unknown" (assume minimal feature set).
+struct C5Capabilities {
+    bool    valid;
+    bool    hasPorkCaps;    // responds to pork_caps
+    bool    hasFileGet;     // supports file_get (base64 framed)
+    uint8_t proto;          // protocol version for pork_caps/file_get framing
+    char    fw[24];         // short firmware identifier/tag (best-effort)
+};
+
 namespace MonsterC5 {
 
 // ============================================================================
@@ -73,6 +85,10 @@ C5State getState();
 C5Op    getCurrentOp();
 bool    isConnected();  // CONNECTED or any active state
 bool    isEnabled();    // Config::c5().enabled
+bool    isBusy();       // Any active op (scan/attack/monitor/transfer)
+bool    isReady();      // CONNECTED + not busy (safe for new commands)
+const C5Capabilities& getCapabilities();
+bool    getTransferProgress(uint32_t* outBytes, uint32_t* outTotal);
 
 // ============================================================================
 // Active Commands (called by modes)
@@ -83,6 +99,7 @@ bool requestHandshake(const uint8_t* bssid);    // Full sequence: stop->scan->se
 bool requestSaeOverflow(const uint8_t* bssid);
 bool requestChannelView();                      // Continuous channel utilization
 bool requestPacketMonitor(uint8_t channel);     // PPS on specific channel
+bool requestImportNewestHandshake();            // Pull newest C5 /sdcard/lab/handshakes/*.pcap to Porkchop SD
 void requestStop();                             // Stop current C5 operation
 
 // ============================================================================
