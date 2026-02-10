@@ -34,6 +34,7 @@ MLConfig Config::mlConfig;
 WiFiConfig Config::wifiConfig;
 BLEConfig Config::bleConfig;
 PersonalityConfig Config::personalityConfig;
+C5Config Config::c5Config;
 bool Config::initialized = false;
 static bool sdAvailable = false;
 
@@ -96,10 +97,18 @@ struct __attribute__((packed)) ConfigBlob {
     float    mlVulnScorerThreshold;
     uint8_t  mlAutoUpdate;
     char     mlUpdateUrl[128];
+
+    // C5 (MonsterC5 coprocessor)
+    uint8_t  c5Enabled;
+    uint32_t c5BaudRate;
+    uint16_t c5ScanIntervalMs;
+    uint8_t  c5UartTxPin;
+    uint8_t  c5UartRxPin;
 };
 
 static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& wifi,
-                          const BLEConfig& ble, const MLConfig& ml) {
+                          const BLEConfig& ble, const MLConfig& ml,
+                          const C5Config& c5 = C5Config()) {
     memset(&b, 0, sizeof(b));
     b.magic    = CONFIG_MAGIC;
     b.version  = CONFIG_VERSION;
@@ -144,6 +153,12 @@ static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& 
     b.mlVulnScorerThreshold  = ml.vulnScorerThreshold;
     b.mlAutoUpdate           = ml.autoUpdate ? 1 : 0;
     strncpy(b.mlUpdateUrl, ml.updateUrl, sizeof(b.mlUpdateUrl) - 1);
+
+    b.c5Enabled        = c5.enabled ? 1 : 0;
+    b.c5BaudRate       = c5.baudRate;
+    b.c5ScanIntervalMs = c5.scanIntervalMs;
+    b.c5UartTxPin      = c5.uartTxPin;
+    b.c5UartRxPin      = c5.uartRxPin;
 }
 
 static bool writeBlobTo(fs::FS& fs, const char* path, const ConfigBlob& b) {
@@ -177,7 +192,7 @@ static bool readBlobFrom(fs::FS& fs, const char* path, ConfigBlob& b) {
 }
 
 static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
-                         BLEConfig& ble, MLConfig& ml) {
+                         BLEConfig& ble, MLConfig& ml, C5Config& c5) {
     gps.enabled        = b.gpsEnabled != 0;
     gps.source         = static_cast<GPSSource>(b.gpsSource);
     gps.rxPin          = b.gpsRxPin;
@@ -231,6 +246,13 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     ml.autoUpdate           = b.mlAutoUpdate != 0;
     strncpy(ml.updateUrl, b.mlUpdateUrl, sizeof(ml.updateUrl) - 1);
     ml.updateUrl[sizeof(ml.updateUrl) - 1] = '\0';
+
+    // C5 config (graceful default if blob predates C5 fields)
+    c5.enabled        = b.c5Enabled != 0;
+    c5.baudRate       = b.c5BaudRate > 0 ? b.c5BaudRate : 115200;
+    c5.scanIntervalMs = b.c5ScanIntervalMs > 0 ? b.c5ScanIntervalMs : 30000;
+    c5.uartTxPin      = b.c5UartTxPin > 0 ? b.c5UartTxPin : 2;
+    c5.uartRxPin      = b.c5UartRxPin > 0 ? b.c5UartRxPin : 1;
 }
 
 static uint16_t clampU16(uint32_t value, uint16_t minVal, uint16_t maxVal) {
@@ -611,7 +633,7 @@ bool Config::load() {
 
     // 1. Try binary from SD (current layout path)
     if (sdAvailable && readBlobFrom((fs::FS&)SD, configBinPathSD(), blob)) {
-        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
         Serial.println("[CONFIG] Loaded binary from SD");
         // Mirror to SPIFFS
@@ -622,7 +644,7 @@ bool Config::load() {
     // 1b. Try legacy binary path on SD (migration may not have moved porkchop.dat)
     if (sdAvailable && SDLayout::usingNewLayout()) {
         if (readBlobFrom((fs::FS&)SD, "/porkchop.dat", blob)) {
-            extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+            extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
             sanitizeWiFiConfig(wifiConfig);
             Serial.println("[CONFIG] Loaded binary from legacy SD path, migrating...");
             // Move to new location and mirror to SPIFFS
@@ -636,7 +658,7 @@ bool Config::load() {
 
     // 2. Try binary from SPIFFS
     if (readBlobFrom((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob)) {
-        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
         Serial.println("[CONFIG] Loaded binary from SPIFFS");
         return true;
@@ -761,7 +783,7 @@ void Config::savePersonalityToSPIFFS() {
 
 bool Config::save() {
     ConfigBlob blob;
-    populateBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+    populateBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
 
     Serial.printf("[CONFIG] save(): sdAvail=%d, wpaKey=%s, wigle=%s\n",
                   sdAvailable,
@@ -786,6 +808,7 @@ bool Config::createDefaultConfig() {
     wifiConfig = WiFiConfig();
     sanitizeWiFiConfig(wifiConfig);
     bleConfig = BLEConfig();
+    c5Config = C5Config();
     return true;
 }
 
@@ -827,6 +850,11 @@ void Config::setBLE(const BLEConfig& cfg) {
 void Config::setPersonality(const PersonalityConfig& cfg) {
     personalityConfig = cfg;
     savePersonalityToSPIFFS();
+}
+
+void Config::setC5(const C5Config& cfg) {
+    c5Config = cfg;
+    save();
 }
 
 bool Config::loadWpaSecKeyFromFile() {

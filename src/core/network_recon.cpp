@@ -1102,6 +1102,52 @@ void setNewNetworkCallback(NewNetworkCallback callback) {
     newNetworkCallback = callback;
 }
 
+void injectExternal(const uint8_t* bssid, const char* ssid, int8_t rssi,
+                    uint8_t channel, wifi_auth_mode_t authmode, uint8_t source) {
+    if (!initialized) return;
+
+    taskENTER_CRITICAL(&vectorMux);
+
+    // Check for existing network by BSSID
+    bool found = false;
+    for (auto& net : networks) {
+        if (memcmp(net.bssid, bssid, 6) == 0) {
+            // Update existing
+            net.rssi = rssi;
+            net.lastSeen = millis();
+            net.channel = channel;
+            net.authmode = authmode;
+            net.source = source;
+            if (ssid && ssid[0] && !net.ssid[0]) {
+                strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+                net.ssid[sizeof(net.ssid) - 1] = '\0';
+            }
+            found = true;
+            break;
+        }
+    }
+
+    if (!found && networks.size() < MAX_RECON_NETWORKS) {
+        DetectedNetwork net = {};
+        memcpy(net.bssid, bssid, 6);
+        if (ssid) {
+            strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+            net.ssid[sizeof(net.ssid) - 1] = '\0';
+        }
+        net.rssi = rssi;
+        net.rssiAvg = rssi;
+        net.channel = channel;
+        net.authmode = authmode;
+        net.source = source;
+        net.firstSeen = millis();
+        net.lastSeen = millis();
+        net.isHidden = (!ssid || ssid[0] == '\0');
+        networks.push_back(net);
+    }
+
+    taskEXIT_CRITICAL(&vectorMux);
+}
+
 void enterCritical() {
     taskENTER_CRITICAL(&vectorMux);
 }

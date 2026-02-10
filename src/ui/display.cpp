@@ -42,6 +42,7 @@
 #include "bounty_status_menu.h"
 #include "sd_format_menu.h"
 #include "../core/heap_health.h"
+#include "../core/monster_c5.h"
 
 // Theme color getters - read from config
 // Theme definitions
@@ -395,6 +396,74 @@ void Display::update() {
         case PorkchopMode::BACON_MODE:
             BaconMode::draw(mainCanvas);
             break;
+        case PorkchopMode::MONSTER_C5_MODE:
+        {
+            mainCanvas.fillSprite(COLOR_BG);
+            mainCanvas.setTextSize(1);
+            mainCanvas.setTextColor(COLOR_FG);
+            mainCanvas.setTextDatum(top_left);
+
+            char c5status[24];
+            MonsterC5::getStatusString(c5status, sizeof(c5status));
+            mainCanvas.drawString(c5status, 4, 2);
+
+            C5State c5st = MonsterC5::getState();
+            int y = 14;
+
+            if (c5st == C5State::OFF) {
+                mainCanvas.drawString("JANUS HOG OFFLINE", 4, y);
+                mainCanvas.drawString("Enable in Settings", 4, y + 12);
+            } else if (c5st == C5State::DISCONNECTED) {
+                mainCanvas.drawString("Searching for C5...", 4, y);
+            } else if (c5st == C5State::ERROR) {
+                mainCanvas.drawString("ERROR - Retrying...", 4, y);
+            } else {
+                // CONNECTED / SCANNING / ATTACKING / MONITORING
+                uint8_t sc = MonsterC5::getScanCount();
+                uint8_t cnt5 = 0;
+                for (uint8_t i = 0; i < sc; i++) {
+                    const C5ScanEntry* e = MonsterC5::getScanEntry(i);
+                    if (e && e->channel > 14) cnt5++;
+                }
+                char scanBuf[32];
+                snprintf(scanBuf, sizeof(scanBuf), "Networks: %d (5G:%d)", sc, cnt5);
+                mainCanvas.drawString(scanBuf, 4, y);
+
+                y += 12;
+                mainCanvas.drawString("-- 5GHz TARGETS --", 4, y);
+                y += 10;
+                uint8_t shown = 0;
+                for (uint8_t i = 0; i < sc && shown < 6; i++) {
+                    const C5ScanEntry* e = MonsterC5::getScanEntry(i);
+                    if (!e || e->channel <= 14) continue;
+                    char line[42];
+                    snprintf(line, sizeof(line), "ch%-3d %ddBm %.14s",
+                             e->channel, e->rssi, e->ssid);
+                    mainCanvas.drawString(line, 4, y);
+                    y += 10;
+                    shown++;
+                }
+                if (shown == 0) {
+                    mainCanvas.drawString("(no 5GHz yet)", 4, y);
+                }
+
+                if (c5st == C5State::ATTACKING) {
+                    mainCanvas.setTextColor(COLOR_WARNING);
+                    mainCanvas.drawString("ATTACKING TARGET...", 4, 90);
+                } else if (c5st == C5State::MONITORING) {
+                    const C5ChannelCounts& cc = MonsterC5::getChannelCounts();
+                    if (cc.valid) {
+                        uint16_t total5 = 0;
+                        for (int i = 0; i < 25; i++) total5 += cc.ch5[i];
+                        char monBuf[32];
+                        snprintf(monBuf, sizeof(monBuf), "5GHz APs: %d", total5);
+                        mainCanvas.setTextColor(COLOR_ACCENT);
+                        mainCanvas.drawString(monBuf, 4, 90);
+                    }
+                }
+            }
+            break;
+        }
         case PorkchopMode::SD_FORMAT:
             SdFormatMenu::draw(mainCanvas);
             break;
@@ -629,6 +698,14 @@ void Display::drawTopBar() {
             snprintf(modeBuf, sizeof(modeBuf), "BACON");
             modeColor = COLOR_ACCENT;
             break;
+        case PorkchopMode::MONSTER_C5_MODE:
+        {
+            char c5label[20];
+            MonsterC5::getStatusString(c5label, sizeof(c5label));
+            snprintf(modeBuf, sizeof(modeBuf), "JANUS %s", c5label);
+            modeColor = MonsterC5::isConnected() ? COLOR_SUCCESS : COLOR_WARNING;
+            break;
+        }
         case PorkchopMode::SD_FORMAT:
             snprintf(modeBuf, sizeof(modeBuf), "SD FORMAT");
             modeColor = COLOR_WARNING;

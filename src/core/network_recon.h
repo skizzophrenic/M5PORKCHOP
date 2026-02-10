@@ -221,6 +221,24 @@ using NewNetworkCallback = void(*)(wifi_auth_mode_t authmode, bool isHidden,
 void setNewNetworkCallback(NewNetworkCallback callback);
 
 // ============================================================================
+// External Network Injection (MonsterC5 / JANUS HOG)
+// ============================================================================
+
+/**
+ * @brief Inject a network from an external source (e.g. MonsterC5 5GHz scan)
+ * Deduplicates by BSSID — updates existing entry if found, adds new if not.
+ * Thread-safe: acquires internal mutex.
+ * @param bssid 6-byte BSSID
+ * @param ssid Null-terminated SSID string
+ * @param rssi Signal strength (dBm)
+ * @param channel WiFi channel (1-14 for 2.4GHz, 36-165 for 5GHz)
+ * @param authmode WiFi authentication mode
+ * @param source NET_SOURCE_LOCAL=0, NET_SOURCE_C5=1
+ */
+void injectExternal(const uint8_t* bssid, const char* ssid, int8_t rssi,
+                    uint8_t channel, wifi_auth_mode_t authmode, uint8_t source);
+
+// ============================================================================
 // Thread Safety
 // ============================================================================
 

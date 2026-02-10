@@ -91,7 +91,11 @@ static const uint16_t XP_VALUES[] = {
     150,    // DNH_PMKID_GHOST (buffed: very rare passive!)
     5,      // BOAR_BRO_ADDED
     15,     // BOAR_BRO_MERCY - mid-attack exclusion
-    15      // SMOKED_BACON - rare upload bonus
+    15,     // SMOKED_BACON - rare upload bonus
+    // C5Lab / JanOS / JANUS HOG (v0.1.9+)
+    2,      // SAE_COMMIT_SENT - SAE flood burst
+    25,     // C5_CONNECTED - MonsterC5 board detected
+    5       // C5_5GHZ_FOUND - 5GHz network via C5
 };
 
 // 10 class names (every 5 levels)

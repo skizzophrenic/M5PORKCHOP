@@ -29,6 +29,7 @@ enum class PorkchopMode : uint8_t {
     PIGSYNC_DEVICE_SELECT, // PigSync device selection
     PIGSYNC_CALL, // PigSync active call
     BACON_MODE,     // Hide and seek beacon broadcaster
+    MONSTER_C5_MODE, // MonsterC5 UART coprocessor status (JANUS HOG)
     SD_FORMAT,      // SD card format utility
     CHARGING        // Low power charging mode
 };

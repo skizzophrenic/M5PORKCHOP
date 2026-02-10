@@ -39,6 +39,9 @@ struct DetectedNetwork {
     uint32_t cooldownUntil;    // millis() until eligible for auto-target
     uint64_t clientBitset;     // Approximate unique client tracker (bits 0-63)
     uint64_t clientBitsetHigh; // Extended client tracker (bits 64-127)
+    uint8_t source;            // NET_SOURCE_LOCAL=0, NET_SOURCE_C5=1 (JANUS HOG)
+
+    bool is5GHz() const { return channel > 14; }
 };
 
 // Frame storage for PCAP export - stores full 802.11 frame with headers

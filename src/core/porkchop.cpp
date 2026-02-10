@@ -25,6 +25,7 @@
 #include "../modes/spectrum.h"
 #include "../modes/pigsync_client.h"
 #include "../modes/bacon.h"
+#include "monster_c5.h"
 #include "../modes/charging.h"
 #include "../web/fileserver.h"
 #include "../audio/sfx.h"
@@ -64,6 +65,7 @@ static const char* modeToString(PorkchopMode mode) {
         case PorkchopMode::BOUNTY_STATUS: return "BOUNTY_STATUS";
         case PorkchopMode::PIGSYNC_DEVICE_SELECT: return "PIGSYNC_DEVICE_SELECT";
         case PorkchopMode::BACON_MODE: return "BACON";
+        case PorkchopMode::MONSTER_C5_MODE: return "MONSTER_C5";
         case PorkchopMode::SD_FORMAT: return "SD_FORMAT";
         case PorkchopMode::CHARGING: return "CHARGING";
         case PorkchopMode::ABOUT: return "ABOUT";
@@ -226,6 +228,7 @@ void Porkchop::init() {
             case 19: setMode(PorkchopMode::DIAGNOSTICS); break;
             case 20: setMode(PorkchopMode::SD_FORMAT); break;
             case 21: setMode(PorkchopMode::CHARGING); break;
+            case 22: setMode(PorkchopMode::MONSTER_C5_MODE); break;
         }
     });
 
@@ -413,6 +416,9 @@ void Porkchop::setMode(PorkchopMode mode) {
         case PorkchopMode::BACON_MODE:
             BaconMode::stop();
             break;
+        case PorkchopMode::MONSTER_C5_MODE:
+            // Thin viewer mode — nothing to stop (service runs independently)
+            break;
         case PorkchopMode::CHARGING:
             ChargingMode::stop();
             break;
@@ -521,6 +527,13 @@ void Porkchop::setMode(PorkchopMode mode) {
             SDLog::log("PORK", "Mode: BACON");
             BaconMode::init();
             BaconMode::start();
+            break;
+        case PorkchopMode::MONSTER_C5_MODE:
+            Avatar::setState(AvatarState::EXCITED);
+            SDLog::log("PORK", "Mode: MONSTER_C5");
+            if (!MonsterC5::isConnected()) {
+                Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 2000, NoticeChannel::TOP_BAR);
+            }
             break;
         case PorkchopMode::ABOUT:
             Display::resetAboutState();
@@ -969,6 +982,10 @@ void Porkchop::updateMode() {
                 // User exited, go back to menu
                 setMode(PorkchopMode::MENU);
             }
+            break;
+        case PorkchopMode::MONSTER_C5_MODE:
+            // Thin viewer — MonsterC5::update() runs in main.cpp loop()
+            // ESC exits globally back to IDLE
             break;
         case PorkchopMode::CHARGING:
             ChargingMode::update();

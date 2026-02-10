@@ -23,6 +23,7 @@
 #include <cmath>
 #include <ctype.h>
 #include <string.h>
+#include "../core/monster_c5.h"
 
 // Layout constants - spectrum + waterfall + channel labels + status bar
 const int SPECTRUM_LEFT = 20;       // Space for dB labels
@@ -315,7 +316,12 @@ void SpectrumMode::start() {
     running = true;
     lastUpdateTime = millis();
     startTime = millis();
-    
+
+    // Request 5GHz channel utilization from C5 if available
+    if (MonsterC5::isConnected()) {
+        MonsterC5::requestChannelView();
+    }
+
     Display::setWiFiStatus(true);
     Serial.printf("[SPECTRUM] Running - %d networks from recon\n", NetworkRecon::getNetworkCount());
 }
@@ -342,9 +348,14 @@ void SpectrumMode::stop() {
     // Clear spectrum-specific sweep override
     NetworkRecon::clearHopIntervalOverride();
     
+    // Stop C5 channel view if we started it
+    if (MonsterC5::getCurrentOp() == C5Op::CHANNEL_VIEW) {
+        MonsterC5::requestStop();
+    }
+
     running = false;
     Display::setWiFiStatus(false);
-    
+
     // FIX: Release vector capacity to recover heap
     networks.clear();
     networks.shrink_to_fit();
@@ -1038,6 +1049,23 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
         canvas.setTextDatum(top_right);
         canvas.drawString(stressBuf, 238, XP_BAR_Y);
         canvas.setTextDatum(top_left);
+    }
+    // 5GHz indicator from MonsterC5 channel_view (right side, if no stress test)
+    else {
+        const C5ChannelCounts& cc = MonsterC5::getChannelCounts();
+        if (cc.valid) {
+            uint16_t total5 = 0;
+            for (int i = 0; i < 25; i++) total5 += cc.ch5[i];
+            if (total5 > 0) {
+                char c5Buf[16];
+                snprintf(c5Buf, sizeof(c5Buf), "5G:%d", total5);
+                canvas.setTextDatum(top_right);
+                canvas.setTextColor(COLOR_ACCENT);
+                canvas.drawString(c5Buf, 238, XP_BAR_Y);
+                canvas.setTextDatum(top_left);
+                canvas.setTextColor(COLOR_FG);
+            }
+        }
     }
 }
 

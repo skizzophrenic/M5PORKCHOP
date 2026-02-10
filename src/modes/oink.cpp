@@ -25,6 +25,7 @@
 #include <cstdarg>  // For va_list in deferred logging
 #include <esp_heap_caps.h>
 #include <atomic>  // For atomic beaconCaptured flag
+#include "../core/monster_c5.h"
 
 // NOTE: Vector mutex moved to NetworkRecon - use NetworkRecon::enterCritical()/exitCritical()
 // This ensures all modes (OINK, DoNoHam, Spectrum) use the SAME mutex for the shared networks vector
@@ -316,6 +317,10 @@ static bool hasPendingHandshake = false;
 
 // Reset bored state on init
 static bool boredStateReset = true;  // Flag to reset on start()
+
+// 5GHz target tracking (JANUS HOG routing)
+static bool targetIs5GHz = false;            // Current target is C5-only
+static bool c5HandshakeRequested = false;    // RequestHandshake sent to C5
 
 // Last pwned network SSID for display
 static char lastPwnedSSID[33] = "";
@@ -958,6 +963,14 @@ void OinkMode::update() {
             
         case AutoState::LOCKING:
             {
+            // 5GHz targets skip client discovery — C5 handles everything
+            if (targetIs5GHz) {
+                autoState = AutoState::ATTACKING;
+                attackStartTime = now;
+                stateStartTime = now;
+                Mood::setStatusMessage("5ghz attack via c5");
+                break;
+            }
             // #region agent log - H1/H2 channel during LOCKING
             {
                 static uint32_t lastLockLog = 0;
@@ -1044,6 +1057,51 @@ void OinkMode::update() {
             
         case AutoState::ATTACKING:
             {
+                // === 5GHz path: delegate to MonsterC5 ===
+                if (targetIs5GHz) {
+                    if (!c5HandshakeRequested && MonsterC5::isConnected()) {
+                        MonsterC5::requestHandshake(targetBssid);
+                        c5HandshakeRequested = true;
+                        SDLog::log("OINK", "5GHz attack routed to C5");
+                    }
+
+                    // Poll C5 result
+                    HandshakeResult hr = MonsterC5::getHandshakeResult();
+                    if (hr == HandshakeResult::CAPTURED) {
+                        MonsterC5::clearHandshakeResult();
+                        SDLog::log("OINK", "5GHz handshake captured via C5!");
+                        // Mark network as captured
+                        NetworkRecon::enterCritical();
+                        for (auto& net : networks()) {
+                            if (memcmp(net.bssid, targetBssid, 6) == 0) {
+                                net.hasHandshake = true;
+                                break;
+                            }
+                        }
+                        NetworkRecon::exitCritical();
+                        autoState = AutoState::WAITING;
+                        stateStartTime = now;
+                        break;
+                    } else if (hr == HandshakeResult::FAILED) {
+                        MonsterC5::clearHandshakeResult();
+                        SDLog::log("OINK", "5GHz attack failed on C5");
+                        autoState = AutoState::NEXT_TARGET;
+                        stateStartTime = now;
+                        break;
+                    }
+
+                    // Timeout
+                    if (now - attackStartTime > 60000) {
+                        MonsterC5::requestStop();
+                        MonsterC5::clearHandshakeResult();
+                        autoState = AutoState::NEXT_TARGET;
+                        stateStartTime = now;
+                    }
+                    break;
+                }
+
+                // === 2.4GHz path: local deauth ===
+
                 // Snapshot target data to avoid races with callback updates
                 bool targetFound = false;
                 uint8_t targetBssidLocal[6] = {0};
@@ -1414,18 +1472,27 @@ void OinkMode::selectTarget(int index) {
         targetIndex = index;
         memcpy(targetBssid, networks()[index].bssid, 6);  // Store BSSID
         networks()[index].isTarget = true;
-        
+        targetIs5GHz = networks()[index].is5GHz();
+        c5HandshakeRequested = false;
+
         // Clear old beacon frame when target changes (static storage, no free)
         beaconFrame = beaconFrameStorage;
         beaconFrameLen = 0;
         beaconCaptured = false;
-        
-        // Lock to target's channel
-        channelHopping = false;
-        setChannel(networks()[index].channel);
-        
-        // Auto-start deauth when target selected
-        deauthing = true;
+
+        if (targetIs5GHz) {
+            // 5GHz target: route to MonsterC5, keep local scanning running
+            // Don't lock channel — ESP32-S3 can't tune to 5GHz
+            channelHopping = true;
+            deauthing = false;
+        } else {
+            // 2.4GHz target: lock to target's channel
+            channelHopping = false;
+            setChannel(networks()[index].channel);
+
+            // Auto-start deauth when target selected
+            deauthing = true;
+        }
     }
 
     updateTargetCache();
@@ -1440,6 +1507,8 @@ void OinkMode::clearTarget() {
     clearTargetClients();
     deauthing = false;
     channelHopping = true;
+    targetIs5GHz = false;
+    c5HandshakeRequested = false;
     // Unlock channel so NetworkRecon resumes hopping
     if (NetworkRecon::isChannelLocked()) {
         NetworkRecon::unlockChannel();
@@ -3133,6 +3202,8 @@ static inline bool isEligibleTarget(const DetectedNetwork& net, uint32_t now) {
     if (net.hasHandshake) return false;
     if (net.authmode == WIFI_AUTH_OPEN) return false;
     if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
+    // 5GHz networks require C5 to be connected for remote attack
+    if (net.is5GHz() && !MonsterC5::isConnected()) return false;
     int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
     if (rssi < Config::wifi().attackMinRssi) return false;
     return true;
