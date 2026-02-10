@@ -7,9 +7,7 @@
 #include <Arduino.h>
 #include <esp_wifi.h>
 
-// Network source tags for DetectedNetwork.source
-#define NET_SOURCE_LOCAL  0
-#define NET_SOURCE_C5     1
+#include "network_source.h"
 
 enum class C5State : uint8_t {
     OFF,            // Config disabled or not initialized
@@ -65,6 +63,7 @@ namespace MonsterC5 {
 void init();            // After Config load, before modes
 void update();          // Every main loop iteration. Non-blocking.
 void shutdown();        // Send stop, release UART, resume GPS.
+void reinit();          // Shutdown + re-init from current Config (settings change)
 
 // ============================================================================
 // State Queries

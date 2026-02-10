@@ -4,6 +4,7 @@
 #include "settings_menu.h"
 #include "display.h"
 #include "../core/config.h"
+#include "../core/monster_c5.h"
 #include "../core/xp.h"
 #include "../core/sd_layout.h"
 #include "../core/sdlog.h"
@@ -20,6 +21,7 @@ enum GroupId : uint8_t {
     GROUP_RADIO,
     GROUP_GPS,
     GROUP_BLE,
+    GROUP_C5,
     GROUP_LOG
 };
 
@@ -59,6 +61,11 @@ enum SettingId : uint8_t {
     SET_GPS_TZ,
     SET_BLE_BURST,
     SET_BLE_ADV,
+    SET_C5_ENABLED,
+    SET_C5_TX_PIN,
+    SET_C5_RX_PIN,
+    SET_C5_BAUD,
+    SET_C5_SCAN_INTV,
     SET_SD_LOG,
     SET_CALLSIGN
 };
@@ -106,7 +113,8 @@ static const RootEntry kRootEntries[] = {
     {"INTEGRATION", "API KEYS", true, GROUP_INTEG, SET_THEME},
     {"RADIO", "WIFI SCAN/ATTACK TIMING", true, GROUP_RADIO, SET_THEME},
     {"GPS", "GPS MODULE SETTINGS", true, GROUP_GPS, SET_THEME},
-    {"BLE", "BLE ATTACK TUNING", true, GROUP_BLE, SET_THEME}
+    {"BLE", "BLE ATTACK TUNING", true, GROUP_BLE, SET_THEME},
+    {"JANUS HOG", "ESP32-C5 5GHZ BOARD", true, GROUP_C5, SET_THEME}
 };
 static const EntryData kNetEntries[] = {
     {SET_WIFI_SSID, "WIFI SSID", SettingType::TEXT, 0, 0, 0, "", "NETWORK FOR FILE XFER"},
@@ -149,6 +157,14 @@ static const EntryData kGpsEntries[] = {
 static const EntryData kBleEntries[] = {
     {SET_BLE_BURST, "BLE BURST", SettingType::VALUE, 50, 500, 50, "MS", "ATTACK SPEED"},
     {SET_BLE_ADV, "ADV TIME", SettingType::VALUE, 50, 200, 25, "MS", "PER-PACKET DURATION"}
+};
+
+static const EntryData kC5Entries[] = {
+    {SET_C5_ENABLED, "C5 BOARD", SettingType::TOGGLE, 0, 1, 1, "", "JANUS HOG 5GHZ LINK"},
+    {SET_C5_TX_PIN, "C5 TX PIN", SettingType::VALUE, 1, 46, 1, "", "G2=GROVE DEFAULT"},
+    {SET_C5_RX_PIN, "C5 RX PIN", SettingType::VALUE, 1, 46, 1, "", "G1=GROVE DEFAULT"},
+    {SET_C5_BAUD, "C5 BAUD", SettingType::VALUE, 0, 3, 1, "", "UART SPEED"},
+    {SET_C5_SCAN_INTV, "SCAN INTV", SettingType::VALUE, 0, 120, 5, "S", "0 = MANUAL ONLY"}
 };
 
 // ML entries removed for heap savings
@@ -223,6 +239,11 @@ static bool isConfigSetting(SettingId id) {
         case SET_GPS_TZ:
         case SET_BLE_BURST:
         case SET_BLE_ADV:
+        case SET_C5_ENABLED:
+        case SET_C5_TX_PIN:
+        case SET_C5_RX_PIN:
+        case SET_C5_BAUD:
+        case SET_C5_SCAN_INTV:
             return true;
         default:
             return false;
@@ -255,6 +276,9 @@ static const EntryData* getGroupEntries(GroupId group, size_t* count) {
         case GROUP_BLE:
             *count = sizeof(kBleEntries) / sizeof(kBleEntries[0]);
             return kBleEntries;
+        case GROUP_C5:
+            *count = sizeof(kC5Entries) / sizeof(kC5Entries[0]);
+            return kC5Entries;
         case GROUP_LOG:
             *count = sizeof(kLogEntries) / sizeof(kLogEntries[0]);
             return kLogEntries;
@@ -276,6 +300,8 @@ static const char* getGroupLabel(GroupId group) {
             return "GPS";
         case GROUP_BLE:
             return "BLE";
+        case GROUP_C5:
+            return "JANUS HOG";
         case GROUP_LOG:
             return "LOG";
         default:
@@ -297,6 +323,22 @@ static uint32_t getGpsBaudForIndex(int index) {
     if (index < 0) index = 0;
     if (index > 3) index = 3;
     return kGpsBaudRates[index];
+}
+
+static const uint32_t kC5BaudRates[] = {9600, 38400, 57600, 115200};
+
+static int getC5BaudIndex() {
+    uint32_t baud = Config::c5().baudRate;
+    for (int i = 0; i < 4; ++i) {
+        if (baud == kC5BaudRates[i]) return i;
+    }
+    return 3; // default 115200
+}
+
+static uint32_t getC5BaudForIndex(int index) {
+    if (index < 0) index = 0;
+    if (index > 3) index = 3;
+    return kC5BaudRates[index];
 }
 
 static void formatWpaSecStatus(char* out, size_t len) {
@@ -541,6 +583,16 @@ static int getSettingValue(SettingId id) {
             return Config::ble().burstInterval;
         case SET_BLE_ADV:
             return Config::ble().advDuration;
+        case SET_C5_ENABLED:
+            return Config::c5().enabled ? 1 : 0;
+        case SET_C5_TX_PIN:
+            return Config::c5().uartTxPin;
+        case SET_C5_RX_PIN:
+            return Config::c5().uartRxPin;
+        case SET_C5_BAUD:
+            return getC5BaudIndex();
+        case SET_C5_SCAN_INTV:
+            return (int)(Config::c5().scanIntervalMs / 1000);
         case SET_SD_LOG:
             return SDLog::isEnabled() ? 1 : 0;
         default:
@@ -753,6 +805,36 @@ static bool setSettingValue(SettingId id, int value) {
             Config::ble().advDuration = newVal;
             return true;
         }
+        case SET_C5_ENABLED: {
+            bool enabled = value != 0;
+            if (Config::c5().enabled == enabled) return false;
+            Config::c5().enabled = enabled;
+            return true;
+        }
+        case SET_C5_TX_PIN: {
+            uint8_t newVal = static_cast<uint8_t>(value);
+            if (Config::c5().uartTxPin == newVal) return false;
+            Config::c5().uartTxPin = newVal;
+            return true;
+        }
+        case SET_C5_RX_PIN: {
+            uint8_t newVal = static_cast<uint8_t>(value);
+            if (Config::c5().uartRxPin == newVal) return false;
+            Config::c5().uartRxPin = newVal;
+            return true;
+        }
+        case SET_C5_BAUD: {
+            uint32_t newBaud = getC5BaudForIndex(value);
+            if (Config::c5().baudRate == newBaud) return false;
+            Config::c5().baudRate = newBaud;
+            return true;
+        }
+        case SET_C5_SCAN_INTV: {
+            uint16_t newMs = static_cast<uint16_t>(value * 1000);
+            if (Config::c5().scanIntervalMs == newMs) return false;
+            Config::c5().scanIntervalMs = newMs;
+            return true;
+        }
         case SET_SD_LOG: {
             bool enabled = value != 0;
             if (SDLog::isEnabled() == enabled) return false;
@@ -821,6 +903,10 @@ uint8_t SettingsMenu::origGpsRxPin = 0;
 uint8_t SettingsMenu::origGpsTxPin = 0;
 uint32_t SettingsMenu::origGpsBaud = 0;
 uint8_t SettingsMenu::origGpsSource = 0;
+bool    SettingsMenu::origC5Enabled = false;
+uint8_t SettingsMenu::origC5TxPin = 0;
+uint8_t SettingsMenu::origC5RxPin = 0;
+uint32_t SettingsMenu::origC5Baud = 0;
 
 void SettingsMenu::init() {
     active = false;
@@ -848,6 +934,10 @@ void SettingsMenu::show() {
     origGpsTxPin = Config::gps().txPin;
     origGpsBaud = Config::gps().baudRate;
     origGpsSource = static_cast<uint8_t>(Config::gps().source);
+    origC5Enabled = Config::c5().enabled;
+    origC5TxPin = Config::c5().uartTxPin;
+    origC5RxPin = Config::c5().uartRxPin;
+    origC5Baud = Config::c5().baudRate;
 }
 
 void SettingsMenu::hide() {
@@ -904,6 +994,29 @@ void SettingsMenu::saveIfDirty(bool showToast) {
                 }
                 if (showToast) {
                     Display::notify(NoticeKind::STATUS, "GPS REINIT");
+                }
+            }
+        }
+
+        // C5 reinit on config change (like GPS pattern)
+        bool c5Changed = (Config::c5().enabled != origC5Enabled) ||
+                         (Config::c5().uartTxPin != origC5TxPin) ||
+                         (Config::c5().uartRxPin != origC5RxPin) ||
+                         (Config::c5().baudRate != origC5Baud);
+        if (c5Changed) {
+            origC5Enabled = Config::c5().enabled;
+            origC5TxPin = Config::c5().uartTxPin;
+            origC5RxPin = Config::c5().uartRxPin;
+            origC5Baud = Config::c5().baudRate;
+            if (Config::c5().enabled) {
+                MonsterC5::reinit();
+                if (showToast) {
+                    Display::notify(NoticeKind::STATUS, "C5 REINIT");
+                }
+            } else {
+                MonsterC5::shutdown();
+                if (showToast) {
+                    Display::notify(NoticeKind::STATUS, "C5 DISABLED");
                 }
             }
         }
@@ -1393,9 +1506,10 @@ void SettingsMenu::draw(M5Canvas& canvas) {
             valBuf[sizeof(valBuf) - 1] = '\0';
         } else if (entry.type == SettingType::VALUE) {
             int value = getSettingValue(entry.id);
-            if (entry.id == SET_GPS_BAUD) {
+            if (entry.id == SET_GPS_BAUD || entry.id == SET_C5_BAUD) {
                 char baudBuf[12];
-                snprintf(baudBuf, sizeof(baudBuf), "%lu", (unsigned long)getGpsBaudForIndex(value));
+                uint32_t baud = (entry.id == SET_C5_BAUD) ? getC5BaudForIndex(value) : getGpsBaudForIndex(value);
+                snprintf(baudBuf, sizeof(baudBuf), "%lu", (unsigned long)baud);
                 if (selected && editing) {
                     snprintf(valBuf, sizeof(valBuf), "[%s]", baudBuf);
                 } else {

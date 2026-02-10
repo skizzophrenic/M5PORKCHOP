@@ -1059,32 +1059,49 @@ void OinkMode::update() {
             {
                 // === 5GHz path: delegate to MonsterC5 ===
                 if (targetIs5GHz) {
+                    // If the coprocessor drops during an attack, fail fast (don't burn 60s here).
+                    if (!MonsterC5::isConnected()) {
+                        c5HandshakeRequested = false;
+                        MonsterC5::clearHandshakeResult();
+                        autoState = AutoState::NEXT_TARGET;
+                        stateStartTime = now;
+                        break;
+                    }
                     if (!c5HandshakeRequested && MonsterC5::isConnected()) {
                         MonsterC5::requestHandshake(targetBssid);
                         c5HandshakeRequested = true;
-                        SDLog::log("OINK", "5GHz attack routed to C5");
+                        Serial.println("[OINK] 5GHz attack routed to C5");
                     }
 
                     // Poll C5 result
                     HandshakeResult hr = MonsterC5::getHandshakeResult();
                     if (hr == HandshakeResult::CAPTURED) {
                         MonsterC5::clearHandshakeResult();
-                        SDLog::log("OINK", "5GHz handshake captured via C5!");
+                        Serial.println("[OINK] 5GHz handshake captured via C5");
                         // Mark network as captured
                         NetworkRecon::enterCritical();
+                        char ssidBuf[33] = {};
                         for (auto& net : networks()) {
                             if (memcmp(net.bssid, targetBssid, 6) == 0) {
                                 net.hasHandshake = true;
+                                strncpy(ssidBuf, net.ssid, 32);
                                 break;
                             }
                         }
                         NetworkRecon::exitCritical();
+                        WarhogMode::markCaptured(targetBssid);
+
+                        // Show PWNED banner (PCAP saved on C5 SD card)
+                        strncpy(lastPwnedSSID, ssidBuf[0] ? ssidBuf : "5GHz TARGET", sizeof(lastPwnedSSID) - 1);
+                        lastPwnedSSID[sizeof(lastPwnedSSID) - 1] = '\0';
+                        Mood::onHandshakeCaptured(lastPwnedSSID);
+                        Display::showLoot(lastPwnedSSID);
                         autoState = AutoState::WAITING;
                         stateStartTime = now;
                         break;
                     } else if (hr == HandshakeResult::FAILED) {
                         MonsterC5::clearHandshakeResult();
-                        SDLog::log("OINK", "5GHz attack failed on C5");
+                        Serial.println("[OINK] 5GHz attack failed on C5");
                         autoState = AutoState::NEXT_TARGET;
                         stateStartTime = now;
                         break;

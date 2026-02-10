@@ -421,6 +421,11 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::CHARGING:
             ChargingMode::stop();
+            // CHARGING explicitly shuts down MonsterC5 to save power.
+            // Re-init it on exit so JANUS HOG returns automatically if enabled.
+            if (MonsterC5::isEnabled() && MonsterC5::getState() == C5State::OFF) {
+                MonsterC5::init();
+            }
             break;
         default:
             break;
@@ -531,8 +536,15 @@ void Porkchop::setMode(PorkchopMode mode) {
         case PorkchopMode::MONSTER_C5_MODE:
             Avatar::setState(AvatarState::EXCITED);
             SDLog::log("PORK", "Mode: MONSTER_C5");
-            if (!MonsterC5::isConnected()) {
-                Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 2000, NoticeChannel::TOP_BAR);
+            if (MonsterC5::isConnected()) {
+                // Trigger initial scan when entering mode
+                if (MonsterC5::getScanCount() == 0) {
+                    MonsterC5::requestScan();
+                }
+            } else if (MonsterC5::isEnabled()) {
+                Display::notify(NoticeKind::STATUS, "C5 CONNECTING...", 2000, NoticeChannel::TOP_BAR);
+            } else {
+                Display::notify(NoticeKind::STATUS, "C5 DISABLED", 2000, NoticeChannel::TOP_BAR);
             }
             break;
         case PorkchopMode::ABOUT:
@@ -540,6 +552,7 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::CHARGING:
             SDLog::log("PORK", "Mode: CHARGING");
+            MonsterC5::shutdown();  // Stop C5 to save power
             ChargingMode::start();
             break;
         default:
@@ -984,8 +997,28 @@ void Porkchop::updateMode() {
             }
             break;
         case PorkchopMode::MONSTER_C5_MODE:
-            // Thin viewer — MonsterC5::update() runs in main.cpp loop()
-            // ESC exits globally back to IDLE
+            // Keyboard handling for JANUS HOG viewer
+            if (M5Cardputer.Keyboard.isKeyPressed('`') || M5Cardputer.Keyboard.isKeyPressed(';')) {
+                setMode(PorkchopMode::MENU);
+            }
+            else if (M5Cardputer.Keyboard.isKeyPressed('s')) {
+                if (MonsterC5::isConnected()) {
+                    MonsterC5::requestScan();
+                    Display::notify(NoticeKind::STATUS, "C5 SCAN STARTED", 1500, NoticeChannel::TOP_BAR);
+                } else {
+                    Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            }
+            else if (M5Cardputer.Keyboard.isKeyPressed('c')) {
+                if (MonsterC5::isConnected()) {
+                    MonsterC5::requestChannelView();
+                    Display::notify(NoticeKind::STATUS, "CH VIEW STARTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            }
+            else if (M5Cardputer.Keyboard.isKeyPressed('x')) {
+                MonsterC5::requestStop();
+                Display::notify(NoticeKind::STATUS, "C5 STOP", 1000, NoticeChannel::TOP_BAR);
+            }
             break;
         case PorkchopMode::CHARGING:
             ChargingMode::update();

@@ -419,6 +419,24 @@ void Display::update() {
                 mainCanvas.drawString("ERROR - Retrying...", 4, y);
             } else {
                 // CONNECTED / SCANNING / ATTACKING / MONITORING
+                // Show current operation status
+                C5Op op = MonsterC5::getCurrentOp();
+                if (c5st == C5State::SCANNING || op == C5Op::SCAN) {
+                    mainCanvas.drawString("SCANNING 2.4+5GHz...", 4, y);
+                    y += 10;
+                } else if (c5st == C5State::ATTACKING) {
+                    mainCanvas.setTextColor(COLOR_WARNING);
+                    mainCanvas.drawString("ATTACKING TARGET...", 4, y);
+                    mainCanvas.setTextColor(COLOR_FG);
+                    y += 10;
+                } else if (c5st == C5State::MONITORING) {
+                    mainCanvas.drawString("MONITORING...", 4, y);
+                    y += 10;
+                } else {
+                    mainCanvas.drawString("[S]CAN [C]HANVIEW [X]STOP", 4, y);
+                    y += 10;
+                }
+
                 uint8_t sc = MonsterC5::getScanCount();
                 uint8_t cnt5 = 0;
                 for (uint8_t i = 0; i < sc; i++) {
@@ -430,10 +448,11 @@ void Display::update() {
                 mainCanvas.drawString(scanBuf, 4, y);
 
                 y += 12;
-                mainCanvas.drawString("-- 5GHz TARGETS --", 4, y);
+                if (cnt5 > 0) mainCanvas.drawString("-- 5GHz TARGETS --", 4, y);
+                else mainCanvas.drawString("(no 5GHz yet - press S)", 4, y);
                 y += 10;
                 uint8_t shown = 0;
-                for (uint8_t i = 0; i < sc && shown < 6; i++) {
+                for (uint8_t i = 0; i < sc && shown < 5; i++) {
                     const C5ScanEntry* e = MonsterC5::getScanEntry(i);
                     if (!e || e->channel <= 14) continue;
                     char line[42];
@@ -443,22 +462,17 @@ void Display::update() {
                     y += 10;
                     shown++;
                 }
-                if (shown == 0) {
-                    mainCanvas.drawString("(no 5GHz yet)", 4, y);
-                }
-
-                if (c5st == C5State::ATTACKING) {
-                    mainCanvas.setTextColor(COLOR_WARNING);
-                    mainCanvas.drawString("ATTACKING TARGET...", 4, 90);
-                } else if (c5st == C5State::MONITORING) {
+                // Channel view overlay at bottom
+                if (c5st == C5State::MONITORING) {
                     const C5ChannelCounts& cc = MonsterC5::getChannelCounts();
                     if (cc.valid) {
                         uint16_t total5 = 0;
                         for (int i = 0; i < 25; i++) total5 += cc.ch5[i];
                         char monBuf[32];
-                        snprintf(monBuf, sizeof(monBuf), "5GHz APs: %d", total5);
+                        snprintf(monBuf, sizeof(monBuf), "CH_VIEW 5G:%d APs", total5);
                         mainCanvas.setTextColor(COLOR_ACCENT);
                         mainCanvas.drawString(monBuf, 4, 90);
+                        mainCanvas.setTextColor(COLOR_FG);
                     }
                 }
             }

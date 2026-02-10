@@ -1114,13 +1114,21 @@ void injectExternal(const uint8_t* bssid, const char* ssid, int8_t rssi,
         if (memcmp(net.bssid, bssid, 6) == 0) {
             // Update existing
             net.rssi = rssi;
+            net.rssiAvg = updateRssiAvg(net.rssiAvg, rssi);
             net.lastSeen = millis();
             net.channel = channel;
             net.authmode = authmode;
-            net.source = source;
-            if (ssid && ssid[0] && !net.ssid[0]) {
-                strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
-                net.ssid[sizeof(net.ssid) - 1] = '\0';
+            // Don't allow an external 2.4GHz injection to overwrite a locally-seen network's source.
+            if (source == NET_SOURCE_LOCAL || net.source != NET_SOURCE_LOCAL || channel > 14) {
+                net.source = source;
+            }
+            if (ssid && ssid[0]) {
+                // Reveal SSID for hidden/empty entries, but don't overwrite an existing SSID.
+                if (!net.ssid[0] || net.isHidden) {
+                    strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+                    net.ssid[sizeof(net.ssid) - 1] = '\0';
+                }
+                net.isHidden = false;
             }
             found = true;
             break;

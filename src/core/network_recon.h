@@ -7,6 +7,8 @@
 #include <esp_wifi.h>
 #include <vector>
 
+#include "network_source.h"
+
 // Maximum networks to track
 #define MAX_RECON_NETWORKS 200
 
