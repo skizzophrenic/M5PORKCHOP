@@ -793,7 +793,7 @@ void Display::drawTopBar() {
     char statusBuf[4];
     statusBuf[0] = gpsStatus ? 'G' : '-';
     statusBuf[1] = wifiStatus ? 'W' : '-';
-    statusBuf[2] = mlStatus ? 'M' : '-';
+    statusBuf[2] = MonsterC5::isConnected() ? '5' : '-';
     statusBuf[3] = '\0';
     char rightBuf[32];
     snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);

@@ -996,8 +996,17 @@ void Porkchop::updateMode() {
                 setMode(PorkchopMode::MENU);
             }
             break;
-        case PorkchopMode::MONSTER_C5_MODE:
-            // Keyboard handling for JANUS HOG viewer
+        case PorkchopMode::MONSTER_C5_MODE: {
+            // Keyboard handling for JANUS HOG viewer (with debounce)
+            static bool c5KeyWasPressed = false;
+            bool c5AnyPressed = M5Cardputer.Keyboard.isPressed();
+            if (!c5AnyPressed) {
+                c5KeyWasPressed = false;
+                break;
+            }
+            if (c5KeyWasPressed) break;
+            c5KeyWasPressed = true;
+
             if (M5Cardputer.Keyboard.isKeyPressed('`') || M5Cardputer.Keyboard.isKeyPressed(';')) {
                 setMode(PorkchopMode::MENU);
             }
@@ -1029,6 +1038,7 @@ void Porkchop::updateMode() {
                 Display::notify(NoticeKind::STATUS, "C5 STOP", 1000, NoticeChannel::TOP_BAR);
             }
             break;
+        }
         case PorkchopMode::CHARGING:
             ChargingMode::update();
             if (ChargingMode::shouldExit()) {

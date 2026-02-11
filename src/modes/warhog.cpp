@@ -249,9 +249,11 @@ void WarhogMode::start() {
     scanInProgress = false;
     scanStartTime = 0;
 
-    // Ensure GPS is in continuous mode regardless of software state
-    // FIX: Addresses issue where GPS doesn't show until mode restart
-    GPS::ensureContinuousMode();
+    // Ensure GPS is in continuous mode — unless C5 is using the same pins
+    // (GPS was intentionally slept by MonsterC5::init() to avoid UART conflict)
+    if (GPS::isActive() || !MonsterC5::isConnected()) {
+        GPS::ensureContinuousMode();
+    }
     
     running = true;
     lastScanTime = 0;  // Trigger immediate scan

@@ -147,6 +147,7 @@ private:
     static int8_t actionRssi;
     static wifi_auth_mode_t actionAuthmode;
     static bool c5HandshakePending;
+    static uint32_t c5HandshakeStartMs;
     static char c5HandshakeSsid[33];
     
     // Deferred logging for revealed SSIDs (avoid Serial in callback)

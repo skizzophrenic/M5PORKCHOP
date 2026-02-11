@@ -198,6 +198,7 @@ uint8_t SpectrumMode::actionChannel = 0;
 int8_t SpectrumMode::actionRssi = 0;
 wifi_auth_mode_t SpectrumMode::actionAuthmode = WIFI_AUTH_OPEN;
 bool SpectrumMode::c5HandshakePending = false;
+uint32_t SpectrumMode::c5HandshakeStartMs = 0;
 char SpectrumMode::c5HandshakeSsid[33] = {0};
 volatile bool SpectrumMode::pendingReveal = false;
 char SpectrumMode::pendingRevealSSID[33] = {0};
@@ -302,6 +303,7 @@ void SpectrumMode::init() {
     actionRssi = 0;
     actionAuthmode = WIFI_AUTH_OPEN;
     c5HandshakePending = false;
+    c5HandshakeStartMs = 0;
     c5HandshakeSsid[0] = 0;
 
     // Reset client monitoring state
@@ -410,13 +412,16 @@ void SpectrumMode::stop() {
     // Clear spectrum-specific sweep override
     NetworkRecon::clearHopIntervalOverride();
     
-    // Stop any continuous C5 monitors we may have started from Spectrum.
-    if (MonsterC5::getCurrentOp() == C5Op::CHANNEL_VIEW ||
-        MonsterC5::getCurrentOp() == C5Op::PACKET_MONITOR) {
+    // Stop any continuous C5 monitors or in-progress handshake attacks.
+    if (c5HandshakePending) {
+        MonsterC5::requestStop();
+        MonsterC5::clearHandshakeResult();
+        c5HandshakePending = false;
+    } else if (MonsterC5::getCurrentOp() == C5Op::CHANNEL_VIEW ||
+               MonsterC5::getCurrentOp() == C5Op::PACKET_MONITOR) {
         MonsterC5::requestStop();
     }
     actionPromptActive = false;
-    c5HandshakePending = false;
 
     running = false;
     Display::setWiFiStatus(false);
@@ -626,7 +631,12 @@ void SpectrumMode::update() {
 
     // Handle C5 handshake result if started from Spectrum action prompt.
     if (c5HandshakePending) {
-        if (!MonsterC5::isConnected()) {
+        if (millis() - c5HandshakeStartMs > 90000) {
+            MonsterC5::requestStop();
+            MonsterC5::clearHandshakeResult();
+            c5HandshakePending = false;
+            Display::showToast("HANDSHAKE TIMEOUT");
+        } else if (!MonsterC5::isConnected()) {
             Display::showToast("C5 LINK LOST");
             MonsterC5::clearHandshakeResult();
             c5HandshakePending = false;
@@ -1234,6 +1244,7 @@ void SpectrumMode::handleActionPromptInput() {
         // Start handshake capture on C5.
         if (MonsterC5::requestHandshake(actionBssid)) {
             c5HandshakePending = true;
+            c5HandshakeStartMs = millis();
             strncpy(c5HandshakeSsid, actionSsid, 32);
             c5HandshakeSsid[32] = 0;
             Display::notify(NoticeKind::STATUS, "C5 HANDSHAKE", 2000, NoticeChannel::TOP_BAR);

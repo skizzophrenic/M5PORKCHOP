@@ -1924,7 +1924,8 @@ static void updateC5GpsData() {
 }
 
 bool MonsterC5::hasC5GPSFix() {
-    return c5GpsForwarding && c5GpsData.fix;
+    return c5GpsForwarding && c5GpsData.fix &&
+           (millis() - c5GpsLastFixMs < 10000);
 }
 
 GPSData MonsterC5::getC5GPSData() {
