@@ -180,6 +180,17 @@ void GPS::sleep() {
     Serial2.end();
     serial = nullptr;
     active = false;
+
+    // Clear fix so GPS::hasFix() won't return stale true after sleep.
+    // Without this, consumers (WARHOG etc.) would pick stale local GPS
+    // data over fresh C5 GPS data because hasFix() gates the source selection.
+    if (mutex && xSemaphoreTake(mutex, pdMS_TO_TICKS(100))) {
+        currentData.fix = false;
+        currentData.valid = false;
+        xSemaphoreGive(mutex);
+    }
+
+    Display::setGPSStatus(false);
     Serial.println("[GPS] Entering sleep mode (UART stopped)");
 }
 

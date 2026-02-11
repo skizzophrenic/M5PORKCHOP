@@ -129,9 +129,16 @@ static bool     firstScanDone = false;
 // GPS forwarding from C5 (start_gps_raw NMEA passthrough)
 static TinyGPSPlus c5Gps;
 static GPSData     c5GpsData = {0};
-static bool        c5GpsForwarding = false;  // start_gps_raw sent and active
-static bool        c5GpsPendingStart = false; // queued, waiting for CONNECTED+idle
+static bool        c5GpsForwarding = false;      // confirmed active (NMEA received)
+static bool        c5GpsAwaitingStart = false;    // start_gps_raw sent, waiting for first NMEA
+static bool        c5GpsPendingStart = false;     // queued, waiting for CONNECTED+idle
+static bool        c5GpsConfigSent = false;       // gps_set sent, waiting before start_gps_raw
+static uint32_t    c5GpsConfigSentMs = 0;         // when gps_set was sent
 static uint32_t    c5GpsLastFixMs = 0;
+static uint32_t    c5GpsAwaitingSentMs = 0;       // when start_gps_raw was sent (for timeout)
+
+static constexpr uint32_t GPS_AWAITING_TIMEOUT_MS = 10000;   // re-queue if no NMEA in 10s
+static constexpr uint32_t GPS_CONFIG_SETTLE_MS    = 200;     // let gps_set reconfigure before start
 
 // Protocol timing constants
 static constexpr uint32_t PING_INTERVAL_MS      = 2000;
@@ -206,6 +213,10 @@ void MonsterC5::init() {
     errorBackoffMs = 5000;
     c5XpAwarded = false;
     gpsPaused = false;
+    c5GpsAwaitingStart = false;
+    c5GpsAwaitingSentMs = 0;
+    c5GpsConfigSent = false;
+    c5GpsConfigSentMs = 0;
     pktPerSecond = 0;
     memset(scanCacheA, 0, sizeof(scanCacheA));
     memset(scanCacheB, 0, sizeof(scanCacheB));
@@ -358,12 +369,35 @@ void MonsterC5::update() {
                 capsProbePending = false;
             }
 
-            // GPS forwarding: send start_gps_raw once idle after connect
-            if (c5GpsPendingStart && currentOp == C5Op::NONE) {
-                sendCommand("start_gps_raw");
-                c5GpsForwarding = true;
+            // GPS forwarding phase 1: stop stale reader, configure module type
+            if (c5GpsPendingStart && !c5GpsConfigSent && currentOp == C5Op::NONE) {
+                sendCommand("stop");              // kill any pre-existing GPS reader (wrong baud)
+                sendCommand("gps_set m5stack");  // configure m5stack GPS @ 115200
+                c5GpsConfigSent = true;
+                c5GpsConfigSentMs = now;
                 c5GpsPendingStart = false;
-                C5_LOGF("GPS forwarding started (local GPS paused)");
+                Display::notify(NoticeKind::STATUS, "C5 GPS: CFG M5STACK", 1500, NoticeChannel::TOP_BAR);
+                C5_LOGF("GPS module set to m5stack");
+            }
+
+            // GPS forwarding phase 2: start raw NMEA after config settles
+            if (c5GpsConfigSent && !c5GpsAwaitingStart &&
+                (now - c5GpsConfigSentMs >= GPS_CONFIG_SETTLE_MS)) {
+                sendCommand("start_gps_raw");
+                c5GpsAwaitingStart = true;
+                c5GpsAwaitingSentMs = now;
+                c5GpsConfigSent = false;
+                Display::notify(NoticeKind::STATUS, "C5 GPS: AWAITING NMEA", 2000, NoticeChannel::TOP_BAR);
+                C5_LOGF("GPS forwarding requested (awaiting NMEA)");
+            }
+
+            // GPS awaiting timeout: no NMEA received after start_gps_raw → re-queue
+            if (c5GpsAwaitingStart && !c5GpsForwarding &&
+                (now - c5GpsAwaitingSentMs >= GPS_AWAITING_TIMEOUT_MS)) {
+                c5GpsAwaitingStart = false;
+                c5GpsPendingStart = true;  // retry
+                Display::notify(NoticeKind::WARNING, "C5 GPS: NO NMEA, RETRY", 2000, NoticeChannel::TOP_BAR);
+                C5_LOGF("GPS forwarding timeout (no NMEA), will retry");
             }
 
             // Auto-import: after a 5GHz handshake capture, pull the newest C5 handshake to local SD.
@@ -386,9 +420,11 @@ void MonsterC5::update() {
             }
 
             // Auto-scan timer: periodic 5GHz network discovery
+            // Defer while GPS forwarding is establishing — C5 can't scan and
+            // forward GPS simultaneously ("already running" conflict).
             {
                 uint16_t interval = Config::c5().scanIntervalMs;
-                if (interval > 0 && currentOp == C5Op::NONE) {
+                if (interval > 0 && currentOp == C5Op::NONE && !c5GpsAwaitingStart && !c5GpsConfigSent) {
                     if (!firstScanDone || (now - lastAutoScanMs >= interval)) {
                         lastAutoScanMs = now;
                         firstScanDone = true;
@@ -504,7 +540,11 @@ void MonsterC5::shutdown() {
 
     // Stop GPS forwarding before waking local GPS
     c5GpsForwarding = false;
+    c5GpsAwaitingStart = false;
     c5GpsPendingStart = false;
+    c5GpsConfigSent = false;
+    c5GpsConfigSentMs = 0;
+    c5GpsAwaitingSentMs = 0;
     memset(&c5GpsData, 0, sizeof(c5GpsData));
 
     if (gpsPaused) {
@@ -855,8 +895,10 @@ static void enterDisconnected(const char* reason) {
     pktPerSecond = 0;
 
     // GPS forwarding lost — will re-start on next pong
-    if (c5GpsForwarding) {
+    if (c5GpsForwarding || c5GpsAwaitingStart || c5GpsConfigSent) {
         c5GpsForwarding = false;
+        c5GpsAwaitingStart = false;
+        c5GpsConfigSent = false;
         c5GpsPendingStart = true;  // re-queue for reconnect
     }
 }
@@ -869,13 +911,25 @@ static void processLine(const char* line) {
     if (!line || line[0] == '\0') return;
 
     // --- NMEA sentences from C5 GPS forwarding (start_gps_raw) ---
-    if (line[0] == '$' && (strncmp(line + 1, "GP", 2) == 0 ||
-                           strncmp(line + 1, "GN", 2) == 0 ||
-                           strncmp(line + 1, "GL", 2) == 0 ||
-                           strncmp(line + 1, "GA", 2) == 0 ||
-                           strncmp(line + 1, "BD", 2) == 0)) {
-        feedNmeaLine(line);
-        return;
+    // JanOS may prefix NMEA with tags or whitespace, so scan for '$G' anywhere.
+    // TinyGPSPlus validates checksums, so feeding a false positive is safe.
+    {
+        const char* nmea = strstr(line, "$G");
+        if (nmea && (strncmp(nmea + 2, "P", 1) == 0 ||
+                     strncmp(nmea + 2, "N", 1) == 0 ||
+                     strncmp(nmea + 2, "L", 1) == 0 ||
+                     strncmp(nmea + 2, "A", 1) == 0)) {
+            feedNmeaLine(nmea);
+            return;
+        }
+        // BeiDou: $BD
+        if (!nmea) {
+            nmea = strstr(line, "$BD");
+            if (nmea) {
+                feedNmeaLine(nmea);
+                return;
+            }
+        }
     }
 
     // --- Capabilities probe response ---
@@ -1163,8 +1217,10 @@ static void processLine(const char* line) {
             }
             C5_LOGF("Board connected");
 
-            // Auto-start GPS forwarding if local GPS was paused for C5 pins
-            if (gpsPaused && !c5GpsForwarding) {
+            // Auto-start GPS forwarding from C5.
+            // The GPS module may be on the C5's Grove port (not Porkchop's),
+            // so request regardless of local GPS config/pin state.
+            if (!c5GpsForwarding) {
                 c5GpsPendingStart = true;
             }
 
@@ -1890,6 +1946,14 @@ static bool startTransferForRemotePath(const char* remotePath, const uint8_t bss
 // ============================================================================
 
 static void feedNmeaLine(const char* line) {
+    // Confirm GPS forwarding on first NMEA sentence received
+    if (c5GpsAwaitingStart && !c5GpsForwarding) {
+        c5GpsForwarding = true;
+        c5GpsAwaitingStart = false;
+        Display::notify(NoticeKind::STATUS, "C5 GPS: NMEA FLOWING", 2000, NoticeChannel::TOP_BAR);
+        C5_LOGF("GPS forwarding confirmed (NMEA received)");
+    }
+
     // Feed each character of the NMEA sentence to TinyGPSPlus, including
     // a trailing newline to mark sentence end.
     for (const char* p = line; *p; p++) {
@@ -1901,6 +1965,7 @@ static void feedNmeaLine(const char* line) {
 }
 
 static void updateC5GpsData() {
+    bool prevFix = c5GpsData.fix;
     bool valid = c5Gps.location.isValid();
     uint32_t age = c5Gps.location.age();
     bool fix = valid && (age < 30000);
@@ -1920,6 +1985,16 @@ static void updateC5GpsData() {
 
     if (fix) {
         c5GpsLastFixMs = millis();
+        if (!prevFix) {
+            char buf[40];
+            snprintf(buf, sizeof(buf), "C5 GPS FIX %dSAT", c5GpsData.satellites);
+            Display::notify(NoticeKind::STATUS, buf, 2500, NoticeChannel::TOP_BAR);
+            C5_LOGF("GPS fix acquired: %.6f,%.6f sats=%d",
+                     c5GpsData.latitude, c5GpsData.longitude, c5GpsData.satellites);
+        }
+    } else if (prevFix) {
+        Display::notify(NoticeKind::WARNING, "C5 GPS FIX LOST", 2000, NoticeChannel::TOP_BAR);
+        C5_LOGF("GPS fix lost (valid=%d age=%lu)", valid, (unsigned long)age);
     }
 }
 
@@ -1933,5 +2008,5 @@ GPSData MonsterC5::getC5GPSData() {
 }
 
 bool MonsterC5::isGPSForwarding() {
-    return c5GpsForwarding;
+    return c5GpsForwarding || c5GpsAwaitingStart;
 }

@@ -260,7 +260,7 @@ void WarhogMode::start() {
     
     // Set grass speed for wardriving - animation controlled by GPS lock in update()
     Avatar::setGrassSpeed(200);  // Slower than OINK (~5 FPS)
-    Avatar::setGrassMoving(GPS::hasFix());  // Start based on current GPS status
+    Avatar::setGrassMoving(GPS::hasFix() || MonsterC5::hasC5GPSFix());
     
     Display::setWiFiStatus(true);
     Mood::onWarhogUpdate();  // Show WARHOG phrase on start
@@ -381,16 +381,16 @@ void WarhogMode::update() {
         lastHeapCheck = now;
     }
 
-    // Update grass animation based on GPS fix status
-    bool hasGPSFix = GPS::hasFix();
+    // Update grass animation based on GPS fix status (local or C5)
+    bool hasGPSFix = GPS::hasFix() || MonsterC5::hasC5GPSFix();
     if (hasGPSFix != lastGPSState) {
         Avatar::setGrassMoving(hasGPSFix);
         lastGPSState = hasGPSFix;
     }
-    
+
     // Distance tracking for XP (every 5 seconds when GPS is available)
     if (hasGPSFix && now - lastDistanceCheck >= 5000) {
-        GPSData gps = GPS::getData();
+        GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
         if (lastGPSLat != 0 && lastGPSLon != 0) {
             double distance = haversineMeters(lastGPSLat, lastGPSLon, gps.latitude, gps.longitude);
             // Filter out GPS jitter (<5m) and teleportation (>1km)
@@ -640,7 +640,7 @@ void WarhogMode::appendWigleEntry(const uint8_t* bssid, const char* ssid,
     f.print(",");
     
     // FirstSeen (timestamp) - use GPS time if available, else millis
-    GPSData gps = GPS::getData();
+    GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
     if (gps.date > 0 && gps.time > 0) {
         // date format: DDMMYY, time format: HHMMSSCC
         uint8_t day = gps.date / 10000;
@@ -886,11 +886,11 @@ void WarhogMode::processScanResults() {
 }
 
 bool WarhogMode::hasGPSFix() {
-    return GPS::hasFix();
+    return GPS::hasFix() || MonsterC5::hasC5GPSFix();
 }
 
 GPSData WarhogMode::getGPSData() {
-    return GPS::getData();
+    return GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
 }
 
 // Export functions - data is already on disk, these are for format conversion

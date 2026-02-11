@@ -791,7 +791,7 @@ void Display::drawTopBar() {
     }
     int battLevel = lastBattLevel;
     char statusBuf[4];
-    statusBuf[0] = gpsStatus ? 'G' : '-';
+    statusBuf[0] = (gpsStatus || MonsterC5::hasC5GPSFix()) ? 'G' : '-';
     statusBuf[1] = wifiStatus ? 'W' : '-';
     statusBuf[2] = MonsterC5::isConnected() ? '5' : '-';
     statusBuf[3] = '\0';
@@ -905,10 +905,11 @@ void Display::drawBottomBar() {
         uint32_t unique = WarhogMode::getTotalNetworks();
         uint32_t saved = WarhogMode::getSavedCount();
         uint32_t distM = XP::getSession().distanceM;
-        GPSData gps = GPS::getData();
-        
+        bool gpsFix = GPS::hasFix() || MonsterC5::hasC5GPSFix();
+        GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
+
         char buf[64];
-        if (GPS::hasFix()) {
+        if (gpsFix) {
             // Format distance nicely: meters or km
             if (distM >= 1000) {
                 // Show as km with 1 decimal: "1.2KM"
