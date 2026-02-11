@@ -24,7 +24,9 @@ bool CapturesMenu::keyWasPressed = false;
 bool CapturesMenu::nukeConfirmActive = false;
 bool CapturesMenu::detailViewActive = false;
 bool CapturesMenu::scanInProgress = false;
+bool CapturesMenu::scanDeferredHeap = false;
 unsigned long CapturesMenu::lastScanTime = 0;
+char CapturesMenu::scanBaseDir[32] = "";
 File CapturesMenu::scanDir;
 File CapturesMenu::currentFile;
 bool CapturesMenu::scanComplete = false;
@@ -55,10 +57,77 @@ uint8_t CapturesMenu::syncFailed = 0;
 uint16_t CapturesMenu::syncCracked = 0;
 char CapturesMenu::syncError[48] = "";
 
+namespace {
+
+static bool endsWithIgnoreCase(const char* value, const char* suffix) {
+    if (!value || !suffix) return false;
+    size_t valueLen = strlen(value);
+    size_t suffixLen = strlen(suffix);
+    if (suffixLen == 0 || valueLen < suffixLen) return false;
+    const char* tail = value + valueLen - suffixLen;
+    for (size_t i = 0; i < suffixLen; i++) {
+        char a = tail[i];
+        char b = suffix[i];
+        if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+        if (a != b) return false;
+    }
+    return true;
+}
+
+static bool dirHasCaptureFiles(const char* dirPath) {
+    if (!dirPath || !SD.exists(dirPath)) return false;
+
+    File dir = SD.open(dirPath);
+    if (!dir || !dir.isDirectory()) {
+        if (dir) dir.close();
+        return false;
+    }
+
+    File entry = dir.openNextFile();
+    while (entry) {
+        if (!entry.isDirectory()) {
+            const char* rawName = entry.name();
+            const char* slash = strrchr(rawName, '/');
+            const char* name = slash ? slash + 1 : rawName;
+            if (endsWithIgnoreCase(name, ".pcap") || endsWithIgnoreCase(name, ".22000")) {
+                entry.close();
+                dir.close();
+                return true;
+            }
+        }
+        entry.close();
+        entry = dir.openNextFile();
+        yield();
+    }
+
+    dir.close();
+    return false;
+}
+
+static const char* resolveCaptureScanDir() {
+    const char* preferredDir = SDLayout::handshakesDir();
+    const char* fallbackDir = SDLayout::usingNewLayout() ? "/handshakes" : "/m5porkchop/handshakes";
+    if (strcmp(preferredDir, fallbackDir) == 0) return preferredDir;
+
+    const bool preferredHasFiles = dirHasCaptureFiles(preferredDir);
+    const bool fallbackHasFiles = dirHasCaptureFiles(fallbackDir);
+    if (!preferredHasFiles && fallbackHasFiles) {
+        return fallbackDir;
+    }
+
+    if (SD.exists(preferredDir)) return preferredDir;
+    if (SD.exists(fallbackDir)) return fallbackDir;
+    return preferredDir;
+}
+
+} // namespace
+
 void CapturesMenu::init() {
     captures.clear();
     selectedIndex = 0;
     scrollOffset = 0;
+    scanDeferredHeap = false;
 }
 
 void CapturesMenu::show() {
@@ -93,6 +162,8 @@ void CapturesMenu::hide() {
     if (currentFile) {
         currentFile.close();
     }
+    scanDeferredHeap = false;
+    scanBaseDir[0] = '\0';
 }
 
 void CapturesMenu::emergencyCleanup() {
@@ -113,12 +184,15 @@ void CapturesMenu::emergencyCleanup() {
     if (currentFile) {
         currentFile.close();
     }
+    scanDeferredHeap = false;
+    scanBaseDir[0] = '\0';
 }
 
 bool CapturesMenu::scanCaptures() {
     // Initialize async scan
     captures.clear();
-    captures.reserve(MAX_CAPTURES);  // Full upfront reserve — no mid-scan reallocations
+    captures.reserve(8);  // Grow naturally — reserve(100) was ~17KB contiguous, crash-prone on fragmented heap
+    scanDeferredHeap = false;
 
     // Guard: Skip if no SD card available
     if (!Config::isSDAvailable()) {
@@ -128,16 +202,25 @@ bool CapturesMenu::scanCaptures() {
         return false;
     }
 
-    // Guard: Skip SD scan at Warning+ pressure — file ops allocate FAT buffers
-    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Warning) {
+    // Guard: Skip SD scan at Critical pressure — file listing only needs small FAT buffers
+    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Critical) {
         Serial.println("[CAPTURES] Scan deferred: heap pressure");
+        scanDeferredHeap = true;
         scanComplete = true;
         scanInProgress = false;
         return false;
     }
 
+    const char* preferredDir = SDLayout::handshakesDir();
+    const char* handshakesDir = resolveCaptureScanDir();
+    if (strcmp(handshakesDir, preferredDir) != 0) {
+        Serial.printf("[CAPTURES] Using fallback scan dir: %s (preferred %s)\n",
+                      handshakesDir, preferredDir);
+    }
+    strncpy(scanBaseDir, handshakesDir, sizeof(scanBaseDir) - 1);
+    scanBaseDir[sizeof(scanBaseDir) - 1] = '\0';
+
     // Create directory if it doesn't exist
-    const char* handshakesDir = SDLayout::handshakesDir();
     if (!SD.exists(handshakesDir)) {
         Serial.println("[CAPTURES] No handshakes directory, creating...");
         if (!SD.mkdir(handshakesDir)) {
@@ -188,6 +271,7 @@ void CapturesMenu::processAsyncScan() {
     lastScanTime = millis();
 
     // Process a chunk of files
+    const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
     size_t processed = 0;
     while (processed < SCAN_CHUNK_SIZE && !scanComplete) {
         currentFile = scanDir.openNextFile();
@@ -214,13 +298,15 @@ void CapturesMenu::processAsyncScan() {
             break;
         }
 
-        // Zero-String scan: use const char* from File directly
-        const char* name = currentFile.name();
+        // Normalize to basename: some FS drivers return full paths.
+        const char* rawName = currentFile.name();
+        const char* slash = strrchr(rawName, '/');
+        const char* name = slash ? slash + 1 : rawName;
         size_t nameLen = strlen(name);
 
-        bool isPCAP = (nameLen > 5 && strcmp(name + nameLen - 5, ".pcap") == 0);
-        bool isHS22000 = (nameLen > 9 && strcmp(name + nameLen - 9, "_hs.22000") == 0);
-        bool isPMKID = !isHS22000 && (nameLen > 6 && strcmp(name + nameLen - 6, ".22000") == 0);
+        bool isPCAP = endsWithIgnoreCase(name, ".pcap");
+        bool isHS22000 = endsWithIgnoreCase(name, "_hs.22000");
+        bool isPMKID = !isHS22000 && endsWithIgnoreCase(name, ".22000");
 
         // Skip PCAP if we have the corresponding _hs.22000 (avoid duplicates).
         if (isPCAP) {
@@ -229,7 +315,7 @@ void CapturesMenu::processAsyncScan() {
             size_t baseLen = dot ? (size_t)(dot - name) : nameLen;
             char hs22kPath[80];
             snprintf(hs22kPath, sizeof(hs22kPath), "%s/%.*s_hs.22000",
-                     SDLayout::handshakesDir(), (int)baseLen, name);
+                     scanRoot, (int)baseLen, name);
             if (SD.exists(hs22kPath)) {
                 currentFile.close();
                 processed++;
@@ -266,10 +352,10 @@ void CapturesMenu::processAsyncScan() {
                 char txtPath[80];
                 if (isPMKID) {
                     snprintf(txtPath, sizeof(txtPath), "%s/%.12s_pmkid.txt",
-                             SDLayout::handshakesDir(), name);
+                             scanRoot, name);
                 } else {
                     snprintf(txtPath, sizeof(txtPath), "%s/%.12s.txt",
-                             SDLayout::handshakesDir(), name);
+                             scanRoot, name);
                 }
                 if (SD.exists(txtPath)) {
                     File txtFile = SD.open(txtPath, FILE_READ);
@@ -585,12 +671,21 @@ void CapturesMenu::draw(M5Canvas& canvas) {
     }
 
     if (captures.empty()) {
-        canvas.setCursor(4, 36);
-        canvas.print("NO CAPTURES FOUND");
-        canvas.setCursor(4, 52);
-        canvas.print("PRESS [O] FOR OINK");
-        canvas.setCursor(4, 68);
-        canvas.print("SYNC VIA COMMANDER");
+        if (scanDeferredHeap) {
+            canvas.setCursor(4, 36);
+            canvas.print("SCAN DEFERRED");
+            canvas.setCursor(4, 52);
+            canvas.print("HEAP PRESSURE TOO HIGH");
+            canvas.setCursor(4, 68);
+            canvas.print("FREE MEMORY THEN RETRY");
+        } else {
+            canvas.setCursor(4, 36);
+            canvas.print("NO CAPTURES FOUND");
+            canvas.setCursor(4, 52);
+            canvas.print("PRESS [O] FOR OINK");
+            canvas.setCursor(4, 68);
+            canvas.print("SYNC VIA COMMANDER");
+        }
         return;
     }
 
@@ -721,8 +816,9 @@ void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
     
     // Hacker edgy message
     canvas.drawString("!! SCORCHED EARTH !!", centerX, boxY + 8);
+    const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
     char cmd[56];
-    snprintf(cmd, sizeof(cmd), "rm -rf %s/*", SDLayout::handshakesDir());
+    snprintf(cmd, sizeof(cmd), "rm -rf %s/*", scanRoot);
     canvas.drawString(cmd, centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE LOOT.", centerX, boxY + 36);
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
@@ -731,7 +827,7 @@ void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
 void CapturesMenu::nukeLoot() {
     Serial.println("[CAPTURES] Nuking all loot...");
     
-    const char* handshakesDir = SDLayout::handshakesDir();
+    const char* handshakesDir = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
     if (!SD.exists(handshakesDir)) {
         return;
     }
@@ -915,6 +1011,7 @@ void CapturesMenu::drawDetailView(M5Canvas& canvas) {
 
     // Try to parse .22000 file for HS details
     // Build path to the .22000 file
+    const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
     char hsPath[80];
     // Get base from filename
     const char* dot = strrchr(cap.filename, '.');
@@ -924,14 +1021,14 @@ void CapturesMenu::drawDetailView(M5Canvas& canvas) {
 
     if (cap.isPMKID) {
         // PMKID: filename is already .22000
-        snprintf(hsPath, sizeof(hsPath), "%s/%s", SDLayout::handshakesDir(), cap.filename);
+        snprintf(hsPath, sizeof(hsPath), "%s/%s", scanRoot, cap.filename);
     } else if (hasHsSuffix) {
         // _hs.22000 file
-        snprintf(hsPath, sizeof(hsPath), "%s/%s", SDLayout::handshakesDir(), cap.filename);
+        snprintf(hsPath, sizeof(hsPath), "%s/%s", scanRoot, cap.filename);
     } else {
         // .pcap — try corresponding _hs.22000
         snprintf(hsPath, sizeof(hsPath), "%s/%.*s_hs.22000",
-                 SDLayout::handshakesDir(), (int)baseLen, cap.filename);
+                 scanRoot, (int)baseLen, cap.filename);
     }
 
     // Cache: only parse once per detail view open

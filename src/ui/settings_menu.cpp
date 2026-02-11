@@ -123,10 +123,10 @@ static const EntryData kNetEntries[] = {
 
 static const EntryData kIntegEntries[] = {
     {SET_WPASEC_STATUS, "WPA-SEC", SettingType::TEXT, 0, 0, 0, "", "WPA-SEC.STANEV.ORG KEY"},
-    {SET_WPASEC_LOAD, "KEY LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WPASEC_KEY.TXT"},
+    {SET_WPASEC_LOAD, "KEY LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WPASEC_KEY.TXT (ROOT|M5PORKCHOP)"},
     {SET_WIGLE_NAME_STATUS, "WGL NAME", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API NAME"},
     {SET_WIGLE_TOKEN_STATUS, "WGL TKN", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API TOKEN"},
-    {SET_WIGLE_LOAD, "WGL LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WIGLE_KEY.TXT"}
+    {SET_WIGLE_LOAD, "WGL LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WIGLE_KEY.TXT (ROOT|M5PORKCHOP)"}
 };
 
 static const EntryData kRadioEntries[] = {
@@ -164,7 +164,8 @@ static const EntryData kC5Entries[] = {
     {SET_C5_TX_PIN, "C5 TX PIN", SettingType::VALUE, 1, 46, 1, "", "G2=GROVE DEFAULT"},
     {SET_C5_RX_PIN, "C5 RX PIN", SettingType::VALUE, 1, 46, 1, "", "G1=GROVE DEFAULT"},
     {SET_C5_BAUD, "C5 BAUD", SettingType::VALUE, 0, 3, 1, "", "UART SPEED"},
-    {SET_C5_SCAN_INTV, "SCAN INTV", SettingType::VALUE, 0, 120, 5, "S", "0 = MANUAL ONLY"}
+    // NOTE: Stored as uint16_t milliseconds (Config::c5().scanIntervalMs), so cap at 65s to avoid overflow.
+    {SET_C5_SCAN_INTV, "SCAN INTV", SettingType::VALUE, 0, 65, 5, "S", "0 = MANUAL ONLY"}
 };
 
 // ML entries removed for heap savings
@@ -830,7 +831,9 @@ static bool setSettingValue(SettingId id, int value) {
             return true;
         }
         case SET_C5_SCAN_INTV: {
-            uint16_t newMs = static_cast<uint16_t>(value * 1000);
+            uint32_t ms = (value <= 0) ? 0u : (uint32_t)value * 1000u;
+            if (ms > 65535u) ms = 65535u;
+            uint16_t newMs = (uint16_t)ms;
             if (Config::c5().scanIntervalMs == newMs) return false;
             Config::c5().scanIntervalMs = newMs;
             return true;
@@ -1181,7 +1184,8 @@ void SettingsMenu::handleInput() {
                         } else if (!Config::isSDAvailable()) {
                             Display::notify(NoticeKind::WARNING, "NO SD CARD");
                         } else if (!SD.exists(SDLayout::wpasecKeyPath()) &&
-                                   !SD.exists(SDLayout::legacyWpasecKeyPath())) {
+                                   !SD.exists(SDLayout::legacyWpasecKeyPath()) &&
+                                   !SD.exists("/m5porkchop/wpa-sec/wpasec_key.txt")) {
                             Display::notify(NoticeKind::WARNING, "NO KEY FILE");
                         } else {
                             Display::notify(NoticeKind::WARNING, "INVALID KEY");
@@ -1192,7 +1196,8 @@ void SettingsMenu::handleInput() {
                         } else if (!Config::isSDAvailable()) {
                             Display::notify(NoticeKind::WARNING, "NO SD CARD");
                         } else if (!SD.exists(SDLayout::wigleKeyPath()) &&
-                                   !SD.exists(SDLayout::legacyWigleKeyPath())) {
+                                   !SD.exists(SDLayout::legacyWigleKeyPath()) &&
+                                   !SD.exists("/m5porkchop/wigle/wigle_key.txt")) {
                             Display::notify(NoticeKind::WARNING, "NO KEY FILE");
                         } else {
                             Display::notify(NoticeKind::WARNING, "INVALID FORMAT");

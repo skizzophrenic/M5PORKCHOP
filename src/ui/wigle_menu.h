@@ -63,8 +63,10 @@ private:
     
     // Async scan state
     static bool scanInProgress;
+    static bool scanDeferredHeap;   // true when scan was skipped due to heap pressure
     static unsigned long lastScanTime;
     static const unsigned long SCAN_DELAY = 50; // ms between scan chunks
+    static char scanBaseDir[32];   // Actual directory used for current scan
     static File scanDir;
     static File currentFile;
     static bool scanComplete;

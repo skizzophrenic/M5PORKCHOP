@@ -860,16 +860,17 @@ void Config::setC5(const C5Config& cfg) {
 bool Config::loadWpaSecKeyFromFile() {
     const char* keyFile = SDLayout::wpasecKeyPath();
     const char* legacyKeyFile = SDLayout::legacyWpasecKeyPath();
+    static constexpr const char* kNewKeyFile = "/m5porkchop/wpa-sec/wpasec_key.txt";
 
     if (!sdAvailable) {
         return false;
     }
-    if (!SD.exists(keyFile) && SD.exists(legacyKeyFile)) {
-        keyFile = legacyKeyFile;
-    }
+    // Mixed-layout fallback: if SDLayout is out of sync with what's on disk, still accept the key.
     if (!SD.exists(keyFile)) {
-        return false;
+        if (SD.exists(kNewKeyFile)) keyFile = kNewKeyFile;
+        else if (SD.exists(legacyKeyFile)) keyFile = legacyKeyFile;
     }
+    if (!SD.exists(keyFile)) return false;
 
     File f = SD.open(keyFile, FILE_READ);
     if (!f) {
@@ -915,16 +916,17 @@ bool Config::loadWpaSecKeyFromFile() {
 bool Config::loadWigleKeyFromFile() {
     const char* keyFile = SDLayout::wigleKeyPath();
     const char* legacyKeyFile = SDLayout::legacyWigleKeyPath();
+    static constexpr const char* kNewKeyFile = "/m5porkchop/wigle/wigle_key.txt";
 
     if (!sdAvailable) {
         return false;
     }
-    if (!SD.exists(keyFile) && SD.exists(legacyKeyFile)) {
-        keyFile = legacyKeyFile;
-    }
+    // Mixed-layout fallback: if SDLayout is out of sync with what's on disk, still accept the key.
     if (!SD.exists(keyFile)) {
-        return false;
+        if (SD.exists(kNewKeyFile)) keyFile = kNewKeyFile;
+        else if (SD.exists(legacyKeyFile)) keyFile = legacyKeyFile;
     }
+    if (!SD.exists(keyFile)) return false;
 
     File f = SD.open(keyFile, FILE_READ);
     if (!f) {

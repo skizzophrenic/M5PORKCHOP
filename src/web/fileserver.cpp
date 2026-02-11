@@ -224,6 +224,12 @@ static String mapUiPathToFs(const String& path) {
     if (path.isEmpty()) return path;
     if (SDLayout::usingNewLayout()) return path;
     
+    // Mixed-layout safety: if the path exists on-disk, do not remap it.
+    // This prevents "virtual folder" remaps from hiding real directories.
+    if (SD.exists(path.c_str())) {
+        return path;
+    }
+
     const char* root = SDLayout::newRoot();
     const size_t rootLen = root ? strlen(root) : 0;
     if (rootLen == 0) return path;
@@ -239,6 +245,12 @@ static String mapUiPathToFs(const String& path) {
     // Path starts with root - check what follows
     const char* suffix = p + rootLen;
     const size_t suffixLen = pathLen - rootLen;
+
+    // If the stripped suffix exists as a legacy path (e.g. /handshakes), use it.
+    // This keeps the web UI stable when the SD is still on the legacy layout.
+    if (suffixLen > 0 && suffix[0] == '/' && SD.exists(suffix)) {
+        return String(suffix);  // Only one String allocation for result
+    }
     
     // Direct virtual folder mappings (e.g., /porkchop/config -> /)
     static const char* const VIRTUAL_FOLDERS[] = {

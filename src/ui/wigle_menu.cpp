@@ -22,7 +22,9 @@ bool WigleMenu::keyWasPressed = false;
 bool WigleMenu::detailViewActive = false;
 bool WigleMenu::nukeConfirmActive = false;
 bool WigleMenu::scanInProgress = false;
+bool WigleMenu::scanDeferredHeap = false;
 unsigned long WigleMenu::lastScanTime = 0;
+char WigleMenu::scanBaseDir[32] = "";
 File WigleMenu::scanDir;
 File WigleMenu::currentFile;
 bool WigleMenu::scanComplete = false;
@@ -41,6 +43,72 @@ uint8_t WigleMenu::syncSkipped = 0;
 bool WigleMenu::syncStatsFetched = false;
 char WigleMenu::syncError[48] = "";
 
+namespace {
+
+static bool endsWithIgnoreCase(const char* value, const char* suffix) {
+    if (!value || !suffix) return false;
+    size_t valueLen = strlen(value);
+    size_t suffixLen = strlen(suffix);
+    if (suffixLen == 0 || valueLen < suffixLen) return false;
+    const char* tail = value + valueLen - suffixLen;
+    for (size_t i = 0; i < suffixLen; i++) {
+        char a = tail[i];
+        char b = suffix[i];
+        if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+        if (a != b) return false;
+    }
+    return true;
+}
+
+static bool dirHasWigleFiles(const char* dirPath) {
+    if (!dirPath || !SD.exists(dirPath)) return false;
+
+    File dir = SD.open(dirPath);
+    if (!dir || !dir.isDirectory()) {
+        if (dir) dir.close();
+        return false;
+    }
+
+    File entry = dir.openNextFile();
+    while (entry) {
+        if (!entry.isDirectory()) {
+            const char* rawName = entry.name();
+            const char* slash = strrchr(rawName, '/');
+            const char* name = slash ? slash + 1 : rawName;
+            if (endsWithIgnoreCase(name, ".wigle.csv")) {
+                entry.close();
+                dir.close();
+                return true;
+            }
+        }
+        entry.close();
+        entry = dir.openNextFile();
+        yield();
+    }
+
+    dir.close();
+    return false;
+}
+
+static const char* resolveWigleScanDir() {
+    const char* preferredDir = SDLayout::wardrivingDir();
+    const char* fallbackDir = SDLayout::usingNewLayout() ? "/wardriving" : "/m5porkchop/wardriving";
+    if (strcmp(preferredDir, fallbackDir) == 0) return preferredDir;
+
+    const bool preferredHasFiles = dirHasWigleFiles(preferredDir);
+    const bool fallbackHasFiles = dirHasWigleFiles(fallbackDir);
+    if (!preferredHasFiles && fallbackHasFiles) {
+        return fallbackDir;
+    }
+
+    if (SD.exists(preferredDir)) return preferredDir;
+    if (SD.exists(fallbackDir)) return fallbackDir;
+    return preferredDir;
+}
+
+} // namespace
+
 static void formatDisplayName(const char* filename, char* out, size_t len, size_t maxChars,
                               const char* ellipsis, bool stripDecorators) {
     if (!out || len == 0) return;
@@ -55,7 +123,7 @@ static void formatDisplayName(const char* filename, char* out, size_t len, size_
         if (total >= 7 && strncmp(name, "warhog_", 7) == 0) start = 7;
         const char* suffix = ".wigle.csv";
         const size_t suffixLen = 10;
-        if (total >= suffixLen && strcmp(name + total - suffixLen, suffix) == 0) {
+        if (total >= suffixLen && endsWithIgnoreCase(name, suffix)) {
             end = total - suffixLen;
         }
     }
@@ -88,6 +156,7 @@ void WigleMenu::init() {
     files.clear();
     selectedIndex = 0;
     scrollOffset = 0;
+    scanDeferredHeap = false;
 }
 
 void WigleMenu::show() {
@@ -109,12 +178,15 @@ void WigleMenu::hide() {
     files.clear();  // Release memory when not in menu
     files.shrink_to_fit();
     WiGLE::freeUploadedListMemory();
+    scanDeferredHeap = false;
+    scanBaseDir[0] = '\0';
 }
 
 void WigleMenu::scanFiles() {
     // Initialize async scan
     files.clear();
     files.reserve(8);  // Grow naturally — reserve(50) was 6.8KB contiguous
+    scanDeferredHeap = false;
     
     if (!Config::isSDAvailable()) {
         Serial.println("[WIGLE_MENU] SD card not available");
@@ -123,15 +195,24 @@ void WigleMenu::scanFiles() {
         return;
     }
 
-    // Guard: Skip SD scan at Warning+ pressure — file ops allocate FAT buffers
-    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Warning) {
+    // Guard: Skip SD scan at Critical pressure — file listing only needs small FAT buffers
+    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Critical) {
         Serial.println("[WIGLE_MENU] Scan deferred: heap pressure");
+        scanDeferredHeap = true;
         scanComplete = true;
         scanInProgress = false;
         return;
     }
     
-    const char* wigleDir = SDLayout::wardrivingDir();
+    const char* preferredDir = SDLayout::wardrivingDir();
+    const char* wigleDir = resolveWigleScanDir();
+    if (strcmp(wigleDir, preferredDir) != 0) {
+        Serial.printf("[WIGLE_MENU] Using fallback scan dir: %s (preferred %s)\n",
+                      wigleDir, preferredDir);
+    }
+    strncpy(scanBaseDir, wigleDir, sizeof(scanBaseDir) - 1);
+    scanBaseDir[sizeof(scanBaseDir) - 1] = '\0';
+
     scanDir = SD.open(wigleDir);
     if (!scanDir || !scanDir.isDirectory()) {
         Serial.println("[WIGLE_MENU] Wardriving directory not found");
@@ -160,6 +241,7 @@ void WigleMenu::processAsyncScan() {
     lastScanTime = millis();
     
     // Process a chunk of files
+    const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::wardrivingDir();
     size_t processed = 0;
     while (processed < SCAN_CHUNK_SIZE && !scanComplete) {
         currentFile = scanDir.openNextFile();
@@ -180,16 +262,15 @@ void WigleMenu::processAsyncScan() {
         }
         
         if (!currentFile.isDirectory()) {
-            const char* name = currentFile.name();
-            size_t nameLen = strlen(name);
+            const char* rawName = currentFile.name();
+            const char* slash = strrchr(rawName, '/');
+            const char* base = slash ? slash + 1 : rawName;
             // Only show WiGLE format files (*.wigle.csv)
-            if (nameLen > 10 && strcmp(name + nameLen - 10, ".wigle.csv") == 0) {
+            if (endsWithIgnoreCase(base, ".wigle.csv")) {
                 WigleFileInfo info;
                 memset(&info, 0, sizeof(info));
-                const char* slash = strrchr(name, '/');
-                const char* base = slash ? slash + 1 : name;
                 strncpy(info.filename, base, sizeof(info.filename) - 1);
-                snprintf(info.fullPath, sizeof(info.fullPath), "%s/%s", SDLayout::wardrivingDir(), base);
+                snprintf(info.fullPath, sizeof(info.fullPath), "%s/%s", scanRoot, base);
                 info.fileSize = currentFile.size();
                 // Estimate network count: ~150 bytes per line after header
                 info.networkCount = info.fileSize > 300 ? (info.fileSize - 300) / 150 : 0;
@@ -378,12 +459,21 @@ void WigleMenu::draw(M5Canvas& canvas) {
     
     // Empty state
     if (files.empty()) {
-        canvas.setCursor(4, 36);
-        canvas.print("NO WIGLE FILES");
-        canvas.setCursor(4, 52);
-        canvas.print("PRESS [W] FOR WARHOG");
-        canvas.setCursor(4, 68);
-        canvas.print("[S] TO SYNC");
+        if (scanDeferredHeap) {
+            canvas.setCursor(4, 36);
+            canvas.print("SCAN DEFERRED");
+            canvas.setCursor(4, 52);
+            canvas.print("HEAP PRESSURE TOO HIGH");
+            canvas.setCursor(4, 68);
+            canvas.print("FREE MEMORY THEN RETRY");
+        } else {
+            canvas.setCursor(4, 36);
+            canvas.print("NO WIGLE FILES");
+            canvas.setCursor(4, 52);
+            canvas.print("PRESS [W] FOR WARHOG");
+            canvas.setCursor(4, 68);
+            canvas.print("[S] TO SYNC");
+        }
         return;
     }
     
@@ -567,9 +657,11 @@ void WigleMenu::nukeTrack() {
     char internalPath[80];
     strncpy(internalPath, file.fullPath, sizeof(internalPath) - 1);
     internalPath[sizeof(internalPath) - 1] = '\0';
-    char* wigleSuffix = strstr(internalPath, ".wigle.csv");
-    if (wigleSuffix) {
-        strcpy(wigleSuffix, ".csv");
+    const size_t wigleSuffixLen = 10;
+    size_t internalLen = strlen(internalPath);
+    if (internalLen > wigleSuffixLen && endsWithIgnoreCase(internalPath, ".wigle.csv")) {
+        internalPath[internalLen - wigleSuffixLen] = '\0';
+        strncat(internalPath, ".csv", sizeof(internalPath) - strlen(internalPath) - 1);
         if (SD.exists(internalPath)) {
             SD.remove(internalPath);
             Serial.printf("[WIGLE_MENU] Also nuked: %s\n", internalPath);

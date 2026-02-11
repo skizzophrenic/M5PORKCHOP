@@ -73,6 +73,7 @@ static bool            parsing5GHz = false;
 
 // Packet monitor
 static uint32_t pktPerSecond = 0;
+static uint8_t  pktMonChannel = 1;
 
 // Target BSSID for sequenced operations
 static uint8_t targetBssid[6];
@@ -157,6 +158,7 @@ static bool deriveNamingFromC5Filename(const char* filename, uint8_t outBssid[6]
 static void abortTransfer(const char* reason);
 static bool startTransferForRemotePath(const char* remotePath, const uint8_t bssidForName[6], const char* ssidForName);
 static void sendFileGetForRemotePath(const char* remotePath);
+static void enterDisconnected(const char* reason);
 
 // ============================================================================
 // 5GHz Channel Mapping
@@ -323,13 +325,17 @@ void MonsterC5::update() {
         case C5State::CONNECTED:
             // Heartbeat: if no data for HEARTBEAT_STALE_MS, probe
             if (now - lastRxMs >= HEARTBEAT_STALE_MS) {
-                sendCommand("ping");
-                lastPingMs = now;
+                // Throttle probes: without this, we'd spam "ping" every loop iteration.
+                if (now - lastPingMs >= HEARTBEAT_PROBE_MS) {
+                    sendCommand("ping");
+                    lastPingMs = now;
+                }
                 if (now - lastRxMs >= HEARTBEAT_STALE_MS + HEARTBEAT_PROBE_MS) {
                     C5_LOGF("Heartbeat lost, reconnecting");
-                    setState(C5State::DISCONNECTED);
+                    enterDisconnected("C5 HEARTBEAT LOST");
                 }
             }
+            if (state != C5State::CONNECTED) break;
 
             // Capabilities probe (best-effort, one-shot per connect)
             if (capsProbePending && !capsProbeSent && currentOp == C5Op::NONE) {
@@ -444,8 +450,11 @@ void MonsterC5::update() {
             // Heartbeat still applies
             if (now - lastRxMs >= HEARTBEAT_STALE_MS + HEARTBEAT_PROBE_MS) {
                 C5_LOGF("Monitor heartbeat lost");
-                setState(C5State::DISCONNECTED);
+                enterDisconnected("C5 MONITOR LOST");
             }
+            if (state != C5State::MONITORING) break;
+            // Allow STOPPING -> next monitor transition even if C5 doesn't emit stop markers.
+            advanceSequencer();
             break;
 
         case C5State::ERROR:
@@ -645,13 +654,20 @@ bool MonsterC5::requestPacketMonitor(uint8_t channel) {
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
     currentOp = C5Op::PACKET_MONITOR;
-    setState(C5State::MONITORING);
-    setSeqStep(SeqStep::PACKET_MONITOR_ACTIVE);
+    pktMonChannel = channel;
     pktPerSecond = 0;
 
-    char cmd[32];
-    snprintf(cmd, sizeof(cmd), "packet_monitor %d", channel);
-    sendCommand(cmd);
+    if (state != C5State::CONNECTED) {
+        // Something else is running — go through STOPPING sequence
+        setSeqStep(SeqStep::STOPPING);
+        sendCommand("stop");
+    } else {
+        setState(C5State::MONITORING);
+        setSeqStep(SeqStep::PACKET_MONITOR_ACTIVE);
+        char cmd[32];
+        snprintf(cmd, sizeof(cmd), "packet_monitor %d", (int)pktMonChannel);
+        sendCommand(cmd);
+    }
     C5_LOGF("Packet monitor ch%d requested", channel);
     return true;
 }
@@ -791,6 +807,29 @@ static void setState(C5State newState) {
 static void setSeqStep(SeqStep step) {
     seqStep = step;
     seqStepEnteredMs = millis();
+}
+
+static void enterDisconnected(const char* reason) {
+    if (state == C5State::OFF || state == C5State::DISCONNECTED) return;
+
+    // Move to DISCONNECTED first so abortTransfer() won't bounce state back to CONNECTED.
+    setState(C5State::DISCONNECTED);
+
+    // If an import is in progress, close handles and remove partial output.
+    if (currentOp == C5Op::IMPORT_HANDSHAKES) {
+        abortTransfer((reason && reason[0]) ? reason : "C5 LINK LOST");
+    }
+
+    // Any in-flight op is invalid once the UART link drops.
+    if (currentOp == C5Op::HANDSHAKE && hsResult == HandshakeResult::IN_PROGRESS) {
+        hsResult = HandshakeResult::FAILED;
+    }
+
+    currentOp = C5Op::NONE;
+    setSeqStep(SeqStep::IDLE);
+    parsingChannelView = false;
+    parsing5GHz = false;
+    pktPerSecond = 0;
 }
 
 // ============================================================================
@@ -1070,6 +1109,11 @@ static void processLine(const char* line) {
     if (strcmp(line, "pong") == 0) {
         if (state == C5State::DISCONNECTED || state == C5State::ERROR) {
             setState(C5State::CONNECTED);
+            currentOp = C5Op::NONE;
+            setSeqStep(SeqStep::IDLE);
+            parsingChannelView = false;
+            parsing5GHz = false;
+            pktPerSecond = 0;
             Display::notify(NoticeKind::STATUS, "C5 BOARD LINKED", 2000, NoticeChannel::TOP_BAR);
             Mood::setStatusMessage("5ghz linked up");
             Avatar::cuteJump();
@@ -1429,6 +1473,12 @@ static void advanceSequencer() {
                  } else if (currentOp == C5Op::CHANNEL_VIEW) {
                      setSeqStep(SeqStep::CHANNEL_VIEW_ACTIVE);
                      sendCommand("channel_view");
+                     setState(C5State::MONITORING);
+                 } else if (currentOp == C5Op::PACKET_MONITOR) {
+                     char cmd[32];
+                     snprintf(cmd, sizeof(cmd), "packet_monitor %d", (int)pktMonChannel);
+                     setSeqStep(SeqStep::PACKET_MONITOR_ACTIVE);
+                     sendCommand(cmd);
                      setState(C5State::MONITORING);
                  } else if (currentOp == C5Op::IMPORT_HANDSHAKES) {
                      // List handshakes on the C5 SD, then pull the newest .pcap.
