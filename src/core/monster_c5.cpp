@@ -10,6 +10,7 @@
 #include "heap_gates.h"
 #include "network_recon.h"
 #include "../gps/gps.h"
+#include <TinyGPSPlus.h>
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../ui/display.h"
@@ -54,7 +55,7 @@ static uint16_t linePos = 0;
 static bool     lineOverflow = false;  // Drop oversize lines safely until newline
 
 // Scan cache
-static constexpr uint8_t SCAN_CACHE_MAX = 128;
+static constexpr uint8_t SCAN_CACHE_MAX = 64;
 // Double-buffered: keep last completed scan visible during an active scan.
 // This prevents Spectrum's 5GHz overlay from flickering to "no data" between scans.
 static C5ScanEntry  scanCacheA[SCAN_CACHE_MAX];
@@ -125,6 +126,13 @@ static bool     gpsPaused = false;
 static uint32_t lastAutoScanMs = 0;
 static bool     firstScanDone = false;
 
+// GPS forwarding from C5 (start_gps_raw NMEA passthrough)
+static TinyGPSPlus c5Gps;
+static GPSData     c5GpsData = {0};
+static bool        c5GpsForwarding = false;  // start_gps_raw sent and active
+static bool        c5GpsPendingStart = false; // queued, waiting for CONNECTED+idle
+static uint32_t    c5GpsLastFixMs = 0;
+
 // Protocol timing constants
 static constexpr uint32_t PING_INTERVAL_MS      = 2000;
 static constexpr uint32_t DETECT_TIMEOUT_MS     = 30000;
@@ -159,6 +167,8 @@ static void abortTransfer(const char* reason);
 static bool startTransferForRemotePath(const char* remotePath, const uint8_t bssidForName[6], const char* ssidForName);
 static void sendFileGetForRemotePath(const char* remotePath);
 static void enterDisconnected(const char* reason);
+static void feedNmeaLine(const char* line);
+static void updateC5GpsData();
 
 // ============================================================================
 // 5GHz Channel Mapping
@@ -348,6 +358,14 @@ void MonsterC5::update() {
                 capsProbePending = false;
             }
 
+            // GPS forwarding: send start_gps_raw once idle after connect
+            if (c5GpsPendingStart && currentOp == C5Op::NONE) {
+                sendCommand("start_gps_raw");
+                c5GpsForwarding = true;
+                c5GpsPendingStart = false;
+                C5_LOGF("GPS forwarding started (local GPS paused)");
+            }
+
             // Auto-import: after a 5GHz handshake capture, pull the newest C5 handshake to local SD.
             if (importPendingAuto && currentOp == C5Op::NONE) {
                 if (caps.valid) {
@@ -483,6 +501,11 @@ void MonsterC5::shutdown() {
     // If a file transfer is in progress, close handles and remove partial output.
     abortTransfer(nullptr);
     Serial1.end();
+
+    // Stop GPS forwarding before waking local GPS
+    c5GpsForwarding = false;
+    c5GpsPendingStart = false;
+    memset(&c5GpsData, 0, sizeof(c5GpsData));
 
     if (gpsPaused) {
         GPS::wake();
@@ -830,6 +853,12 @@ static void enterDisconnected(const char* reason) {
     parsingChannelView = false;
     parsing5GHz = false;
     pktPerSecond = 0;
+
+    // GPS forwarding lost — will re-start on next pong
+    if (c5GpsForwarding) {
+        c5GpsForwarding = false;
+        c5GpsPendingStart = true;  // re-queue for reconnect
+    }
 }
 
 // ============================================================================
@@ -838,6 +867,16 @@ static void enterDisconnected(const char* reason) {
 
 static void processLine(const char* line) {
     if (!line || line[0] == '\0') return;
+
+    // --- NMEA sentences from C5 GPS forwarding (start_gps_raw) ---
+    if (line[0] == '$' && (strncmp(line + 1, "GP", 2) == 0 ||
+                           strncmp(line + 1, "GN", 2) == 0 ||
+                           strncmp(line + 1, "GL", 2) == 0 ||
+                           strncmp(line + 1, "GA", 2) == 0 ||
+                           strncmp(line + 1, "BD", 2) == 0)) {
+        feedNmeaLine(line);
+        return;
+    }
 
     // --- Capabilities probe response ---
     // Expected (patched) format: pork_caps|proto=<n>|file_get=<0|1>|fw=<tag>
@@ -1123,6 +1162,11 @@ static void processLine(const char* line) {
                 c5XpAwarded = true;
             }
             C5_LOGF("Board connected");
+
+            // Auto-start GPS forwarding if local GPS was paused for C5 pins
+            if (gpsPaused && !c5GpsForwarding) {
+                c5GpsPendingStart = true;
+            }
 
             // Reset and probe caps on each (re)connect.
             memset(&caps, 0, sizeof(caps));
@@ -1577,6 +1621,7 @@ static void injectScanIntoRecon() {
             NET_SOURCE_C5
         );
         injected++;
+        if (injected % 8 == 0) yield();
     }
     C5_LOGF("Injected %d 5GHz networks into recon", injected);
 }
@@ -1838,4 +1883,54 @@ static bool startTransferForRemotePath(const char* remotePath, const uint8_t bss
     Display::notify(NoticeKind::STATUS, "IMPORTING FROM C5...", 1500, NoticeChannel::TOP_BAR);
     sendFileGetForRemotePath(remotePath);
     return true;
+}
+
+// ============================================================================
+// C5 GPS Forwarding (start_gps_raw NMEA passthrough)
+// ============================================================================
+
+static void feedNmeaLine(const char* line) {
+    // Feed each character of the NMEA sentence to TinyGPSPlus, including
+    // a trailing newline to mark sentence end.
+    for (const char* p = line; *p; p++) {
+        c5Gps.encode(*p);
+    }
+    c5Gps.encode('\n');
+
+    updateC5GpsData();
+}
+
+static void updateC5GpsData() {
+    bool valid = c5Gps.location.isValid();
+    uint32_t age = c5Gps.location.age();
+    bool fix = valid && (age < 30000);
+
+    c5GpsData.latitude   = c5Gps.location.lat();
+    c5GpsData.longitude  = c5Gps.location.lng();
+    c5GpsData.altitude   = c5Gps.altitude.meters();
+    c5GpsData.speed      = c5Gps.speed.kmph();
+    c5GpsData.course     = c5Gps.course.deg();
+    c5GpsData.satellites  = c5Gps.satellites.value();
+    c5GpsData.hdop       = c5Gps.hdop.value();
+    c5GpsData.date       = c5Gps.date.isValid() ? c5Gps.date.value() : 0;
+    c5GpsData.time       = c5Gps.time.isValid() ? c5Gps.time.value() : 0;
+    c5GpsData.age        = age;
+    c5GpsData.valid      = valid;
+    c5GpsData.fix        = fix;
+
+    if (fix) {
+        c5GpsLastFixMs = millis();
+    }
+}
+
+bool MonsterC5::hasC5GPSFix() {
+    return c5GpsForwarding && c5GpsData.fix;
+}
+
+GPSData MonsterC5::getC5GPSData() {
+    return c5GpsData;
+}
+
+bool MonsterC5::isGPSForwarding() {
+    return c5GpsForwarding;
 }

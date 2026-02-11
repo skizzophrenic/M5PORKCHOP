@@ -477,11 +477,17 @@ void OinkMode::stop() {
     // Process any deferred XP saves
     XP::processPendingSave();
     
+    // Cancel any in-progress C5 5GHz attack before clearing state
+    if (c5HandshakeRequested) {
+        MonsterC5::requestStop();
+        MonsterC5::clearHandshakeResult();
+    }
+    clearTarget();
+
     // Reset beacon frame (static storage, no free)
     beaconFrame = beaconFrameStorage;
     beaconFrameLen = 0;
     beaconCaptured = false;
-    clearTargetClients();
     
     // Free per-handshake beacon memory to prevent leaks on repeated start/stop
     for (auto& hs : handshakes) {

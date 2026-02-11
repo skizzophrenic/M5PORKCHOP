@@ -683,9 +683,13 @@ void WarhogMode::processScanResults() {
         return;
     }
     
-    // Get current GPS data - check for valid fix
+    // Get current GPS data - check for valid fix, fall back to C5 GPS if local unavailable
     GPSData gpsData = GPS::getData();
     bool hasGPS = GPS::hasFix();
+    if (!hasGPS && MonsterC5::hasC5GPSFix()) {
+        gpsData = MonsterC5::getC5GPSData();
+        hasGPS = true;
+    }
     
     SDLOG("WARHOG", "Processing %d networks (GPS: %s)", n, hasGPS ? "yes" : "no");
     

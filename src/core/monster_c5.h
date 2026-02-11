@@ -8,6 +8,7 @@
 #include <esp_wifi.h>
 
 #include "network_source.h"
+#include "../gps/gps.h"  // GPSData struct
 
 enum class C5State : uint8_t {
     OFF,            // Config disabled or not initialized
@@ -118,6 +119,14 @@ uint32_t getPacketsPerSecond();
 
 uint8_t getScanCount();
 const C5ScanEntry* getScanEntry(uint8_t index);
+
+// ============================================================================
+// C5 GPS Forwarding (start_gps_raw passthrough)
+// ============================================================================
+
+bool    hasC5GPSFix();          // True when C5 is forwarding valid GPS data
+GPSData getC5GPSData();         // Latest GPS fix from C5 (zeroed if no fix)
+bool    isGPSForwarding();      // True when start_gps_raw is active
 
 // ============================================================================
 // Status String (for UI overlay)
