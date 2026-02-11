@@ -900,6 +900,11 @@ static void enterDisconnected(const char* reason) {
         c5GpsAwaitingStart = false;
         c5GpsConfigSent = false;
         c5GpsPendingStart = true;  // re-queue for reconnect
+        // Clear cached fix data and reset parser so reconnect starts fresh.
+        // Without this, a brief disconnect (<30s) could expose stale coordinates
+        // for ~1-2s until new NMEA overwrites the TinyGPSPlus state.
+        memset(&c5GpsData, 0, sizeof(c5GpsData));
+        c5Gps = TinyGPSPlus();
     }
 }
 
