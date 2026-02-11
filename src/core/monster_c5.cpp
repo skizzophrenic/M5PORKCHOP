@@ -1991,6 +1991,7 @@ static void updateC5GpsData() {
     if (fix) {
         c5GpsLastFixMs = millis();
         if (!prevFix) {
+            GPS::maybeSyncSystemTime(c5GpsData.date, c5GpsData.time);
             char buf[40];
             snprintf(buf, sizeof(buf), "C5 GPS FIX %dSAT", c5GpsData.satellites);
             Display::notify(NoticeKind::STATUS, buf, 2500, NoticeChannel::TOP_BAR);

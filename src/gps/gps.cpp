@@ -5,6 +5,7 @@
 #include "../core/sdlog.h"
 #include "../piglet/mood.h"
 #include "../ui/display.h"
+#include <sys/time.h>
 
 // Static members
 TinyGPSPlus GPS::gps;
@@ -15,6 +16,7 @@ uint32_t GPS::fixCount = 0;
 uint32_t GPS::lastFixTime = 0;
 uint32_t GPS::lastUpdateTime = 0;
 SemaphoreHandle_t GPS::mutex = nullptr;
+static bool gpsTimeSynced = false;
 
 void GPS::init(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
     // GPS source now auto-configured via GPSSource enum in config
@@ -159,6 +161,7 @@ void GPS::updateData() {
             lastFixTime = millis();
             xSemaphoreGive(mutex);
         }
+        maybeSyncSystemTime(date, time);
         Mood::onGPSFix();
         Display::setGPSStatus(true);
         Serial.println("[GPS] Fix acquired!");
@@ -324,4 +327,48 @@ uint32_t GPS::getLastFixTime() {
         return time;
     }
     return 0; // Return safe value if mutex unavailable
+}
+
+void GPS::maybeSyncSystemTime(uint32_t gpsDate, uint32_t gpsTime) {
+    if (gpsTimeSynced) return;
+    if (gpsDate == 0 || gpsTime == 0) return;
+
+    // Skip if system time is already valid (NTP or PigSync ran first)
+    time_t now = time(nullptr);
+    if (now >= 1700000000) return;
+
+    // Parse DDMMYY
+    uint8_t day   = gpsDate / 10000;
+    uint8_t month = (gpsDate / 100) % 100;
+    uint16_t year = 2000 + (gpsDate % 100);
+
+    // Parse HHMMSSCC
+    uint8_t hour   = gpsTime / 1000000;
+    uint8_t minute = (gpsTime / 10000) % 100;
+    uint8_t second = (gpsTime / 100) % 100;
+
+    // Sanity check
+    if (year < 2024 || year > 2035) return;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return;
+    if (hour > 23 || minute > 59 || second > 59) return;
+
+    struct tm t = {};
+    t.tm_year = year - 1900;
+    t.tm_mon  = month - 1;
+    t.tm_mday = day;
+    t.tm_hour = hour;
+    t.tm_min  = minute;
+    t.tm_sec  = second;
+
+    time_t epoch = mktime(&t);
+    if (epoch < 1700000000) return;
+
+    struct timeval tv;
+    tv.tv_sec  = epoch;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+    gpsTimeSynced = true;
+
+    Serial.printf("[GPS] System time synced: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                  year, month, day, hour, minute, second);
 }

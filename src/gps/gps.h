@@ -34,7 +34,10 @@ public:
     static GPSData getData();
     static void getTimeString(char* out, size_t len);
     static bool getLocationString(char* out, size_t len);
-    
+
+    // System time sync from GPS (one-shot per boot, UTC)
+    static void maybeSyncSystemTime(uint32_t gpsDate, uint32_t gpsTime);
+
     // Power management
     static void setPowerMode(bool active);
     static bool isActive();
