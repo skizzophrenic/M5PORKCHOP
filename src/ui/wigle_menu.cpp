@@ -270,13 +270,14 @@ void WigleMenu::processAsyncScan() {
                 WigleFileInfo info;
                 memset(&info, 0, sizeof(info));
                 strncpy(info.filename, base, sizeof(info.filename) - 1);
-                snprintf(info.fullPath, sizeof(info.fullPath), "%s/%s", scanRoot, base);
                 info.fileSize = currentFile.size();
                 // Estimate network count: ~150 bytes per line after header
                 info.networkCount = info.fileSize > 300 ? (info.fileSize - 300) / 150 : 0;
 
-                // Check upload status
-                info.status = WiGLE::isUploaded(info.fullPath) ?
+                // Check upload status (reconstruct path on stack — no need to store 80B per entry)
+                char tmpPath[80];
+                snprintf(tmpPath, sizeof(tmpPath), "%s/%s", scanRoot, base);
+                info.status = WiGLE::isUploaded(tmpPath) ?
                     WigleFileStatus::UPLOADED : WigleFileStatus::LOCAL;
                 
                 files.push_back(info);
@@ -647,15 +648,20 @@ void WigleMenu::nukeTrack() {
     if (files.empty() || selectedIndex >= files.size()) return;
     
     const WigleFileInfo& file = files[selectedIndex];
-    
-    Serial.printf("[WIGLE_MENU] Nuking track: %s\n", file.fullPath);
+
+    // Reconstruct full path from scanBaseDir + filename
+    const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::wardrivingDir();
+    char fullPath[80];
+    snprintf(fullPath, sizeof(fullPath), "%s/%s", scanRoot, file.filename);
+
+    Serial.printf("[WIGLE_MENU] Nuking track: %s\n", fullPath);
 
     // Delete the .wigle.csv file
-    bool deleted = SD.remove(file.fullPath);
+    bool deleted = SD.remove(fullPath);
 
     // Also delete matching internal CSV if exists (same name without .wigle)
     char internalPath[80];
-    strncpy(internalPath, file.fullPath, sizeof(internalPath) - 1);
+    strncpy(internalPath, fullPath, sizeof(internalPath) - 1);
     internalPath[sizeof(internalPath) - 1] = '\0';
     const size_t wigleSuffixLen = 10;
     size_t internalLen = strlen(internalPath);
@@ -669,7 +675,7 @@ void WigleMenu::nukeTrack() {
     }
 
     // Remove from uploaded tracking if present
-    WiGLE::removeFromUploaded(file.fullPath);
+    WiGLE::removeFromUploaded(fullPath);
     
     if (deleted) {
         Display::setTopBarMessage("TRACK NUKED!", 4000);

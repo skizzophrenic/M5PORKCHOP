@@ -105,9 +105,9 @@ static void drawHeartIcon(M5Canvas& canvas, int x, int y, uint16_t color) {
     canvas.fillTriangle(x, y + 3, x + 8, y + 3, x + 4, y + 6, color);
 }
 
-static void drawTopBarHeapHealth(M5Canvas& topBar) {
-    topBar.fillSprite(COLOR_FG);
-    topBar.setTextColor(COLOR_BG);
+static void drawTopBarHeapHealth(M5Canvas& topBar, uint16_t fg, uint16_t bg) {
+    topBar.fillSprite(fg);
+    topBar.setTextColor(bg);
     topBar.setTextSize(1);
     topBar.setTextDatum(top_left);
 
@@ -157,7 +157,7 @@ static void drawTopBarHeapHealth(M5Canvas& topBar) {
     topBar.drawString(levelStr, 2, 3);
     topBar.setTextDatum(top_right);
     topBar.drawString(msgBuf, msgRightX, 3);
-    drawHeartIcon(topBar, heartX, 3, COLOR_BG);
+    drawHeartIcon(topBar, heartX, 3, bg);
 }
 
 // Static member initialization
@@ -265,18 +265,22 @@ void Display::update() {
     // Update heap health state (rate-limited)
     HeapHealth::update();
 
+    // Cache theme colors once per frame
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+
     // Check for screen dimming
     updateDimming();
-    
+
     // SD Format mode hides bars to save RAM for disk operations
     bool barsHidden = SdFormatMenu::areBarsHidden() || ChargingMode::areBarsHidden();
-    
+
     if (!barsHidden) {
         drawTopBar();
     } else {
         // Clear bar sprites when hidden to prevent stale content on push
-        topBar.fillSprite(COLOR_BG);
-        bottomBar.fillSprite(COLOR_BG);
+        topBar.fillSprite(bg);
+        bottomBar.fillSprite(bg);
     }
 
     PorkchopMode mode = porkchop.getMode();
@@ -290,43 +294,35 @@ void Display::update() {
     // Draw main content based on mode - reset all canvas state
     // Thunder flash inverts the background color, FG becomes BG
     // This must happen BEFORE avatar is drawn so pig/grass/rain can use inverted colors
-    uint16_t bgColor = COLOR_BG;
+    uint16_t bgColor = bg;
     if (useAvatarWeather) {
         Weather::setMoodLevel(Mood::getEffectiveHappiness());
         Weather::update();
         Avatar::setThunderFlash(Weather::isThunderFlashing());
-        bgColor = Weather::isThunderFlashing() ? COLOR_FG : COLOR_BG;
+        bgColor = Weather::isThunderFlashing() ? fg : bg;
     } else {
         Avatar::setThunderFlash(false);
     }
     mainCanvas.fillSprite(bgColor);
-    mainCanvas.setTextColor(COLOR_FG);
+    mainCanvas.setTextColor(fg);
     mainCanvas.setTextDatum(TL_DATUM);  // Reset to top-left
     mainCanvas.setFont(&fonts::Font0);  // Reset to default font
     
     switch (mode) {
         case PorkchopMode::IDLE:
-            // Draw piglet avatar
             Avatar::draw(mainCanvas);
-            // Draw clouds above stars/pig before rain
-            Weather::drawClouds(mainCanvas, COLOR_FG);
-            // Draw weather effects (rain, wind particles) over avatar
-            Weather::draw(mainCanvas, COLOR_FG, COLOR_BG);
-            // Draw mood bubble LAST so it's always on top
+            Weather::drawClouds(mainCanvas, fg);
+            Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
             break;
-            
+
         case PorkchopMode::OINK_MODE:
         case PorkchopMode::DNH_MODE:
         case PorkchopMode::WARHOG_MODE:
         case PorkchopMode::PIGGYBLUES_MODE:
-            // Draw piglet avatar
             Avatar::draw(mainCanvas);
-            // Draw clouds above stars/pig before rain
-            Weather::drawClouds(mainCanvas, COLOR_FG);
-            // Draw weather effects (rain, wind particles) over avatar
-            Weather::draw(mainCanvas, COLOR_FG, COLOR_BG);
-            // Draw mood bubble LAST so it's always on top
+            Weather::drawClouds(mainCanvas, fg);
+            Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
             break;
 
@@ -401,9 +397,9 @@ void Display::update() {
             break;
         case PorkchopMode::MONSTER_C5_MODE:
         {
-            mainCanvas.fillSprite(COLOR_BG);
+            mainCanvas.fillSprite(bg);
             mainCanvas.setTextSize(1);
-            mainCanvas.setTextColor(COLOR_FG);
+            mainCanvas.setTextColor(fg);
             mainCanvas.setTextDatum(top_left);
 
             char c5status[24];
@@ -421,21 +417,19 @@ void Display::update() {
             } else if (c5st == C5State::ERROR) {
                 mainCanvas.drawString("ERROR - Retrying...", 4, y);
             } else {
-                // CONNECTED / SCANNING / ATTACKING / MONITORING
-                // Show current operation status
                 C5Op op = MonsterC5::getCurrentOp();
                 if (c5st == C5State::SCANNING || op == C5Op::SCAN) {
                     mainCanvas.drawString("SCANNING 2.4+5GHz...", 4, y);
                     y += 10;
                 } else if (c5st == C5State::ATTACKING) {
-                    mainCanvas.setTextColor(COLOR_WARNING);
+                    mainCanvas.setTextColor(fg);  // COLOR_WARNING == COLOR_FG
                     mainCanvas.drawString("ATTACKING TARGET...", 4, y);
-                    mainCanvas.setTextColor(COLOR_FG);
+                    mainCanvas.setTextColor(fg);
                     y += 10;
                  } else if (c5st == C5State::TRANSFERRING || op == C5Op::IMPORT_HANDSHAKES) {
-                      mainCanvas.setTextColor(COLOR_ACCENT);
+                      mainCanvas.setTextColor(fg);  // COLOR_ACCENT == COLOR_FG
                       mainCanvas.drawString("IMPORTING FROM C5...", 4, y);
-                      mainCanvas.setTextColor(COLOR_FG);
+                      mainCanvas.setTextColor(fg);
                       y += 10;
 
                       uint32_t done = 0, total = 0;
@@ -486,7 +480,6 @@ void Display::update() {
                     y += 10;
                     shown++;
                 }
-                // Channel view overlay at bottom
                 if (c5st == C5State::MONITORING) {
                     const C5ChannelCounts& cc = MonsterC5::getChannelCounts();
                     if (cc.valid) {
@@ -494,9 +487,9 @@ void Display::update() {
                         for (int i = 0; i < 25; i++) total5 += cc.ch5[i];
                         char monBuf[32];
                         snprintf(monBuf, sizeof(monBuf), "CH_VIEW 5G:%d APs", total5);
-                        mainCanvas.setTextColor(COLOR_ACCENT);
+                        mainCanvas.setTextColor(fg);  // COLOR_ACCENT == COLOR_FG
                         mainCanvas.drawString(monBuf, 4, 90);
-                        mainCanvas.setTextColor(COLOR_FG);
+                        mainCanvas.setTextColor(fg);
                     }
                 }
             }
@@ -525,11 +518,11 @@ void Display::update() {
         int boxY = (MAIN_H - boxH) / 2;
 
         // Black border then pink fill
-        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
+        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
 
         // Black text on pink background
-        mainCanvas.setTextColor(COLOR_BG, COLOR_FG);
+        mainCanvas.setTextColor(bg, fg);
         mainCanvas.setTextSize(1);
         mainCanvas.setFont(&fonts::Font0);
         mainCanvas.setTextDatum(TC_DATUM);
@@ -559,6 +552,19 @@ void Display::update() {
         drawBottomBar();
     }
     pushAll();
+
+    // Frame pacing: yield unused CPU time to RTOS scheduler.
+    // Spectrum mode runs uncapped for smooth sinc animation; all other modes target ~30 FPS.
+    // delay() yields to FreeRTOS idle task, feeds WDT, and allows WiFi task to run.
+    if (mode != PorkchopMode::SPECTRUM_MODE) {
+        static uint32_t lastFrameMs = 0;
+        uint32_t frameNow = millis();
+        uint32_t frameElapsed = frameNow - lastFrameMs;
+        if (frameElapsed < 33) {
+            delay(33 - frameElapsed);
+        }
+        lastFrameMs = millis();
+    }
 }
 
 void Display::requestTopBarMessage(const char* message, uint32_t durationMs) {
@@ -572,9 +578,10 @@ void Display::requestTopBarMessage(const char* message, uint32_t durationMs) {
 }
 
 void Display::clear() {
-    topBar.fillSprite(COLOR_BG);
-    mainCanvas.fillSprite(COLOR_BG);
-    bottomBar.fillSprite(COLOR_BG);
+    const uint16_t bg = getColorBG();
+    topBar.fillSprite(bg);
+    mainCanvas.fillSprite(bg);
+    bottomBar.fillSprite(bg);
     pushAll();
 }
 
@@ -591,6 +598,10 @@ void Display::pushAll() {
 }
 
 void Display::drawTopBar() {
+    // Cache theme colors for this function
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+
     topBarMessageTwoLineActive = false;
 
     // Show 2-line top bar message (highest priority)
@@ -599,7 +610,7 @@ void Display::drawTopBar() {
             topBarMessage[0] = '\0';
         } else if (strchr(topBarMessage, '\n')) {
             topBarMessageTwoLineActive = true;
-            topBar.fillSprite(COLOR_FG);
+            topBar.fillSprite(fg);
             return;
         }
     }
@@ -612,14 +623,13 @@ void Display::drawTopBar() {
 
     // Check for heap health notification (same style as XP)
     if (HeapHealth::shouldShowToast()) {
-        drawTopBarHeapHealth(topBar);
+        drawTopBarHeapHealth(topBar, fg, bg);
         return;
     }
 
     // Check for upload progress, show during upload operations
     if (shouldShowUploadProgress()) {
-        // Draw upload progress in top bar
-        topBar.fillSprite(COLOR_FG);  // Inverted background
+        topBar.fillSprite(fg);  // Inverted background
         drawUploadProgress(topBar);
         return;
     }
@@ -629,8 +639,8 @@ void Display::drawTopBar() {
         if (topBarMessageDuration > 0 && (millis() - topBarMessageStart) > topBarMessageDuration) {
             topBarMessage[0] = '\0';
         } else {
-            topBar.fillSprite(COLOR_FG);
-            topBar.setTextColor(COLOR_BG);
+            topBar.fillSprite(fg);
+            topBar.setTextColor(bg);
             topBar.setTextSize(1);
             topBar.setTextDatum(top_left);
             char msgBuf[96];
@@ -650,39 +660,39 @@ void Display::drawTopBar() {
         }
     }
 
-    topBar.fillSprite(COLOR_BG);
-    topBar.setTextColor(COLOR_FG);
+    topBar.fillSprite(bg);
+    topBar.setTextColor(fg);
     topBar.setTextSize(1);
-    
+
     // Left side: mode indicator
     PorkchopMode mode = porkchop.getMode();
     char modeBuf[40];
     modeBuf[0] = '\0';
-    uint16_t modeColor = COLOR_FG;
-    
+    uint16_t modeColor = fg;
+
     switch (mode) {
         case PorkchopMode::IDLE:
             snprintf(modeBuf, sizeof(modeBuf), "IDLE");
             break;
         case PorkchopMode::OINK_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "OINKS");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::DNH_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "DONOHAM");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::WARHOG_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "SGT WARHOG");
-            modeColor = COLOR_DANGER;
+            modeColor = fg;
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "BLUES");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::SPECTRUM_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "HOG ON SPECTRUM");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::MENU:
             snprintf(modeBuf, sizeof(modeBuf), "MENU");
@@ -695,7 +705,7 @@ void Display::drawTopBar() {
             break;
         case PorkchopMode::FILE_TRANSFER:
             snprintf(modeBuf, sizeof(modeBuf), "XFER");
-            modeColor = COLOR_SUCCESS;
+            modeColor = fg;
             break;
         case PorkchopMode::CRASH_VIEWER:
             snprintf(modeBuf, sizeof(modeBuf), "COREDUMP");
@@ -705,52 +715,52 @@ void Display::drawTopBar() {
             break;
         case PorkchopMode::CAPTURES:
             snprintf(modeBuf, sizeof(modeBuf), "L00T (%u)", (unsigned)CapturesMenu::getCount());
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::ACHIEVEMENTS:
-            snprintf(modeBuf, sizeof(modeBuf), "PR00F (%u/%u)", 
+            snprintf(modeBuf, sizeof(modeBuf), "PR00F (%u/%u)",
                      (unsigned)XP::getUnlockedCount(), (unsigned)AchievementsMenu::TOTAL_ACHIEVEMENTS);
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::SWINE_STATS:
             snprintf(modeBuf, sizeof(modeBuf), "SW1N3 ST4TS");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::BOAR_BROS:
             snprintf(modeBuf, sizeof(modeBuf), "B04R BR0S (%u)", (unsigned)BoarBrosMenu::getCount());
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::WIGLE_MENU:
             snprintf(modeBuf, sizeof(modeBuf), "PORK TR4CKS (%u)", (unsigned)WigleMenu::getCount());
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::UNLOCKABLES:
             snprintf(modeBuf, sizeof(modeBuf), "UNL0CK4BL3S");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::BOUNTY_STATUS:
             snprintf(modeBuf, sizeof(modeBuf), "B0UNT13S");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::BACON_MODE:
             snprintf(modeBuf, sizeof(modeBuf), "BACON");
-            modeColor = COLOR_ACCENT;
+            modeColor = fg;
             break;
         case PorkchopMode::MONSTER_C5_MODE:
         {
             char c5label[20];
             MonsterC5::getStatusString(c5label, sizeof(c5label));
             snprintf(modeBuf, sizeof(modeBuf), "JANUS %s", c5label);
-            modeColor = MonsterC5::isConnected() ? COLOR_SUCCESS : COLOR_WARNING;
+            modeColor = fg;  // All COLOR_* aliases resolve to fg
             break;
         }
         case PorkchopMode::SD_FORMAT:
             snprintf(modeBuf, sizeof(modeBuf), "SD FORMAT");
-            modeColor = COLOR_WARNING;
+            modeColor = fg;
             break;
         case PorkchopMode::CHARGING:
             snprintf(modeBuf, sizeof(modeBuf), "CHARGING");
-            modeColor = COLOR_SUCCESS;
+            modeColor = fg;
             break;
     }
     
@@ -821,7 +831,7 @@ void Display::drawTopBar() {
     topBar.drawString(leftBuf, 2, 2);
 
     // Right side: battery + status icons
-    topBar.setTextColor(COLOR_FG);
+    topBar.setTextColor(fg);
     topBar.setTextDatum(top_right);
     topBar.drawString(rightBuf, DISPLAY_W - 2, 2);
 }
@@ -879,15 +889,19 @@ void Display::drawTopBarMessageTwoLineDirect() {
 }
 
 void Display::drawBottomBar() {
+    // Cache theme colors for this function
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+
     PorkchopMode mode = porkchop.getMode();
 
     // Set colors based on mode - PIGSYNC_DEVICE_SELECT uses normal colors, others use inverted
     if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
-        bottomBar.fillSprite(COLOR_BG);  // Normal BG background
-        bottomBar.setTextColor(COLOR_FG);  // Normal FG text
+        bottomBar.fillSprite(bg);
+        bottomBar.setTextColor(fg);
     } else {
-        bottomBar.fillSprite(COLOR_FG);  // Inverted: FG background
-        bottomBar.setTextColor(COLOR_BG);  // Inverted: BG text
+        bottomBar.fillSprite(fg);  // Inverted: FG background
+        bottomBar.setTextColor(bg);  // Inverted: BG text
     }
     bottomBar.setTextSize(1);
     bottomBar.setTextDatum(top_left);
@@ -1082,12 +1096,12 @@ void Display::drawBottomBar() {
         const int heartW = 9;
         int heartX = barX - gap - heartW;
         int heartY = 3;
-        drawHeartIcon(bottomBar, heartX, heartY, COLOR_BG);
+        drawHeartIcon(bottomBar, heartX, heartY, bg);
 
-        bottomBar.drawRect(barX, barY, barW, barH, COLOR_BG);
+        bottomBar.drawRect(barX, barY, barW, barH, bg);
         int fillW = (barW - 2) * pct / 100;
         if (fillW > 0) {
-            bottomBar.fillRect(barX + 1, barY + 1, fillW, barH - 2, COLOR_BG);
+            bottomBar.fillRect(barX + 1, barY + 1, fillW, barH - 2, bg);
         }
 
         char pctBuf[8];

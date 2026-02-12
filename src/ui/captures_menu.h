@@ -18,9 +18,9 @@ struct CaptureInfo {
     char filename[48];
     char ssid[33];
     char bssid[18];
+    bool isPMKID;         // Packed after bssid — eliminates 4 bytes padding
     uint32_t fileSize;
-    time_t captureTime;  // File modification time
-    bool isPMKID;        // true = .22000 PMKID, false = .pcap handshake
+    time_t captureTime;   // File modification time
     CaptureStatus status; // WPA-SEC status
     char password[64];    // Cracked password (if status == CRACKED)
 };

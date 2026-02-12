@@ -15,7 +15,6 @@ enum class WigleFileStatus {
 
 struct WigleFileInfo {
     char filename[48];
-    char fullPath[80];
     uint32_t fileSize;
     uint32_t networkCount;  // Approximate based on file size
     WigleFileStatus status;

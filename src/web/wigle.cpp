@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <mbedtls/base64.h>
+#include <algorithm>
 #include "../core/config.h"
 #include "../core/sd_layout.h"
 #include "../core/heap_gates.h"
@@ -48,7 +49,7 @@ bool WiGLE::loadUploadedList() {
     if (listLoaded) return true;
 
     uploadedFiles.clear();
-    uploadedFiles.reserve(WIGLE_MAX_UPLOADED);  // Full upfront reserve — no growth reallocations
+    uploadedFiles.reserve(8);  // Grow naturally — reserve(200) was 9.6KB contiguous
 
     const char* uploadedPath = SDLayout::wigleUploadedPath();
     if (!SD.exists(uploadedPath)) {
@@ -74,6 +75,12 @@ bool WiGLE::loadUploadedList() {
     }
 
     f.close();
+    // Sort for binary search — O(n log n) once, enables O(log n) lookups
+    std::sort(uploadedFiles.begin(), uploadedFiles.end(),
+        [](const UploadedFile& a, const UploadedFile& b) {
+            return strcmp(a.name, b.name) < 0;
+        });
+
     listLoaded = true;
     Serial.printf("[WIGLE] Loaded %d uploaded files from tracking\n", uploadedFiles.size());
     return true;
@@ -112,9 +119,22 @@ bool WiGLE::isUploaded(const char* filename) {
 
     const char* baseName = getFilenameFromPath(filename);
 
-    for (const auto& entry : uploadedFiles) {
-        if (strcmp(entry.name, filename) == 0 || strcmp(entry.name, baseName) == 0) return true;
+    // Binary search on sorted list — O(log n) per query
+    auto it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), baseName,
+        [](const UploadedFile& entry, const char* name) {
+            return strcmp(entry.name, name) < 0;
+        });
+    if (it != uploadedFiles.end() && strcmp(it->name, baseName) == 0) return true;
+
+    // Also check full path (legacy entries may store full path)
+    if (baseName != filename) {
+        it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), filename,
+            [](const UploadedFile& entry, const char* name) {
+                return strcmp(entry.name, name) < 0;
+            });
+        if (it != uploadedFiles.end() && strcmp(it->name, filename) == 0) return true;
     }
+
     return false;
 }
 
@@ -124,21 +144,20 @@ void WiGLE::markAsUploaded(const char* filename) {
 
     const char* baseName = getFilenameFromPath(filename);
 
-    // Check if already in list
-    for (const auto& entry : uploadedFiles) {
-        if (strcmp(entry.name, baseName) == 0) return;
-    }
+    // Sorted insertion — maintains O(log n) lookup invariant
+    auto it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), baseName,
+        [](const UploadedFile& entry, const char* name) {
+            return strcmp(entry.name, name) < 0;
+        });
+    if (it != uploadedFiles.end() && strcmp(it->name, baseName) == 0) return;
+    if (uploadedFiles.size() >= WIGLE_MAX_UPLOADED) return;
 
-    if (uploadedFiles.size() >= WIGLE_MAX_UPLOADED) {
-        // Cap in-memory list to avoid unbounded heap growth.
-        return;
-    }
     UploadedFile entry;
     strncpy(entry.name, baseName, sizeof(entry.name) - 1);
     entry.name[sizeof(entry.name) - 1] = '\0';
-    uploadedFiles.push_back(entry);
+    uploadedFiles.insert(it, entry);
     if (!batchMode) {
-        saveUploadedList();  // Only save immediately if not in batch mode
+        saveUploadedList();
     }
 }
 
@@ -161,12 +180,25 @@ void WiGLE::removeFromUploaded(const char* filename) {
     const char* baseName = getFilenameFromPath(filename);
 
     bool changed = false;
-    for (auto it = uploadedFiles.begin(); it != uploadedFiles.end(); ) {
-        if (strcmp(it->name, filename) == 0 || strcmp(it->name, baseName) == 0) {
-            it = uploadedFiles.erase(it);
+    // Binary search for baseName
+    auto it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), baseName,
+        [](const UploadedFile& entry, const char* name) {
+            return strcmp(entry.name, name) < 0;
+        });
+    if (it != uploadedFiles.end() && strcmp(it->name, baseName) == 0) {
+        uploadedFiles.erase(it);
+        changed = true;
+    }
+
+    // Also check full path (legacy entries)
+    if (!changed && baseName != filename) {
+        it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), filename,
+            [](const UploadedFile& entry, const char* name) {
+                return strcmp(entry.name, name) < 0;
+            });
+        if (it != uploadedFiles.end() && strcmp(it->name, filename) == 0) {
+            uploadedFiles.erase(it);
             changed = true;
-        } else {
-            ++it;
         }
     }
 
@@ -566,21 +598,23 @@ bool WiGLE::fetchStats() {
         return false;
     }
     
-    // Extract stats (handle different API response formats)
-    JsonDocument statsDoc;
-    statsDoc["rank"] = doc["rank"] | (doc["statistics"]["rank"] | 0);
-    
+    // Extract stats into locals, then reuse doc — avoids second JsonDocument heap alloc
+    int64_t rank = doc["rank"] | (doc["statistics"]["rank"] | (int64_t)0);
+    uint64_t wifi = 0, cell = 0, bt = 0;
     JsonObject stats = doc["statistics"].as<JsonObject>();
     if (stats) {
-        statsDoc["wifi"] = stats["discoveredWiFi"] | stats["wifiCount"] | 0;
-        statsDoc["cell"] = stats["discoveredCell"] | stats["cellCount"] | 0;
-        statsDoc["bt"] = stats["discoveredBt"] | stats["btCount"] | 0;
-    } else {
-        statsDoc["wifi"] = 0;
-        statsDoc["cell"] = 0;
-        statsDoc["bt"] = 0;
+        wifi = stats["discoveredWiFi"] | stats["wifiCount"] | (uint64_t)0;
+        cell = stats["discoveredCell"] | stats["cellCount"] | (uint64_t)0;
+        bt = stats["discoveredBt"] | stats["btCount"] | (uint64_t)0;
     }
-    
+
+    // Reuse doc — clear and rebuild with just the fields we need
+    doc.clear();
+    doc["rank"] = rank;
+    doc["wifi"] = wifi;
+    doc["cell"] = cell;
+    doc["bt"] = bt;
+
     // Save to SD card
     const char* statsPath = SDLayout::wigleStatsPath();
     File f = SD.open(statsPath, FILE_WRITE);
@@ -588,8 +622,8 @@ bool WiGLE::fetchStats() {
         strncpy(lastError, "CANNOT SAVE STATS", sizeof(lastError) - 1);
         return false;
     }
-    
-    serializeJson(statsDoc, f);
+
+    serializeJson(doc, f);
     f.close();
     
     Serial.println("[WIGLE] Stats saved successfully");
@@ -735,8 +769,8 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     
     // Track successful uploads with bitmask - avoids reloading list during TLS
     // We mark uploaded AFTER all TLS operations complete to keep heap clear
-    uint8_t successMask[50] = {0};
-    
+    uint16_t successMask = 0;  // Bitmask for max 16 pending uploads
+
     // Upload each pending file
     if (cb) {
         cb("uploading wigle", 0, 0);
@@ -762,7 +796,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
 
         if (uploadSingleFile(pendingUploads[i].path)) {
             result.uploaded++;
-            successMask[i] = 1;  // Track for deferred marking
+            successMask |= (1 << i);  // Track for deferred marking
         } else {
             result.failed++;
             Serial.printf("[WIGLE] Failed: %s\n", pendingUploads[i].path);
@@ -781,18 +815,18 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
         }
         loadUploadedList();
         for (uint8_t i = 0; i < pendingCount; i++) {
-            if (successMask[i]) {
+            if (successMask & (1 << i)) {
                 const char* baseName = getFilenameFromPath(pendingUploads[i].path);
-                // Check if already in list (avoid duplicates)
-                bool found = false;
-                for (const auto& entry : uploadedFiles) {
-                    if (strcmp(entry.name, baseName) == 0) { found = true; break; }
-                }
-                if (!found && uploadedFiles.size() < WIGLE_MAX_UPLOADED) {
-                    UploadedFile entry;
-                    strncpy(entry.name, baseName, sizeof(entry.name) - 1);
-                    entry.name[sizeof(entry.name) - 1] = '\0';
-                    uploadedFiles.push_back(entry);
+                // Sorted insertion — maintains binary search invariant
+                auto it = std::lower_bound(uploadedFiles.begin(), uploadedFiles.end(), baseName,
+                    [](const UploadedFile& e, const char* n) { return strcmp(e.name, n) < 0; });
+                if (it == uploadedFiles.end() || strcmp(it->name, baseName) != 0) {
+                    if (uploadedFiles.size() < WIGLE_MAX_UPLOADED) {
+                        UploadedFile entry;
+                        strncpy(entry.name, baseName, sizeof(entry.name) - 1);
+                        entry.name[sizeof(entry.name) - 1] = '\0';
+                        uploadedFiles.insert(it, entry);
+                    }
                 }
             }
         }

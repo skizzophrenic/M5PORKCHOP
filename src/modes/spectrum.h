@@ -200,17 +200,17 @@ private:
     static void handleInput();
     static void handleActionPromptInput();
     static void handleClientMonitorInput();  // Input when monitoring
-    static void drawActionPrompt(M5Canvas& canvas);
-    static void drawSpectrum(M5Canvas& canvas);
-    static void drawClientOverlay(M5Canvas& canvas);  // Client list overlay
-    static void drawClientDetail(M5Canvas& canvas);   // Client detail popup
-    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed);
-    static void drawAxis(M5Canvas& canvas);
-    static void drawChannelMarkers(M5Canvas& canvas);
-    static void drawFilterBar(M5Canvas& canvas);     // Filter indicator bar
-    static void drawDialInfo(M5Canvas& canvas);      // Dial mode info bar
-    static void drawNoiseFloor(M5Canvas& canvas);    // Animated noise at baseline
-    static void drawWaterfall(M5Canvas& canvas);     // Historical spectrum waterfall
+    static void drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed, uint16_t fg);
+    static void drawAxis(M5Canvas& canvas, uint16_t fg);
+    static void drawChannelMarkers(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawFilterBar(M5Canvas& canvas, uint16_t fg);
+    static void drawDialInfo(M5Canvas& canvas, uint16_t fg);
+    static void drawNoiseFloor(M5Canvas& canvas, uint16_t fg);
+    static void drawWaterfall(M5Canvas& canvas, uint16_t fg);  // Historical spectrum waterfall
     static void updateSpectrumBuffers();             // Populate buffers from network data
     static void updateWaterfall();                   // Push to waterfall history
     static void pruneStale();            // Remove networks not seen recently

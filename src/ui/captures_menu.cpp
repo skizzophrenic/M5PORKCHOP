@@ -431,9 +431,11 @@ void CapturesMenu::updateWPASecStatus() {
             continue;
         }
         
-        if (WPASec::isCracked(normalized)) {
+        // Use getPassword() directly — avoids redundant binary search vs isCracked()+getPassword()
+        const char* pw = WPASec::getPassword(normalized);
+        if (pw[0] != '\0') {
             cap.status = CaptureStatus::CRACKED;
-            strncpy(cap.password, WPASec::getPassword(normalized), sizeof(cap.password) - 1);
+            strncpy(cap.password, pw, sizeof(cap.password) - 1);
             cap.password[sizeof(cap.password) - 1] = '\0';
         } else if (WPASec::isUploaded(normalized)) {
             cap.status = CaptureStatus::UPLOADED;
@@ -466,9 +468,11 @@ void CapturesMenu::processAsyncWPASecUpdate() {
         WPASec::normalizeBSSID_Char(cap.bssid, normalized, sizeof(normalized));
         
         if (normalized[0] != '\0') {
-            if (WPASec::isCracked(normalized)) {
+            // Use getPassword() directly — avoids redundant binary search vs isCracked()+getPassword()
+            const char* pw = WPASec::getPassword(normalized);
+            if (pw[0] != '\0') {
                 cap.status = CaptureStatus::CRACKED;
-                strncpy(cap.password, WPASec::getPassword(normalized), sizeof(cap.password) - 1);
+                strncpy(cap.password, pw, sizeof(cap.password) - 1);
                 cap.password[sizeof(cap.password) - 1] = '\0';
             } else if (WPASec::isUploaded(normalized)) {
                 cap.status = CaptureStatus::UPLOADED;
@@ -478,7 +482,7 @@ void CapturesMenu::processAsyncWPASecUpdate() {
         } else {
             cap.status = CaptureStatus::LOCAL;
         }
-        
+
         wpasecUpdateProgress++;
         processed++;
         
@@ -842,14 +846,14 @@ void CapturesMenu::nukeLoot() {
     int deleted = 0;
     bool moreFiles = true;
     while (moreFiles) {
-        char paths[20][80];
+        char paths[4][80];
         uint8_t batchCount = 0;
 
         dir = SD.open(handshakesDir);
         if (!dir) break;
 
         File file = dir.openNextFile();
-        while (file && batchCount < 20) {
+        while (file && batchCount < 4) {
             const char* base = file.name();
             const char* slash = strrchr(base, '/');
             const char* name = slash ? slash + 1 : base;
@@ -862,7 +866,7 @@ void CapturesMenu::nukeLoot() {
         dir.close();
 
         if (batchCount == 0) break;
-        moreFiles = (batchCount == 20);  // Might have more
+        moreFiles = (batchCount == 4);  // Might have more
 
         for (uint8_t i = 0; i < batchCount; i++) {
             if (SD.remove(paths[i])) deleted++;

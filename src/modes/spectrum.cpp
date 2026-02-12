@@ -135,6 +135,24 @@ static const uint32_t WATERFALL_UPDATE_MS = 100;        // 10 FPS waterfall scro
 // Noise floor randomization seed (for animated noise)
 static uint16_t noiseState = 0xACE1;
 
+// 64-entry sine LUT in flash (0 bytes RAM). Values = round(127 * sin(2*pi*i/64)).
+// Max error ~1.5% vs sinf(), visually indistinguishable for jitter/flutter animation.
+static const int8_t FAST_SIN_64[64] PROGMEM = {
+      0,  12,  25,  37,  49,  60,  71,  81,
+     90,  98, 106, 112, 117, 122, 125, 126,
+    127, 126, 125, 122, 117, 112, 106,  98,
+     90,  81,  71,  60,  49,  37,  25,  12,
+      0, -12, -25, -37, -49, -60, -71, -81,
+    -90, -98,-106,-112,-117,-122,-125,-126,
+   -127,-126,-125,-122,-117,-112,-106, -98,
+    -90, -81, -71, -60, -49, -37, -25, -12
+};
+
+// O(1) sine lookup: phase64 in [0,63] wrapping, returns [-127, +127] (Q0.7)
+static inline int8_t fastSinQ7(uint8_t phase64) {
+    return FAST_SIN_64[phase64 & 63];
+}
+
 // Simple PRNG for noise floor animation
 static inline uint8_t fastNoise() {
     noiseState ^= noiseState << 7;
@@ -1289,18 +1307,18 @@ void SpectrumMode::handleActionPromptInput() {
     actionPromptActive = false;
 }
 
-void SpectrumMode::drawActionPrompt(M5Canvas& canvas) {
+void SpectrumMode::drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     const int boxX = 6;
     const int boxW = canvas.width() - (boxX * 2);
     const int lineH = 10;
     const int boxH = (lineH * 4) + 10;
     const int boxY = canvas.height() - boxH - 4;
 
-    canvas.fillRect(boxX, boxY, boxW, boxH, COLOR_BG);
-    canvas.drawRect(boxX, boxY, boxW, boxH, COLOR_FG);
+    canvas.fillRect(boxX, boxY, boxW, boxH, bg);
+    canvas.drawRect(boxX, boxY, boxW, boxH, fg);
 
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
 
     // Title (SSID)
     char title[34];
@@ -1429,29 +1447,33 @@ void SpectrumMode::handleClientMonitorInput() {
 }
 
 void SpectrumMode::draw(M5Canvas& canvas) {
-    canvas.fillSprite(COLOR_BG);
-    
+    // Cache theme colors once per frame (eliminates ~19K redundant function calls in worst case)
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+
+    canvas.fillSprite(bg);
+
     // Draw client overlay when monitoring, otherwise spectrum
     if (monitoringNetwork) {
-        drawClientOverlay(canvas);
+        drawClientOverlay(canvas, fg, bg);
     } else {
         // Draw spectrum visualization
-        drawAxis(canvas);
-        drawNoiseFloor(canvas);     // Animated noise at baseline
-        drawSpectrum(canvas);
-        drawWaterfall(canvas);      // Historical spectrum scrolling down
-        drawChannelMarkers(canvas);
-        drawFilterBar(canvas);
-        
+        drawAxis(canvas, fg);
+        drawNoiseFloor(canvas, fg);
+        drawSpectrum(canvas, fg, bg);
+        drawWaterfall(canvas, fg);
+        drawChannelMarkers(canvas, fg, bg);
+        drawFilterBar(canvas, fg);
+
         // Draw dial mode info (when device upright)
-        drawDialInfo(canvas);
-        
+        drawDialInfo(canvas, fg);
+
         // Draw status indicators if network is selected
         if (renderSelected.valid) {
             canvas.setTextSize(1);
-            canvas.setTextColor(COLOR_FG);
+            canvas.setTextColor(fg);
             canvas.setTextDatum(top_left);
-            
+
             // Build status string without heap churn
             char status[24];
             size_t pos = 0;
@@ -1469,44 +1491,42 @@ void SpectrumMode::draw(M5Canvas& canvas) {
                 canvas.drawString(status, SPECTRUM_LEFT + 2, SPECTRUM_TOP);
             }
         }
-        
+
         if (actionPromptActive) {
-            drawActionPrompt(canvas);
+            drawActionPrompt(canvas, fg, bg);
         }
     }
-    
+
     // XP now shows in top bar on gain (Option B)
 }
 
-void SpectrumMode::drawAxis(M5Canvas& canvas) {
+void SpectrumMode::drawAxis(M5Canvas& canvas, uint16_t fg) {
     // Y-axis line
-    canvas.drawFastVLine(SPECTRUM_LEFT - 2, SPECTRUM_TOP, SPECTRUM_BOTTOM - SPECTRUM_TOP, COLOR_FG);
-    
+    canvas.drawFastVLine(SPECTRUM_LEFT - 2, SPECTRUM_TOP, SPECTRUM_BOTTOM - SPECTRUM_TOP, fg);
+
     // dB labels on left
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(middle_right);
-    
+
     for (int8_t rssi = -30; rssi >= -90; rssi -= 20) {
         int y = rssiToY(rssi);
-        // Shift label down if it would be cut off by top bar (font height ~8px, so 4px minimum)
         int labelY = (y < 6) ? 6 : y;
-        canvas.drawFastHLine(SPECTRUM_LEFT - 4, y, 3, COLOR_FG);
+        canvas.drawFastHLine(SPECTRUM_LEFT - 4, y, 3, fg);
         char rssiLabel[6];
         snprintf(rssiLabel, sizeof(rssiLabel), "%d", rssi);
         canvas.drawString(rssiLabel, SPECTRUM_LEFT - 5, labelY);
     }
-    
-    // Baseline
-    canvas.drawFastHLine(SPECTRUM_LEFT, SPECTRUM_BOTTOM, SPECTRUM_RIGHT - SPECTRUM_LEFT, COLOR_FG);
 
+    // Baseline
+    canvas.drawFastHLine(SPECTRUM_LEFT, SPECTRUM_BOTTOM, SPECTRUM_RIGHT - SPECTRUM_LEFT, fg);
 }
 
-void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
+void SpectrumMode::drawChannelMarkers(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_center);
-    
+
     if (viewBand == SpectrumBand::BAND_24) {
         // ==[ DIAL MODE: SLIDING HIGHLIGHT BOX ]==
         // Draw BEFORE channel numbers so numbers appear inverted on top
@@ -1515,34 +1535,34 @@ void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
             float clampedPos = constrain(dialPositionSmooth, 1.0f, 13.0f);
             float freq = 2412.0f + (clampedPos - 1.0f) * 5.0f;
             int xCenter = freqToX(freq);
-            
+
             int boxW = 14;
             int boxH = 10;
             int boxY = CHANNEL_LABEL_Y - 1;
             int boxX = xCenter - boxW / 2;
-            
-            canvas.fillRect(boxX, boxY, boxW, boxH, COLOR_FG);
+
+            canvas.fillRect(boxX, boxY, boxW, boxH, fg);
             if (dialLocked) {
-                canvas.drawRect(boxX - 1, boxY - 1, boxW + 2, boxH + 2, COLOR_FG);
+                canvas.drawRect(boxX - 1, boxY - 1, boxW + 2, boxH + 2, fg);
             }
         }
-        
+
         // Draw channel numbers for visible channels
         for (uint8_t ch = 1; ch <= 13; ch++) {
             float freq = channelToFreq(ch);
             int x = freqToX(freq);
             if (x < SPECTRUM_LEFT || x > SPECTRUM_RIGHT) continue;
-            
-            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, COLOR_FG);
-            
+
+            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, fg);
+
             bool isDialSelected = dialMode && (fabsf(dialPositionSmooth - (float)ch) < 0.6f);
-            canvas.setTextColor(isDialSelected ? COLOR_BG : COLOR_FG);
-            
+            canvas.setTextColor(isDialSelected ? bg : fg);
+
             char chLabel[4];
             snprintf(chLabel, sizeof(chLabel), "%u", ch);
             canvas.drawString(chLabel, x, CHANNEL_LABEL_Y);
         }
-        canvas.setTextColor(COLOR_FG);
+        canvas.setTextColor(fg);
         
         // Scroll indicators (2.4GHz panning)
         float leftEdge = viewCenterMHz - viewWidthMHz / 2;
@@ -1570,8 +1590,8 @@ void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
             int x = freqToX(freq);
             if (x < SPECTRUM_LEFT || x > SPECTRUM_RIGHT) continue;
             
-            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, COLOR_FG);
-            
+            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, fg);
+
             // Label only when there's space to avoid overlap.
             if ((x - lastLabelX) >= 24 || ch == 165) {
                 char lbl[4];
@@ -1597,7 +1617,7 @@ void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
 }
 
 // Draw filter indicator bar at Y=91 (old XP bar area)
-void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
+void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
     // Count networks matching current filter:
     // - denom = total matches in band (ignores min RSSI)
     // - numer = matches that should actually render in the current viewport (min RSSI + intersects view)
@@ -1646,9 +1666,9 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
     }
     
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_left);
-    
+
     // Build filter status string
     char buf[40];
     const char* filterName;
@@ -1702,15 +1722,15 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
             snprintf(c5Buf, sizeof(c5Buf), "5G:%u", (unsigned)cnt5);
         }
         canvas.setTextDatum(top_right);
-        canvas.setTextColor(COLOR_ACCENT);
+        canvas.setTextColor(fg);  // COLOR_ACCENT == COLOR_FG
         canvas.drawString(c5Buf, 238, XP_BAR_Y);
         canvas.setTextDatum(top_left);
-        canvas.setTextColor(COLOR_FG);
+        canvas.setTextColor(fg);
     }
 }
 
 // Draw dial mode info bar (top-right when device upright)
-void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
+void SpectrumMode::drawDialInfo(M5Canvas& canvas, uint16_t fg) {
     if (!dialMode && !renderSelected.valid) return;
     
     // Show channel info at top-right, above spectrum
@@ -1737,7 +1757,7 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
     snprintf(info, sizeof(info), "%s%d %dMHz %spps", prefix, channel, freq, ppsStr);
     
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_right);  // top-right align
     canvas.drawString(info, 236, infoY);
     canvas.setTextDatum(top_left);  // reset
@@ -1745,26 +1765,21 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
 
 // Draw animated noise floor at spectrum baseline
 // Creates realistic "grass" effect like a real spectrum analyzer
-void SpectrumMode::drawNoiseFloor(M5Canvas& canvas) {
+void SpectrumMode::drawNoiseFloor(M5Canvas& canvas, uint16_t fg) {
     int baseY = SPECTRUM_BOTTOM;
 
     // Draw noise floor line with random jitter
     for (int x = SPECTRUM_LEFT; x < SPECTRUM_RIGHT; x++) {
-        // Get random noise amplitude (0-7 pixels)
         uint8_t noise = fastNoise();
-        
-        // Noise extends downward from baseline (into waterfall area slightly)
-        // and upward a tiny bit to create organic "grass" look
+
         int noiseUp = noise / 2;      // 0-3 pixels up
         int noiseDown = noise / 4;    // 0-1 pixels down
-        
-        // Draw vertical noise line at this X
+
         if (noiseUp > 0) {
-            canvas.drawFastVLine(x, baseY - noiseUp, noiseUp, COLOR_FG);
+            canvas.drawFastVLine(x, baseY - noiseUp, noiseUp, fg);
         }
-        // Small dots below baseline for texture
         if (noiseDown > 0 && (x % 3) == 0) {
-            canvas.drawPixel(x, baseY + 1, COLOR_FG);
+            canvas.drawPixel(x, baseY + 1, fg);
         }
     }
 }
@@ -1846,9 +1861,9 @@ void SpectrumMode::updateWaterfall() {
 }
 
 // Draw waterfall display - historical spectrum scrolling down
-void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
+void SpectrumMode::drawWaterfall(M5Canvas& canvas, uint16_t fg) {
     // Draw horizontal separator line above waterfall
-    canvas.drawFastHLine(SPECTRUM_LEFT, WATERFALL_TOP - 1, SPECTRUM_WIDTH, COLOR_FG);
+    canvas.drawFastHLine(SPECTRUM_LEFT, WATERFALL_TOP - 1, SPECTRUM_WIDTH, fg);
     
     // Draw waterfall rows (oldest at top, newest at bottom)
     for (int row = 0; row < WATERFALL_ROWS; row++) {
@@ -1881,7 +1896,7 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
                 }
                 
                 if (drawPixel) {
-                    canvas.drawPixel(SPECTRUM_LEFT + x, screenY, COLOR_FG);
+                    canvas.drawPixel(SPECTRUM_LEFT + x, screenY, fg);
                 }
             }
         }
@@ -1889,12 +1904,12 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
 }
 
 // Draw client monitoring overlay [P3] [P12] [P14] [P15]
-void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
+void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // [P12] Draw in mainCanvas area only (y=0 to y=90 max)
     // XP bar is at y=91, drawn separately in draw()
-    
+
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG, COLOR_BG);
+    canvas.setTextColor(fg, bg);
     
     // Bounds check [P3]
     if (!renderMonitor.valid) {
@@ -1945,10 +1960,10 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
         
         // Highlight selected row
         if (selected) {
-            canvas.fillRect(0, y, 240, LINE_HEIGHT, COLOR_FG);
-            canvas.setTextColor(COLOR_BG, COLOR_FG);
+            canvas.fillRect(0, y, 240, LINE_HEIGHT, fg);
+            canvas.setTextColor(bg, fg);
         } else {
-            canvas.setTextColor(COLOR_FG, COLOR_BG);
+            canvas.setTextColor(fg, bg);
         }
         
         // Format: "1. Vendor  XX:XX:XX  -XXdB >> Xs"
@@ -1987,7 +2002,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
     }
     
     // Scroll indicators
-    canvas.setTextColor(COLOR_FG, COLOR_BG);
+    canvas.setTextColor(fg, bg);
     if (clientScrollOffset > 0) {
         canvas.setTextDatum(top_right);
         canvas.drawString("^", 236, 18);  // More above
@@ -1999,22 +2014,22 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
     
     // Draw client detail popup if active
     if (clientDetailActive) {
-        drawClientDetail(canvas);
+        drawClientDetail(canvas, fg, bg);
     }
-    
+
     // Draw reveal mode overlay (persistent toast with live count)
     if (revealingClients) {
         int boxW = 160;
         int boxH = 40;
         int boxX = (240 - boxW) / 2;
         int boxY = (90 - boxH) / 2;
-        
+
         // Black border then inverted fill
-        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-        
+        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
+        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+
         // Black text on inverted background
-        canvas.setTextColor(COLOR_BG, COLOR_FG);
+        canvas.setTextColor(bg, fg);
         canvas.setTextDatum(middle_center);
         canvas.drawString("WAKIE WAKIE", 120, boxY + 12);
         
@@ -2026,7 +2041,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
 }
 
 // Draw client detail popup - modal overlay with full client info
-void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
+void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // Bounds validation - close popup if client no longer exists
     if (!renderMonitor.valid) {
         clientDetailActive = false;
@@ -2055,11 +2070,11 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
     // Black border then pink fill (standard popup pattern)
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+
     // Black text on pink background
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextColor(bg, fg);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
     
@@ -2103,7 +2118,7 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
 }
 
-void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
+void SpectrumMode::drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // Copy pointers to avoid heap allocations in render loop
     const size_t maxCount = renderCount;
     const size_t cap = (maxCount > MAX_SPECTRUM_NETWORKS) ? MAX_SPECTRUM_NETWORKS : maxCount;
@@ -2155,7 +2170,7 @@ void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
             activity = channelActivityRate[net.channel];
         }
         uint8_t seed = (uint8_t)(net.bssid[0] ^ net.bssid[2] ^ net.bssid[5]);
-        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity, seed);
+        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity, seed, fg);
     }
 }
 
@@ -2180,8 +2195,8 @@ static float getGaussianAmplitude(float dist) {
     return GAUSSIAN_LUT[lutIdx] + frac * (GAUSSIAN_LUT[lutIdx + 1] - GAUSSIAN_LUT[lutIdx]);
 }
 
-void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, 
-                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed) {
+void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
+                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed, uint16_t fg) {
     // Sinc-based carrier wave rendering with visible side lobes
     // Real RF signals have sinc shape: main lobe + decaying side lobes
     // Extended range to ±22MHz to show side lobes like a real spectrum analyzer
@@ -2223,16 +2238,18 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
         activityRatio = (float)capped / 400.0f;
         float jitterAmp = 2.0f * activityRatio;
         uint32_t phaseMs = (uint32_t)((millis() + seed * 31u) * 8u) % 1000u;
-        float phase = (float)phaseMs / 1000.0f;
-        jitterOffset = (int8_t)(jitterAmp * sinf(phase * TWO_PI_F));
+        // Fast sine via 64-entry LUT (replaces sinf ~70 cycles with 1-cycle array lookup)
+        uint8_t phaseIdx = (uint8_t)((phaseMs * 64u) / 1000u) & 63;
+        jitterOffset = (int8_t)(jitterAmp * (float)fastSinQ7(phaseIdx) * (1.0f / 127.0f));
     }
 
     // Micro amplitude flutter (keeps center frequency stable)
     float flutterAmp = 0.02f + 0.03f * activityRatio;  // 2%..5%
     uint32_t periodMs = 1800u - (uint32_t)(activityRatio * 1000.0f);  // 1800..800ms
     uint32_t flutterPhaseMs = (millis() + seed * 53u) % periodMs;
-    float flutterPhase = (float)flutterPhaseMs / (float)periodMs;
-    float flutter = 1.0f + flutterAmp * sinf(flutterPhase * TWO_PI_F);
+    // Fast sine via LUT (replaces second sinf call)
+    uint8_t flutterIdx = (uint8_t)((flutterPhaseMs * 64u) / periodMs) & 63;
+    float flutter = 1.0f + flutterAmp * ((float)fastSinQ7(flutterIdx) / 127.0f);
     int lobeHeightMod = (int)(lobeHeight * flutter);
     int maxHeight = baseY - SPECTRUM_TOP;
     if (lobeHeightMod < 1) lobeHeightMod = 1;
@@ -2272,13 +2289,13 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
             // Filled: draw vertical line from baseline to curve
             if (y < baseY) {
                 if (shimmerMod == 1 || ((uint8_t)(x + shimmerPhase) % shimmerMod) == 0) {
-                    canvas.drawFastVLine(x, y, baseY - y, COLOR_FG);
+                    canvas.drawFastVLine(x, y, baseY - y, fg);
                 }
             }
         } else {
             // Outline: connect to previous point
             if (prevValid && (prevY < baseY || y < baseY)) {
-                canvas.drawLine(prevX, prevY, x, y, COLOR_FG);
+                canvas.drawLine(prevX, prevY, x, y, fg);
             }
         }
         
@@ -2292,12 +2309,12 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
         // Left edge
         int leftEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(startFreq - center));
         if (leftEdgeY < baseY) {
-            canvas.drawLine(leftX, baseY, leftX, leftEdgeY, COLOR_FG);
+            canvas.drawLine(leftX, baseY, leftX, leftEdgeY, fg);
         }
         // Right edge
         int rightEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(endFreq - center));
         if (rightEdgeY < baseY) {
-            canvas.drawLine(rightX, rightEdgeY, rightX, baseY, COLOR_FG);
+            canvas.drawLine(rightX, rightEdgeY, rightX, baseY, fg);
         }
     }
 }
