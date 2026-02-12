@@ -748,9 +748,18 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
             cb(status, i + 1, pendingCount);
         }
         
-        Serial.printf("[WIGLE] Heap before upload %u: %u\n", 
+        Serial.printf("[WIGLE] Heap before upload %u: %u\n",
                       i, (unsigned int)ESP.getFreeHeap());
-        
+
+        // Re-check TLS gates before each upload — prior uploads may have
+        // fragmented heap below the contiguous block threshold
+        HeapGates::TlsGateStatus tlsPerFile = HeapGates::checkTlsGates();
+        if (!HeapGates::canTls(tlsPerFile, lastError, sizeof(lastError))) {
+            Serial.printf("[WIGLE] Heap degraded before upload %u, aborting remaining\n", i);
+            result.failed += (pendingCount - i);
+            break;
+        }
+
         if (uploadSingleFile(pendingUploads[i].path)) {
             result.uploaded++;
             successMask[i] = 1;  // Track for deferred marking

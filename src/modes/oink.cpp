@@ -647,8 +647,15 @@ void OinkMode::update() {
     while (pendingHsRead != pendingHsWrite) {
         // Get slot from circular buffer
         uint8_t slot = pendingHsRead;
-        if (pendingHsBusy[slot] || !pendingHandshakes[slot]) {
-            break;  // Slot still being written by callback or not allocated, wait for next cycle
+        if (!pendingHandshakes[slot]) {
+            break;  // Not allocated yet, wait for next cycle
+        }
+        // CAS acquire: atomically set busy=true if currently false.
+        // Prevents concurrent access if the WiFi callback (core 1)
+        // is updating this slot's frame data at the same time.
+        bool expected = false;
+        if (!pendingHsBusy[slot].compare_exchange_strong(expected, true)) {
+            break;  // Callback is writing to this slot, wait for next cycle
         }
         
         // Create or find handshake entry in main thread context
@@ -721,10 +728,13 @@ void OinkMode::update() {
             }
         }
         
-        // Release slot back to static pool (no heap ops), advance read pointer
+        // Release slot back to static pool (no heap ops), advance read pointer.
+        // Clear pointer and allocated BEFORE releasing busy — ensures producer
+        // won't see this slot as a valid existing entry during its BSSID scan.
         pendingHandshakes[slot] = nullptr;
         pendingHsAllocated[slot] = false;
         pendingHsRead = (pendingHsRead + 1) % PENDING_HS_SLOTS;
+        pendingHsBusy[slot].store(false);  // Release CAS lock
     }
     
     // Process pending PMKID creation (callback queued, we do push_back here)
@@ -2100,26 +2110,29 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             // else: buffer full, drop this frame (extremely rare with 4 slots)
         }
         
-        // Store frame in target slot if we have one
-        if (targetSlot < PENDING_HS_SLOTS && pendingHandshakes[targetSlot] && !pendingHsBusy[targetSlot]) {
-            uint8_t frameIdx = messageNum - 1;
-            if (frameIdx < 4) {
-                pendingHsBusy[targetSlot] = true;  // Lock slot during update
-                
-                // EAPOL payload for hashcat 22000
-                uint16_t copyLen = min((uint16_t)512, len);
-                memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].data, payload, copyLen);
-                pendingHandshakes[targetSlot]->frames[frameIdx].len = copyLen;
-                
-                // Full 802.11 frame for PCAP export
-                uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
-                memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
-                pendingHandshakes[targetSlot]->frames[frameIdx].fullFrameLen = fullCopyLen;
-                pendingHandshakes[targetSlot]->frames[frameIdx].rssi = rssi;
-                
-                pendingHandshakes[targetSlot]->capturedMask |= (1 << frameIdx);
-                
-                pendingHsBusy[targetSlot] = false;  // Unlock after update
+        // Store frame in target slot if we have one.
+        // CAS acquire: prevents concurrent access with consumer (main loop, core 0).
+        // If CAS fails (consumer is reading this slot), drop the frame —
+        // EAPOL handshakes are retransmitted so we'll catch the next one.
+        if (targetSlot < PENDING_HS_SLOTS && pendingHandshakes[targetSlot]) {
+            bool expected = false;
+            if (pendingHsBusy[targetSlot].compare_exchange_strong(expected, true)) {
+                uint8_t frameIdx = messageNum - 1;
+                if (frameIdx < 4) {
+                    // EAPOL payload for hashcat 22000
+                    uint16_t copyLen = min((uint16_t)512, len);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].data, payload, copyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].len = copyLen;
+
+                    // Full 802.11 frame for PCAP export
+                    uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].fullFrameLen = fullCopyLen;
+                    pendingHandshakes[targetSlot]->frames[frameIdx].rssi = rssi;
+
+                    pendingHandshakes[targetSlot]->capturedMask |= (1 << frameIdx);
+                }
+                pendingHsBusy[targetSlot].store(false);  // Release CAS lock
             }
         }
     }

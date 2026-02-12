@@ -216,15 +216,18 @@ void Display::init() {
     M5.Display.fillScreen(COLOR_BG);
     M5.Display.setTextColor(COLOR_FG);
     
-    // Create canvas sprites - then explicitly set them to 8-bit RGB332
-    topBar.createSprite(DISPLAY_W, TOP_BAR_H);
+    // CRITICAL: setColorDepth MUST be called BEFORE createSprite.
+    // M5GFX allocates the sprite buffer in createSprite() using the current depth.
+    // Wrong order = 16-bit alloc (2 bytes/pixel) instead of 8-bit (1 byte/pixel),
+    // wasting ~97KB on a 300KB device.
     topBar.setColorDepth(8);
-    
-    mainCanvas.createSprite(DISPLAY_W, MAIN_H);
+    topBar.createSprite(DISPLAY_W, TOP_BAR_H);
+
     mainCanvas.setColorDepth(8);
-    
-    bottomBar.createSprite(DISPLAY_W, BOTTOM_BAR_H);
+    mainCanvas.createSprite(DISPLAY_W, MAIN_H);
+
     bottomBar.setColorDepth(8);
+    bottomBar.createSprite(DISPLAY_W, BOTTOM_BAR_H);
     
     topBar.setTextSize(1);
     mainCanvas.setTextSize(1);

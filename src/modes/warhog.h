@@ -3,6 +3,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <atomic>
 #include <vector>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -67,7 +68,7 @@ private:
 
     // Background scan task
     static TaskHandle_t scanTaskHandle;
-    static volatile int scanResult;
+    static std::atomic<int> scanResult;
     
     static void performScan();
     static void scanTask(void* pvParameters);

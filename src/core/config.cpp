@@ -162,16 +162,42 @@ static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& 
 }
 
 static bool writeBlobTo(fs::FS& fs, const char* path, const ConfigBlob& b) {
-    File file = fs.open(path, FILE_WRITE);
+    // Atomic write for SD (FAT32 rename is single-sector = atomic).
+    // SPIFFS doesn't support rename, so falls back to direct write.
+    bool useAtomic = (&fs == &((fs::FS&)SD));
+    char tmpPath[128];
+    const char* writePath = path;
+    if (useAtomic) {
+        snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path);
+        writePath = tmpPath;
+    }
+
+    File file = fs.open(writePath, FILE_WRITE);
     if (!file) {
-        Serial.printf("[CONFIG] writeBlobTo: failed to open '%s'\n", path);
+        Serial.printf("[CONFIG] writeBlobTo: failed to open '%s'\n", writePath);
         return false;
     }
     size_t written = file.write((const uint8_t*)&b, sizeof(b));
     file.close();
+
+    if (written != sizeof(b)) {
+        Serial.printf("[CONFIG] writeBlobTo: short write %u/%u -> '%s'\n",
+                      written, sizeof(b), writePath);
+        if (useAtomic) fs.remove(writePath);
+        return false;
+    }
+
+    if (useAtomic) {
+        fs.remove(path);  // FAT32 rename fails if target exists
+        if (!SD.rename(tmpPath, path)) {
+            Serial.printf("[CONFIG] writeBlobTo: rename failed '%s' -> '%s'\n", tmpPath, path);
+            return false;
+        }
+    }
+
     Serial.printf("[CONFIG] writeBlobTo: %u/%u bytes -> '%s'\n",
                   written, sizeof(b), path);
-    return written == sizeof(b);
+    return true;
 }
 
 static bool readBlobFrom(fs::FS& fs, const char* path, ConfigBlob& b) {

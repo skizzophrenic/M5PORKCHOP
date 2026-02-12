@@ -597,7 +597,7 @@ void Porkchop::processEvents() {
     // Index-based loop to avoid iterator invalidation from erase()
     size_t i = 0;
     while (i < eventQueue.size() && processed < MAX_EVENTS_PER_UPDATE) {
-        const auto& item = eventQueue[i];
+        const auto item = eventQueue[i];  // Copy, not reference: callbacks may push_back() which reallocates
 
         for (const auto& cb : callbacks) {
             if (cb.first == item.event) {

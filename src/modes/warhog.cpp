@@ -62,10 +62,10 @@ static const int SD_RETRY_DELAY_MS = 10;
 // Files larger than this will be rotated to a new file
 static const size_t WIGLE_FILE_MAX_SIZE = 400000;
 
-// Graceful stop request flag for background scan task
-static volatile bool stopRequested = false;
+// Graceful stop request flag for background scan task (atomic: cross-core visibility)
+static std::atomic<bool> stopRequested{false};
 // Set by scan task just before self-deleting, used for safe cleanup in stop()
-static volatile bool scanTaskExited = false;
+static std::atomic<bool> scanTaskExited{false};
 
 // Helper: Open SD file with retry logic
 static File openFileWithRetry(const char* path, const char* mode) {
@@ -120,7 +120,7 @@ uint32_t WarhogMode::scanStartTime = 0;
 
 // Background scan task statics
 TaskHandle_t WarhogMode::scanTaskHandle = NULL;
-volatile int WarhogMode::scanResult = -2;  // -2 = not started, -1 = running, >=0 = complete
+std::atomic<int> WarhogMode::scanResult{-2};  // -2 = not started, -1 = running, >=0 = complete
 
 // Scan task check: returns true if should abort
 static inline bool shouldAbortScan() {
@@ -273,25 +273,27 @@ void WarhogMode::stop() {
     
     // Signal task to stop gracefully
     stopRequested = true;
-    scanTaskExited = false;
 
-    // Wait briefly for background scan to notice stopRequested
+    // Wait for background scan task to exit
     if (scanInProgress && scanTaskHandle != NULL) {
-        // Give task up to 500ms to exit gracefully
-        for (int i = 0; i < 10 && scanTaskHandle != NULL; i++) {
+        // Wait for scanTaskExited (the authoritative atomic flag) — not the handle,
+        // which is racy between the task self-deleting and us reading it.
+        for (int i = 0; i < 10 && !scanTaskExited.load(); i++) {
             delay(50);
         }
-        // Force cleanup if task didn't exit in time
-        if (scanTaskHandle != NULL) {
-            Serial.println("[WARHOG] Force-deleting scan task");
-            vTaskDelete(scanTaskHandle);
+        if (scanTaskExited.load()) {
+            // Task exited cleanly — it already called vTaskDelete(NULL).
+            // Handle may or may not be NULL yet; just clear it.
             scanTaskHandle = NULL;
-        }
-        // Only call scanDelete if task exited cleanly (not mid-scan-processing)
-        if (scanTaskExited) {
             WiFi.scanDelete();
         } else {
-            // Task was force-killed — WiFi state may be inconsistent.
+            // Task didn't exit in time (stuck in WiFi.scanNetworks blocking call).
+            // Force-delete with the saved handle.
+            Serial.println("[WARHOG] Force-deleting scan task");
+            TaskHandle_t h = scanTaskHandle;
+            scanTaskHandle = NULL;
+            if (h) vTaskDelete(h);
+            // WiFi state may be inconsistent after force-kill.
             // Soft reset keeps driver alive (avoid RX buffer realloc on fragmented heap).
             WiFi.disconnect(false, true);
             delay(50);

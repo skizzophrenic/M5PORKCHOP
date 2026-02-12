@@ -377,28 +377,40 @@ bool XP::backupToSD() {
     }
     
     const char* backupPath = SDLayout::xpBackupPath();
-    File f = SD.open(backupPath, FILE_WRITE);
+    // Atomic write: write to .tmp, verify, rename over live file
+    char tmpPath[128];
+    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", backupPath);
+
+    File f = SD.open(tmpPath, FILE_WRITE);
     if (!f) {
-        Serial.println("[XP] SD backup: failed to open file");
+        Serial.println("[XP] SD backup: failed to open temp file");
         return false;
     }
-    
+
     // Write XP data
     size_t written = f.write((uint8_t*)&data, sizeof(PorkXPData));
-    
+
     // seal the pact
     uint32_t signature = calculateDeviceBoundCRC(&data);
     written += f.write((uint8_t*)&signature, sizeof(signature));
     f.close();
-    
+
     size_t expectedSize = sizeof(PorkXPData) + sizeof(uint32_t);
-    if (written == expectedSize) {
-        Serial.printf("[XP] SD backup: saved %d bytes (sig: %08X)\n", written, signature);
-        return true;
+    if (written != expectedSize) {
+        Serial.printf("[XP] SD backup: write failed (%d/%d bytes)\n", written, expectedSize);
+        SD.remove(tmpPath);
+        return false;
     }
-    
-    Serial.printf("[XP] SD backup: write failed (%d/%d bytes)\n", written, expectedSize);
-    return false;
+
+    // Atomic rename: single FAT32 directory entry update
+    SD.remove(backupPath);
+    if (!SD.rename(tmpPath, backupPath)) {
+        Serial.printf("[XP] SD backup: rename failed\n");
+        return false;
+    }
+
+    Serial.printf("[XP] SD backup: saved %d bytes (sig: %08X)\n", written, signature);
+    return true;
 }
 
 bool XP::restoreFromSD() {
