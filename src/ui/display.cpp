@@ -194,12 +194,12 @@ uint32_t Display::uploadStartTime = 0;
 // PWNED banner state, persists until reboot
 static char lootSSID[20] = {0};
 
-void Display::showLoot(const String& ssid) {
-    if (ssid.length() == 0) {
+void Display::showLoot(const char* ssid) {
+    if (!ssid || ssid[0] == '\0') {
         lootSSID[0] = '\0';
         return;
     }
-    strncpy(lootSSID, ssid.c_str(), sizeof(lootSSID) - 1);
+    strncpy(lootSSID, ssid, sizeof(lootSSID) - 1);
     lootSSID[sizeof(lootSSID) - 1] = '\0';
 }
 
@@ -1144,23 +1144,23 @@ void Display::drawBottomBar() {
     }
 }
 
-void Display::showInfoBox(const String& title, const String& line1, 
-                          const String& line2, bool blocking) {
+void Display::showInfoBox(const char* title, const char* line1,
+                          const char* line2, bool blocking) {
     mainCanvas.fillSprite(COLOR_BG);
     mainCanvas.setTextColor(COLOR_FG);
-    
+
     // Draw border
     mainCanvas.drawRect(10, 5, DISPLAY_W - 20, MAIN_H - 10, COLOR_FG);
-    
+
     // Title
     mainCanvas.setTextDatum(top_center);
     mainCanvas.setTextSize(2);
     mainCanvas.drawString(title, DISPLAY_W / 2, 15);
-    
+
     // Content
     mainCanvas.setTextSize(1);
     mainCanvas.drawString(line1, DISPLAY_W / 2, 45);
-    if (line2.length() > 0) {
+    if (line2 && line2[0] != '\0') {
         mainCanvas.drawString(line2, DISPLAY_W / 2, 60);
     }
     
@@ -1188,16 +1188,16 @@ void Display::showInfoBox(const String& title, const String& line1,
     }
 }
 
-bool Display::showConfirmBox(const String& title, const String& message) {
+bool Display::showConfirmBox(const char* title, const char* message) {
     mainCanvas.fillSprite(COLOR_BG);
     mainCanvas.setTextColor(COLOR_FG);
-    
+
     mainCanvas.drawRect(10, 5, DISPLAY_W - 20, MAIN_H - 10, COLOR_FG);
-    
+
     mainCanvas.setTextDatum(top_center);
     mainCanvas.setTextSize(2);
     mainCanvas.drawString(title, DISPLAY_W / 2, 15);
-    
+
     mainCanvas.setTextSize(1);
     mainCanvas.drawString(message, DISPLAY_W / 2, 45);
     mainCanvas.drawString("[Y]ES / [N]O", DISPLAY_W / 2, MAIN_H - 20);
@@ -1494,6 +1494,34 @@ void Display::notify(NoticeKind kind, const String& message, uint32_t durationMs
         default: {
             uint32_t duration = durationMs > 0 ? durationMs : defaultNoticeDuration(kind);
             requestTopBarMessage(message.c_str(), duration);
+            break;
+        }
+    }
+}
+
+void Display::notify(NoticeKind kind, const char* message, uint32_t durationMs, NoticeChannel channel) {
+    if (!message || message[0] == '\0') return;
+
+    if (channel == NoticeChannel::TOAST) {
+        showToast(message, durationMs);
+        return;
+    }
+    if (channel == NoticeChannel::TOP_BAR) {
+        uint32_t duration = durationMs > 0 ? durationMs : defaultNoticeDuration(kind);
+        requestTopBarMessage(message, duration);
+        return;
+    }
+
+    switch (kind) {
+        case NoticeKind::REWARD:
+        case NoticeKind::ERROR:
+            showToast(message);
+            break;
+        case NoticeKind::WARNING:
+        case NoticeKind::STATUS:
+        default: {
+            uint32_t duration = durationMs > 0 ? durationMs : defaultNoticeDuration(kind);
+            requestTopBarMessage(message, duration);
             break;
         }
     }
@@ -2638,12 +2666,12 @@ void Display::drawPigSyncDeviceSelect(M5Canvas& canvas) {
     }
 }
 
-void Display::setBottomOverlay(const String& message) {
-    if (message.length() == 0) {
+void Display::setBottomOverlay(const char* message) {
+    if (!message || message[0] == '\0') {
         bottomOverlay[0] = '\0';
         return;
     }
-    strncpy(bottomOverlay, message.c_str(), sizeof(bottomOverlay) - 1);
+    strncpy(bottomOverlay, message, sizeof(bottomOverlay) - 1);
     bottomOverlay[sizeof(bottomOverlay) - 1] = '\0';
 }
 

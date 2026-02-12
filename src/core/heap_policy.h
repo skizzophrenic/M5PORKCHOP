@@ -95,9 +95,11 @@ namespace HeapPolicy {
     static constexpr uint32_t kConditioningFinalDelayMs = 50;
     static constexpr uint32_t kBrewDefaultDwellMs = 1000;
     static constexpr uint32_t kBrewAutoDwellMs = 1200;
-    // FileServer LWIP async cleanup polling
-    static constexpr uint32_t kFileServerLwipWaitMaxMs = 500;   // Max wait for async LWIP cleanup
-    static constexpr uint32_t kFileServerLwipPollMs = 50;       // Poll interval
+    // LWIP async TCP cleanup polling
+    // lwip_close() returns immediately but TCP PCB/buffers are freed by LWIP
+    // timer task on a 250-500ms cycle. Poll until heap stabilizes.
+    static constexpr uint32_t kLwipCleanupWaitMaxMs = 500;
+    static constexpr uint32_t kLwipCleanupPollMs = 50;
 
     // WiFi/BLE settle delays used during conditioning/reset
     static constexpr uint32_t kWiFiModeDelayMs = 50;

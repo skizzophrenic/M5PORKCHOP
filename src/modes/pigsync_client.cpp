@@ -938,12 +938,12 @@ void PigSyncMode::start() {
 
 void PigSyncMode::stop() {
     if (!running) return;
-    
+
     running = false;
-    
+
     disconnect();
     stopDiscovery();
-    
+
     // Deinit ESP-NOW to free resources
     if (initialized) {
         esp_now_deinit();
@@ -951,9 +951,13 @@ void PigSyncMode::stop() {
         PIGSYNC_LOGLN("[PIGSYNC-CLI-STATE] DEINIT");
     }
 
+    // Reclaim device list memory
+    devices.clear();
+    devices.shrink_to_fit();
+
     // Resume NetworkRecon (restores promiscuous mode)
     NetworkRecon::resume();
-    
+
     PIGSYNC_LOGLN("[PIGSYNC-CLI-STATE] STOP");
 }
 

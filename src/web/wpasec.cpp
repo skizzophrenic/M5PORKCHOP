@@ -470,7 +470,12 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
         // This avoids reloading cache during TLS when heap is tight
         Serial.printf("[WPASEC] Upload success: %s\n", bssid);
     } else {
-        strncpy(lastError, "UPLOAD REJECTED", sizeof(lastError) - 1);
+        if (lastError[0] == '\0') {
+            strncpy(lastError, "UPLOAD REJECTED", sizeof(lastError) - 1);
+        }
+        Serial.printf("[WPASEC] Upload error: %s (heap=%u largest=%u)\n",
+                      lastError, (unsigned)ESP.getFreeHeap(),
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     
     return success;
@@ -600,6 +605,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     if (wasReconRunning) {
         Serial.println("[WPASEC] Pausing NetworkRecon for TLS operations");
         NetworkRecon::pause();
+        NetworkRecon::freeNetworks();  // Release ~19KB for TLS headroom
     }
     
     // Pre-flight checks
@@ -803,9 +809,8 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
             Serial.printf("[WPASEC] Failed: %s\n", pendingUploads[i].path);
         }
         
-        // Small delay between uploads to let heap settle
-        delay(100);
-        yield();
+        // Wait for LWIP async TCP cleanup before next TLS gate check
+        HeapGates::waitForLwipCleanup();
     }
     
     // Mark successful uploads AFTER all TLS operations complete

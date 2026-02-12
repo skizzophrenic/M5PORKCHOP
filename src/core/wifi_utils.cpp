@@ -315,6 +315,9 @@ size_t conditionHeapForTLS() {
         NetworkRecon::pause();
     }
 
+    // Save WiFi STA connection state — brewing requires disconnect + promiscuous
+    bool wasConnected = (WiFi.status() == WL_CONNECTED);
+
     // Phase 2: "Heap Brewing" - WiFi promiscuous cycle with dwell time
     // The OINK bounce effect requires the WiFi driver's internal task to run
     // for ~2-3 seconds to reorganize its buffers. Key observations:
@@ -398,7 +401,8 @@ size_t conditionHeapForTLS() {
     // Step 4: Clean shutdown (same as OINK stop)
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
-    WiFi.disconnect(false, true);
+    // Preserve AP config (eraseap=false) so callers can reconnect after brewing
+    WiFi.disconnect(false, false);
     WiFi.mode(WIFI_STA);
     delay(HeapPolicy::kWiFiShutdownDelayMs);
     
@@ -420,6 +424,22 @@ size_t conditionHeapForTLS() {
                   finalFree, freedBytes, finalLargest, contiguousGain);
     HeapHealth::resetPeaks(true);
     lastManualConditionMs = millis();  // Cooldown starts from brew completion
+
+    // Restore WiFi STA connection if it was active before brewing
+    if (wasConnected) {
+        Serial.println("[HEAP] Reconnecting WiFi after conditioning...");
+        WiFi.reconnect();
+        uint32_t reconStart = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - reconStart) < 10000) {
+            delay(100);
+            yield();
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.printf("[HEAP] WiFi reconnected: %s\n", WiFi.localIP().toString().c_str());
+        } else {
+            Serial.println("[HEAP] WiFi reconnect failed (caller should retry)");
+        }
+    }
 
     // Resume NetworkRecon if it was running before conditioning
     if (wasReconRunning) {

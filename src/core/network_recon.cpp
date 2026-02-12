@@ -899,14 +899,19 @@ void pause() {
 
 void resume() {
     if (!running || !paused) return;
-    
+
     Serial.println("[RECON] Resuming promiscuous mode...");
-    
+
+    // Re-reserve if freeNetworks() dropped capacity to 0
+    if (networks.capacity() == 0) {
+        networks.reserve(MAX_RECON_NETWORKS);
+    }
+
     // Disconnect from any network before enabling promiscuous mode
     // (WiFi may be connected after TLS operations like WiGLE/WPA-SEC sync)
     WiFi.disconnect();
     delay(50);
-    
+
     // Re-enable promiscuous
     esp_wifi_set_promiscuous_rx_cb(promiscuousCallback);
     esp_wifi_set_promiscuous_filter(nullptr);

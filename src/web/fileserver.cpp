@@ -3616,8 +3616,8 @@ void FileServer::stop() {
         size_t prevFree = ESP.getFreeHeap();
         uint32_t waitStart = millis();
 
-        while ((millis() - waitStart) < HeapPolicy::kFileServerLwipWaitMaxMs) {
-            delay(HeapPolicy::kFileServerLwipPollMs);
+        while ((millis() - waitStart) < HeapPolicy::kLwipCleanupWaitMaxMs) {
+            delay(HeapPolicy::kLwipCleanupPollMs);
             size_t curLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             size_t curFree = ESP.getFreeHeap();
             if (curFree == prevFree && curLargest == prevLargest) break;

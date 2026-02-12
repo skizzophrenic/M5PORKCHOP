@@ -644,6 +644,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     if (wasReconRunning) {
         Serial.println("[WIGLE] Pausing NetworkRecon for TLS operations");
         NetworkRecon::pause();
+        NetworkRecon::freeNetworks();  // Release ~19KB for TLS headroom
     }
     
     // Pre-flight checks
@@ -802,9 +803,8 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
             Serial.printf("[WIGLE] Failed: %s\n", pendingUploads[i].path);
         }
         
-        // Small delay between uploads to let heap settle
-        delay(100);
-        yield();
+        // Wait for LWIP async TCP cleanup before next TLS gate check
+        HeapGates::waitForLwipCleanup();
     }
     
     // Mark successful uploads AFTER all TLS operations complete

@@ -80,14 +80,17 @@ public:
     // Helper functions
     static void pushAll();
     static void showBootSplash();  // 3-screen boot animation
-    static void showInfoBox(const String& title, const String& line1, 
-                           const String& line2 = "", bool blocking = true);
-    static bool showConfirmBox(const String& title, const String& message);
+    static void showInfoBox(const char* title, const char* line1,
+                           const char* line2 = "", bool blocking = true);
+    static bool showConfirmBox(const char* title, const char* message);
     static void showProgress(const String& title, uint8_t percent);
     static void showProgress(const char* title, uint8_t percent);
     static void showToast(const String& message, uint32_t durationMs = 2000);  // Quick non-blocking message
     static void showToast(const char* message, uint32_t durationMs = 2000);    // Literal-friendly overload
     static void notify(NoticeKind kind, const String& message,
+                       uint32_t durationMs = 0,
+                       NoticeChannel channel = NoticeChannel::AUTO);
+    static void notify(NoticeKind kind, const char* message,
                        uint32_t durationMs = 0,
                        NoticeChannel channel = NoticeChannel::AUTO);
     static void showLevelUp(uint8_t oldLevel, uint8_t newLevel);  // RPG level up popup
@@ -102,10 +105,10 @@ public:
     static void setLED(uint8_t r, uint8_t g, uint8_t b);  // Static LED glow
     
     // PWNED banner (shown in top bar for 1 minute after capture)
-    static void showLoot(const String& ssid);
+    static void showLoot(const char* ssid);
     
     // Bottom bar overlay (for confirmation dialogs)
-    static void setBottomOverlay(const String& message);  // Set custom bottom bar text
+    static void setBottomOverlay(const char* message);  // Set custom bottom bar text
     static void clearBottomOverlay();                     // Clear overlay, restore normal
     
     // Status indicators

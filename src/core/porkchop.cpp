@@ -103,13 +103,15 @@ static const char* bootModeLabel(BootMode mode) {
 
 static bool healthBootToastShown = false;
 
-Porkchop::Porkchop() 
+Porkchop::Porkchop()
     : currentMode(PorkchopMode::IDLE)
     , previousMode(PorkchopMode::IDLE)
     , startTime(0)
     , handshakeCount(0)
     , networkCount(0)
     , deauthCount(0) {
+    eventQueue.reserve(MAX_EVENT_QUEUE_SIZE);
+    callbacks.reserve(16);
 }
 
 static bool isAutoConditionSafe(PorkchopMode mode) {
