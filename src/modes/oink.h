@@ -222,6 +222,7 @@ private:
     static void sendDeauthFrame(const uint8_t* bssid, const uint8_t* station, uint8_t reason);
     static void sendDeauthBurst(const uint8_t* bssid, const uint8_t* station, uint8_t count);
     static void sendDisassocFrame(const uint8_t* bssid, const uint8_t* station, uint8_t reason);
+    static void sendAuthenticationRequest(const uint8_t* bssid);
     static void sendAssociationRequest(const uint8_t* bssid, const char* ssid, uint8_t ssidLen);
     static void hopChannel();
     static void trackTargetClient(const uint8_t* bssid, const uint8_t* clientMac, int8_t rssi);
