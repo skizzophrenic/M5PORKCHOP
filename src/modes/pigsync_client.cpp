@@ -559,7 +559,9 @@ void pigSyncOnRecv(const uint8_t* mac, const uint8_t* data, int len) {
 
     if (hdr->sessionId != 0) {
         if (hdr->seq == reliability.lastRxSeq || isSeqNewer(hdr->seq, reliability.lastRxSeq)) {
+            taskENTER_CRITICAL(&pendingMux);
             reliability.lastRxSeq = hdr->seq;
+            taskEXIT_CRITICAL(&pendingMux);
         }
     }
 
@@ -1737,6 +1739,7 @@ bool PigSyncMode::connectTo(uint8_t deviceIndex) {
     if (addErr != ESP_OK) {
         PIGSYNC_LOGF("[PIGSYNC-CLI-ERR] Failed to add peer err=%d\n", addErr);
         snprintf(lastError, sizeof(lastError), "Failed to add peer");
+        state = State::IDLE;
         return false;
     }
     
@@ -2085,6 +2088,7 @@ void PigSyncMode::sendStartSync(uint8_t captureType, uint16_t index) {
     progress.captureIndex = index;
     progress.currentChunk = 0;
     progress.inProgress = true;
+    progress.startTime = millis();
 
     sendControlPacket(connectedMac, (uint8_t*)&pkt, sizeof(pkt), CMD_START_SYNC, seq);
 }

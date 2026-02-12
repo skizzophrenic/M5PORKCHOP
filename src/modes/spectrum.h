@@ -193,7 +193,7 @@ private:
     static float dialPositionSmooth;         // Lerped display position (smooth)
     static uint32_t lastDialUpdate;          // Timing for lerp
     static uint32_t dialModeEntryTime;       // When dial mode was entered (debounce)
-    static volatile uint32_t ppsCounter;     // Packet counter (callback increments)
+    static std::atomic<uint32_t> ppsCounter;  // Packet counter (callback increments)
     static uint32_t displayPps;              // Displayed pps (updated per second)
     static uint32_t lastPpsUpdate;           // Last pps calculation time
     

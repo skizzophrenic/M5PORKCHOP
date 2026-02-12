@@ -489,10 +489,10 @@ bool Config::reinitSD() {
         SDLayout::ensureDirs();
         SDLog::log("CFG", "SD card re-initialized OK");
     } else {
-        // FAIL: Restore previous state — don't corrupt flags
-        sdAvailable = wasSdAvailable;
+        // FAIL: All retries exhausted — SD is definitively gone
+        sdAvailable = false;
         SDLayout::setUseNewLayout(wasNewLayout);
-        Serial.println("[CONFIG] SD reinit failed, keeping previous SD state");
+        Serial.println("[CONFIG] SD reinit failed, marking SD unavailable");
     }
 
     return sdAvailable;
@@ -669,17 +669,19 @@ bool Config::load() {
         const char* sdPath = SDLayout::configPathSD();
         if (loadFrom((fs::FS&)SD, sdPath)) {
             Serial.printf("[CONFIG] Migrated JSON from SD: '%s'\n", sdPath);
-            save();           // write binary to both SD + SPIFFS
-            SD.remove(sdPath);  // delete old JSON
-            Serial.printf("[CONFIG] Deleted old JSON: '%s'\n", sdPath);
+            if (save()) {
+                SD.remove(sdPath);  // delete old JSON only if save succeeded
+                Serial.printf("[CONFIG] Deleted old JSON: '%s'\n", sdPath);
+            }
             return true;
         }
         if (SDLayout::usingNewLayout()) {
             const char* legacyPath = SDLayout::legacyConfigPath();
             if (loadFrom((fs::FS&)SD, legacyPath)) {
                 Serial.printf("[CONFIG] Migrated JSON from SD legacy: '%s'\n", legacyPath);
-                save();
-                SD.remove(legacyPath);
+                if (save()) {
+                    SD.remove(legacyPath);
+                }
                 return true;
             }
         }
@@ -1005,8 +1007,7 @@ bool Config::importCredsFromJsonConf() {
     }
 
     if (!doc["wifi"].is<JsonObject>()) {
-        Serial.printf("[CONFIG] importCreds: no 'wifi' object in '%s'\n", confPath);
-        SD.remove(confPath);
+        Serial.printf("[CONFIG] importCreds: no 'wifi' object in '%s', keeping file\n", confPath);
         return false;
     }
 
@@ -1042,11 +1043,10 @@ bool Config::importCredsFromJsonConf() {
     if (merged) {
         save();
         SDLog::log("CFG", "Credentials imported from porkchop.conf");
-    }
-
-    // Delete the JSON conf after import (same pattern as key files)
-    if (SD.remove(confPath)) {
-        Serial.printf("[CONFIG] importCreds: deleted '%s' after import\n", confPath);
+        // Delete the JSON conf only after successful import
+        if (SD.remove(confPath)) {
+            Serial.printf("[CONFIG] importCreds: deleted '%s' after import\n", confPath);
+        }
     }
 
     return merged;

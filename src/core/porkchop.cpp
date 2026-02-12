@@ -252,8 +252,7 @@ void Porkchop::init() {
     
     Avatar::setState(AvatarState::HAPPY);
     
-    // Initialize non-blocking audio system
-    SFX::init();
+    // SFX::init() already called in setup() for boot sound — don't re-init
 
     if (!healthBootToastShown) {
         healthBootToastShown = true;

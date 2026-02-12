@@ -52,7 +52,7 @@ static const uint8_t DNH_RADIOTAP_HEADER[] = {
 };
 
 // Static member initialization
-bool DoNoHamMode::running = false;
+std::atomic<bool> DoNoHamMode::running{false};
 DNHState DoNoHamMode::state = DNHState::HOPPING;
 uint8_t DoNoHamMode::currentChannel = 1;
 uint8_t DoNoHamMode::channelIndex = 0;

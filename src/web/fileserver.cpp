@@ -2662,15 +2662,15 @@ async function saveEdit() {
     addSysLog('EDIT SAVING: ' + originalPath);
 
     try {
-        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath));
-        await queuedFetch('/delete?f=' + encodeURIComponent(backupPath));
+        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath), {method:'POST'});
+        await queuedFetch('/delete?f=' + encodeURIComponent(backupPath), {method:'POST'});
         await uploadTextToDevice(tempPath, text, 'text/plain');
         const renameOrig = await queuedFetch('/api/rename?old=' + encodeURIComponent(originalPath) + '&new=' + encodeURIComponent(backupPath));
         if (renameOrig.ok) backupCreated = true;
         const renameTemp = await queuedFetch('/api/rename?old=' + encodeURIComponent(tempPath) + '&new=' + encodeURIComponent(originalPath));
         if (!renameTemp.ok) throw new Error('RENAME FAILED');
         if (backupCreated) {
-            await queuedFetch('/delete?f=' + encodeURIComponent(backupPath));
+            await queuedFetch('/delete?f=' + encodeURIComponent(backupPath), {method:'POST'});
         }
         editDirty = false;
         updateEditMeta();
@@ -2681,7 +2681,7 @@ async function saveEdit() {
         if (backupCreated) {
             await queuedFetch('/api/rename?old=' + encodeURIComponent(backupPath) + '&new=' + encodeURIComponent(originalPath));
         }
-        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath));
+        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath), {method:'POST'});
         addSysLog('EDIT SAVE FAILED: ' + describeError(e));
     }
 }
@@ -2820,7 +2820,7 @@ async function createFolder() {
     const path = (pane.path === '/' ? '' : pane.path) + '/' + name;
     
     try {
-        const resp = await queuedFetch('/mkdir?f=' + encodeURIComponent(path));
+        const resp = await queuedFetch('/mkdir?f=' + encodeURIComponent(path), {method:'POST'});
         if (resp.ok) {
             addSysLog('SPAWNED: ' + name);
             hideModal();
@@ -3567,9 +3567,9 @@ void FileServer::startServer() {
     server->on("/api/creds", HTTP_POST, handleCredsSave);
     server->on("/download", HTTP_GET, handleDownload);
     server->on("/upload", HTTP_POST, handleUpload, handleUploadProcess);
-    server->on("/delete", HTTP_GET, handleDelete);
-    server->on("/rmdir", HTTP_GET, handleDelete);
-    server->on("/mkdir", HTTP_GET, handleMkdir);
+    server->on("/delete", HTTP_POST, handleDelete);
+    server->on("/rmdir", HTTP_POST, handleDelete);
+    server->on("/mkdir", HTTP_POST, handleMkdir);
     server->onNotFound(handleNotFound);
 
     server->begin();
@@ -3862,6 +3862,19 @@ void FileServer::handleSDInfo() {
     logHeapStatusIfLow("after /api/sdinfo");
 }
 
+// Escape a string for JSON (handles " and \ only; control chars unlikely in API keys)
+static void jsonEscapeStr(char* dst, size_t dstSize, const char* src) {
+    size_t di = 0;
+    for (size_t si = 0; src[si] && di < dstSize - 2; si++) {
+        if (src[si] == '"' || src[si] == '\\') {
+            if (di + 2 >= dstSize - 1) break;
+            dst[di++] = '\\';
+        }
+        dst[di++] = src[si];
+    }
+    dst[di] = '\0';
+}
+
 void FileServer::handleCreds() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
@@ -3869,10 +3882,14 @@ void FileServer::handleCreds() {
         return;
     }
     const WiFiConfig& w = Config::wifi();
-    char json[256];
+    char eKey[80], eName[80], eToken[80];
+    jsonEscapeStr(eKey, sizeof(eKey), w.wpaSecKey);
+    jsonEscapeStr(eName, sizeof(eName), w.wigleApiName);
+    jsonEscapeStr(eToken, sizeof(eToken), w.wigleApiToken);
+    char json[384];
     snprintf(json, sizeof(json),
              "{\"wpaSecKey\":\"%s\",\"wigleApiName\":\"%s\",\"wigleApiToken\":\"%s\"}",
-             w.wpaSecKey, w.wigleApiName, w.wigleApiToken);
+             eKey, eName, eToken);
     server->sendHeader("Connection", "close");
     server->sendHeader("Cache-Control", "no-store");
     server->send(200, "application/json", json);

@@ -310,7 +310,7 @@ static const char* ACHIEVEMENT_NAMES[] = {
     "W1TN3SS PR0T3CT",    // 25 bros (title unlock)
     "FULL R0ST3R",        // 100 bros (max)
     // Combined achievements (bits 58-59)
-    "1NN3R P34C3",        // 1hr passive + 10 bros + 0 deauths
+    "PR0PH3CY W1TN3SS",  // Witnessed the riddle prophecy
     "P4C1F1ST RUN",       // 50+ nets all as bros
     // CLIENT MONITOR achievements (bits 60-62)
     "QU1CK DR4W",         // 5 clients in 30 seconds
@@ -1710,8 +1710,7 @@ void XP::checkAchievements() {
         unlockAchievement(ACH_WITNESS_PROTECT);
     }
     
-    // 100 bros = Full Roster (max limit)
-    // Note: Check OinkMode::boarBros.size() when available
+    // 50 bros added lifetime = Full Roster
     if (data.boarBrosAdded >= 50 && !hasAchievement(ACH_FULL_ROSTER)) {
         unlockAchievement(ACH_FULL_ROSTER);
     }

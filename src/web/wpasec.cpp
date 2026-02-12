@@ -373,7 +373,7 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
     
     size_t contentLength = 2 + strlen(boundary) + 2 +           // --boundary\r\n
                            strlen(disposition) + 2 +             // disposition\r\n
-                           36 + 4 +                              // Content-Type + \r\n\r\n
+                           38 + 4 +                              // Content-Type + \r\n\r\n
                            fileSize +                            // file data
                            2 + 2 + strlen(boundary) + 4;         // \r\n--boundary--\r\n
     
@@ -391,19 +391,33 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
     client.print("Content-Type: application/octet-stream\r\n\r\n");
     
     // Stream file in chunks (heap-safe)
+    client.setTimeout(30000);
     char chunk[256];
     size_t sent = 0;
-    while (capFile.available() && sent < fileSize) {
+    while (capFile.available() && sent < fileSize && client.connected()) {
         size_t toRead = min((size_t)sizeof(chunk), fileSize - sent);
         size_t bytesRead = capFile.read((uint8_t*)chunk, toRead);
         if (bytesRead > 0) {
-            client.write((uint8_t*)chunk, bytesRead);
+            size_t written = client.write((uint8_t*)chunk, bytesRead);
+            if (written != bytesRead) {
+                capFile.close();
+                snprintf(lastError, sizeof(lastError), "Write failed at %u/%u", (unsigned)sent, (unsigned)fileSize);
+                return false;
+            }
             sent += bytesRead;
         }
         yield();  // Let WiFi stack breathe
     }
     capFile.close();
+
+    if (!client.connected()) {
+        snprintf(lastError, sizeof(lastError), "Connection lost during upload");
+        return false;
+    }
     
+    // Flush upload data before sending boundary
+    client.flush();
+
     // End multipart
     client.printf("\r\n--%s--\r\n", boundary);
     

@@ -2128,12 +2128,14 @@ bool Mood::pickEncryptionPhraseIfDue(uint32_t now) {
     if (now - lastEncryptionPhraseMs < 300000) return false;  // Max 1 per 5 min
 
     // Scan current networks for notable encryption types
+    // Safe: runs from main loop only, same task as NetworkRecon::update()/cleanup
     auto& nets = NetworkRecon::getNetworks();
+    size_t netCount = nets.size();  // snapshot size to avoid callback-pushed growth mid-loop
     uint8_t openCount = 0;
     bool hasWEP = false;
     bool hasWPA3 = false;
 
-    for (size_t i = 0; i < nets.size(); i++) {
+    for (size_t i = 0; i < netCount; i++) {
         if (nets[i].authmode == WIFI_AUTH_OPEN) openCount++;
         if (nets[i].authmode == WIFI_AUTH_WEP) hasWEP = true;
         if (nets[i].authmode == WIFI_AUTH_WPA3_PSK ||
@@ -3009,22 +3011,8 @@ void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCou
         bleFirstTargetSniffed = true;
     }
     
-    // Award XP for BLE spam (vendor-specific tracking for achievements)
-    if (vendor != nullptr) {
-        if (strcmp(vendor, "Apple") == 0) {
-            XP::addXP(XPEvent::BLE_APPLE);
-        } else if (strcmp(vendor, "Android") == 0) {
-            XP::addXP(XPEvent::BLE_ANDROID);
-        } else if (strcmp(vendor, "Samsung") == 0) {
-            XP::addXP(XPEvent::BLE_SAMSUNG);
-        } else if (strcmp(vendor, "Windows") == 0) {
-            XP::addXP(XPEvent::BLE_WINDOWS);
-        } else {
-            XP::addXP(XPEvent::BLE_BURST);
-        }
-    } else {
-        XP::addXP(XPEvent::BLE_BURST);
-    }
+    // XP already awarded by sendAppleJuice/sendAndroidFastPair/etc per packet.
+    // Don't double-award here in the mood callback.
     
     char buf[48];
     

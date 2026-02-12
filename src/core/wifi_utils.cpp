@@ -10,6 +10,7 @@
 #include "heap_health.h"
 #include "heap_policy.h"
 #include "heap_gates.h"
+#include "network_recon.h"
 
 namespace WiFiUtils {
 
@@ -308,6 +309,12 @@ size_t conditionHeapForTLS() {
                       heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     
+    // Pause NetworkRecon if running — we override the promiscuous callback below
+    bool wasReconRunning = NetworkRecon::isRunning();
+    if (wasReconRunning) {
+        NetworkRecon::pause();
+    }
+
     // Phase 2: "Heap Brewing" - WiFi promiscuous cycle with dwell time
     // The OINK bounce effect requires the WiFi driver's internal task to run
     // for ~2-3 seconds to reorganize its buffers. Key observations:
@@ -413,6 +420,12 @@ size_t conditionHeapForTLS() {
                   finalFree, freedBytes, finalLargest, contiguousGain);
     HeapHealth::resetPeaks(true);
     lastManualConditionMs = millis();  // Cooldown starts from brew completion
+
+    // Resume NetworkRecon if it was running before conditioning
+    if (wasReconRunning) {
+        NetworkRecon::resume();
+    }
+
     return finalLargest;
 }
 

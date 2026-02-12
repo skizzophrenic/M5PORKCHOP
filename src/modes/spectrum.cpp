@@ -235,7 +235,7 @@ float SpectrumMode::dialPositionTarget = 7.0f;
 float SpectrumMode::dialPositionSmooth = 7.0f;
 uint32_t SpectrumMode::lastDialUpdate = 0;
 uint32_t SpectrumMode::dialModeEntryTime = 0;
-volatile uint32_t SpectrumMode::ppsCounter = 0;
+std::atomic<uint32_t> SpectrumMode::ppsCounter{0};
 uint32_t SpectrumMode::displayPps = 0;
 uint32_t SpectrumMode::lastPpsUpdate = 0;
 
@@ -445,8 +445,7 @@ void SpectrumMode::update() {
 
     // ==[ PPS UPDATE ]== once per second
     if (now - lastPpsUpdate >= 1000) {
-        displayPps = ppsCounter;
-        ppsCounter = 0;
+        displayPps = ppsCounter.exchange(0, std::memory_order_relaxed);
         lastPpsUpdate = now;
     }
     
@@ -2580,7 +2579,6 @@ void SpectrumMode::onBeacon(const uint8_t* bssid, uint8_t channel, bool channelT
                 if (!pendingReveal) {
                     strncpy(pendingRevealSSID, ssid, 32);
                     pendingRevealSSID[32] = 0;
-                    pendingRevealSSID[33] = 0; // Extra safety null terminator
                     pendingReveal = true;
                 }
             }
@@ -2694,7 +2692,7 @@ void SpectrumMode::promiscuousCallback(const wifi_promiscuous_pkt_t* pkt, wifi_p
     if (busy) return;  // [P1] Main thread is iterating
     
     // Count all packets for PPS display in dial mode
-    ppsCounter++;
+    ppsCounter.fetch_add(1, std::memory_order_relaxed);
     
     if (!pkt || !pkt->payload) return;
     
@@ -2992,9 +2990,8 @@ void SpectrumMode::trackClient(const uint8_t* bssid, const uint8_t* clientMac, i
             pendingClientBeep = true;
         }
         
-        Serial.printf("[SPECTRUM] New client: %02X:%02X:%02X:%02X\n",
-            clientMac[0], clientMac[1], clientMac[2],
-            clientMac[3], clientMac[4], clientMac[5]);
+        // Defer logging — Serial.printf unsafe in WiFi callback context
+        pendingClientBeep = true;
     }
 }
 

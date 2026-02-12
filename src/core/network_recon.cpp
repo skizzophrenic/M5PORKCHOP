@@ -21,8 +21,8 @@ namespace NetworkRecon {
 // ============================================================================
 
 static bool initialized = false;
-static bool running = false;
-static bool paused = false;
+static std::atomic<bool> running{false};
+static std::atomic<bool> paused{false};
 static std::atomic<bool> channelLocked{false};
 static bool channelLockedBeforePause = false;  // [BUG4 FIX] Save state for pause/resume
 static uint8_t lockedChannel = 0;
