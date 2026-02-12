@@ -63,6 +63,10 @@ static volatile bool pendingAutoSave = false;  // Trigger autoSaveCheck from mai
 static volatile bool pendingPMKIDCapture = false;
 static char pendingPMKIDSSID[33] = {0};
 
+// Deferred EAPOL diagnostic log (callback sets, update() prints)
+static volatile uint8_t pendingEapolMsg = 0;  // 0 = none, 1-4 = M1-M4
+static uint8_t pendingEapolBssid[6] = {0};
+
 // Callback for NetworkRecon new network discovery -> XP events
 static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
                                    const char* ssid, int8_t rssi, uint8_t channel) {
@@ -354,6 +358,7 @@ void OinkMode::init() {
     pendingDeauthSuccess = false;
     pendingHandshakeComplete = false;
     pendingPMKIDCapture = false;
+    pendingEapolMsg = 0;
     
     // Reset bored state tracking
     consecutiveFailedScans = 0;
@@ -656,6 +661,16 @@ void OinkMode::update() {
         pendingAutoSave = true;
     }
     
+    // Diagnostic: EAPOL frame received (deferred from callback)
+    uint8_t eapolMsg = pendingEapolMsg;  // volatile read
+    if (eapolMsg) {
+        uint8_t bssidCopy[6];
+        memcpy(bssidCopy, pendingEapolBssid, 6);
+        pendingEapolMsg = 0;
+        Serial.printf("[OINK] EAPOL M%d %02X:%02X:%02X:%02X:%02X:%02X\n",
+            eapolMsg, bssidCopy[0], bssidCopy[1], bssidCopy[2], bssidCopy[3], bssidCopy[4], bssidCopy[5]);
+    }
+
     // Process pending auto-save (callback set flag, we do SD I/O here)
     bool shouldAutoSave = false;
     NetworkRecon::enterCritical();
@@ -1905,11 +1920,11 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     
     if (messageNum == 0) return;
 
-    // Diagnostic: confirm EAPOL frames are reaching the pipeline
-    {
+    // Deferred diagnostic: flag for main loop to print (no Serial in callback context)
+    if (!pendingEapolMsg) {
         const uint8_t* bssidLog = (messageNum == 1 || messageNum == 3) ? srcMac : dstMac;
-        Serial.printf("[OINK] EAPOL M%d %02X:%02X:%02X:%02X:%02X:%02X\n",
-            messageNum, bssidLog[0], bssidLog[1], bssidLog[2], bssidLog[3], bssidLog[4], bssidLog[5]);
+        memcpy(pendingEapolBssid, bssidLog, 6);
+        pendingEapolMsg = messageNum;  // volatile write last — acts as release
     }
 
     // Determine which is AP (sender of M1/M3) and station
