@@ -1096,21 +1096,31 @@ void OinkMode::update() {
 
                 if (targetIs5g) {
                     // Snapshot target info and dispatch to C5 background
-                    NetworkRecon::enterCritical();
-                    if (nextIdx < (int)networks().size()) {
-                        memcpy(c5BackgroundBssid, networks()[nextIdx].bssid, 6);
-                        strncpy(c5BackgroundSSID, networks()[nextIdx].ssid, 32);
-                        c5BackgroundSSID[32] = '\0';
-                        networks()[nextIdx].attackAttempts++;
-                    }
-                    NetworkRecon::exitCritical();
+                     NetworkRecon::enterCritical();
+                     if (nextIdx < (int)networks().size()) {
+                         memcpy(c5BackgroundBssid, networks()[nextIdx].bssid, 6);
+                         strncpy(c5BackgroundSSID, networks()[nextIdx].ssid, 32);
+                         c5BackgroundSSID[32] = '\0';
+                     }
+                     NetworkRecon::exitCritical();
 
-                    if (MonsterC5::isReady() && MonsterC5::requestHandshake(c5BackgroundBssid)) {
-                        c5BackgroundActive = true;
-                        c5BackgroundStartTime = now;
-                        Serial.printf("[OINK] 5GHz dispatched to C5 bg: %s\n", c5BackgroundSSID);
-                        Mood::setStatusMessage("c5 on the hunt");
-                    }
+                     if (MonsterC5::isReady() && MonsterC5::requestHandshake(c5BackgroundBssid)) {
+                         // Only count an "attempt" if the dispatch actually started.
+                         // (C5 can be connected but busy with scan/import, in which case requestHandshake won't run.)
+                         NetworkRecon::enterCritical();
+                         for (auto& net : networks()) {
+                             if (memcmp(net.bssid, c5BackgroundBssid, 6) == 0) {
+                                 net.attackAttempts++;
+                                 break;
+                             }
+                         }
+                         NetworkRecon::exitCritical();
+
+                         c5BackgroundActive = true;
+                         c5BackgroundStartTime = now;
+                         Serial.printf("[OINK] 5GHz dispatched to C5 bg: %s\n", c5BackgroundSSID);
+                         Mood::setStatusMessage("c5 on the hunt");
+                     }
                     // Don't enter LOCKING — loop back to find a 2.4GHz target.
                     // Next getNextTarget() skips 5GHz while c5BackgroundActive.
                     break;
@@ -3645,14 +3655,14 @@ static inline bool isEligibleTarget(const DetectedNetwork& net, uint32_t now) {
     if (net.cooldownUntil > now) return false;
     if (net.hasPMF) return false;
     if (net.hasHandshake) return false;
-    if (net.authmode == WIFI_AUTH_OPEN) return false;
-    if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
-    // 5GHz networks require C5 to be connected and not already attacking
-    if (net.is5GHz() && !MonsterC5::isConnected()) return false;
-    if (net.is5GHz() && c5BackgroundActive) return false;
-    int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
-    if (rssi < Config::wifi().attackMinRssi) return false;
-    return true;
+     if (net.authmode == WIFI_AUTH_OPEN) return false;
+     if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
+     // 5GHz networks require C5 to be ready (connected + idle) and not already attacking
+     if (net.is5GHz() && !MonsterC5::isReady()) return false;
+     if (net.is5GHz() && c5BackgroundActive) return false;
+     int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
+     if (rssi < Config::wifi().attackMinRssi) return false;
+     return true;
 }
 
 int OinkMode::getNextTarget() {

@@ -4,6 +4,7 @@
 // (idle small; transfer mode larger to avoid RX overflow).
 
 #include "monster_c5.h"
+#include "c5_uart_markers.h"
 #include "config.h"
 #include "sd_layout.h"
 #include "xp.h"
@@ -1300,7 +1301,7 @@ static void processLine(const char* line) {
     }
 
     // --- Handshake capture markers ---
-    if (strstr(line, "Handshake captured for") != nullptr) {
+    if (C5UartMarkers::isHandshakeCapturedLine(line)) {
         hsResult = HandshakeResult::CAPTURED;
         C5_LOGF("Handshake captured: %s", line);
 
@@ -1322,12 +1323,14 @@ static void processLine(const char* line) {
         return;
     }
 
-    if (strstr(line, "Handshake attack completed") != nullptr) {
+    // projectZero JanOS and older variants use different completion strings.
+    // Accept any of them, but only while we are actually running a handshake op.
+    if (currentOp == C5Op::HANDSHAKE && C5UartMarkers::isHandshakeCompleteLine(line)) {
         // If we never saw a capture marker, count as failure.
         if (hsResult == HandshakeResult::IN_PROGRESS) {
             hsResult = HandshakeResult::FAILED;
         }
-        sendCommand("stop");
+        // Do not send an extra "stop" here: the C5 has already finished its handshake task.
         setState(C5State::CONNECTED);
         currentOp = C5Op::NONE;
         setSeqStep(SeqStep::IDLE);
