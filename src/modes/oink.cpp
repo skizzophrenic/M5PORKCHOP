@@ -868,6 +868,24 @@ void OinkMode::update() {
 
     // === Background C5 5GHz polling (independent of autoState) ===
     // Runs every update() regardless of what the 2.4GHz state machine is doing
+    static const char* c5DispatchPhrases[] = {
+        "AVADA KEDAWRA KURRRWA", "EXPECTO PAKIETUM", "CRUCIO 5GHZ",
+        "WINGARDIUM DEAUTHOSA", "SECTUMSEMPRA 5G", "DZIK JEDZIE NA 5G",
+        "IGNI KURWA IGNI", "KIELBASA INBOUND", "5G WPIERDOL BRUV",
+        "O KURWA DUAL BAND"
+    };
+    static const char* c5CapturePhrases[] = {
+        "5G PWNED KURWA MAC", "DZIK ZJADL TRUFEL", "BIGOS Z 5GHZ",
+        "KURWA TO DZIALA", "5G KIELBASA PODANA", "PROTEGO THIS KURWA"
+    };
+    static const char* c5FailPhrases[] = {
+        "CHOLERA 5G FIZZLED", "DZIK MISSED KURWA", "5G DUPA",
+        "FINITE INCANTATEM KURWA"
+    };
+    static const char* c5TimeoutPhrases[] = {
+        "5G KURWA TIMEOUT", "C5 PIERDOLI SIE", "DZIK ZASNAL NA 5G"
+    };
+
     if (c5BackgroundActive) {
         HandshakeResult hr = MonsterC5::getHandshakeResult();
         if (hr == HandshakeResult::CAPTURED) {
@@ -885,11 +903,13 @@ void OinkMode::update() {
             strncpy(lastPwnedSSID, c5BackgroundSSID[0] ? c5BackgroundSSID : "5GHz TARGET", sizeof(lastPwnedSSID) - 1);
             lastPwnedSSID[sizeof(lastPwnedSSID) - 1] = '\0';
             Mood::onHandshakeCaptured(lastPwnedSSID);
+            Mood::setStatusMessage(c5CapturePhrases[random(0, 6)]);
             Display::showLoot(lastPwnedSSID);
             c5BackgroundActive = false;
         } else if (hr == HandshakeResult::FAILED) {
             MonsterC5::clearHandshakeResult();
             Serial.println("[OINK] 5GHz C5 attack failed (background)");
+            Mood::setStatusMessage(c5FailPhrases[random(0, 4)]);
             c5BackgroundActive = false;
         } else if (!MonsterC5::isConnected()) {
             MonsterC5::clearHandshakeResult();
@@ -899,6 +919,7 @@ void OinkMode::update() {
             MonsterC5::requestStop();
             MonsterC5::clearHandshakeResult();
             Serial.println("[OINK] 5GHz C5 background attack timeout");
+            Mood::setStatusMessage(c5TimeoutPhrases[random(0, 3)]);
             c5BackgroundActive = false;
         }
     }
@@ -1119,7 +1140,7 @@ void OinkMode::update() {
                          c5BackgroundActive = true;
                          c5BackgroundStartTime = now;
                          Serial.printf("[OINK] 5GHz dispatched to C5 bg: %s\n", c5BackgroundSSID);
-                         Mood::setStatusMessage("c5 on the hunt");
+                         Mood::setStatusMessage(c5DispatchPhrases[random(0, 10)]);
                      }
                     // Don't enter LOCKING — loop back to find a 2.4GHz target.
                     // Next getNextTarget() skips 5GHz while c5BackgroundActive.
