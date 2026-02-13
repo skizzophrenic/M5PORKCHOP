@@ -1,6 +1,7 @@
 // Oink Mode implementation
 
 #include "oink.h"
+#include "oink_capture_filters.h"
 #include "donoham.h"
 #include "warhog.h"
 #include "../core/porkchop.h"
@@ -36,6 +37,11 @@
 // synchronization to prevent race conditions on networks/handshakes vectors
 static std::atomic<bool> oinkBusy{false};
 
+// Cache our current STA MAC so we can treat EAPOL frames destined for us as PMKID probe traffic.
+// Populated in OinkMode::start() after NetworkRecon has set up WiFi (and optional MAC randomization).
+static uint8_t ourStaMac[6] = {0};
+static bool ourStaMacValid = false;
+
 // Minimum free heap thresholds (centralized in HeapPolicy)
 static const size_t HANDSHAKE_ALLOC_MIN_BLOCK = sizeof(CapturedHandshake) + HeapPolicy::kHandshakeAllocSlack;
 static const size_t PMKID_ALLOC_MIN_BLOCK = sizeof(CapturedPMKID) + HeapPolicy::kPmkidAllocSlack;
@@ -66,6 +72,14 @@ static char pendingPMKIDSSID[33] = {0};
 // Deferred EAPOL diagnostic log (callback sets, update() prints)
 static volatile uint8_t pendingEapolMsg = 0;  // 0 = none, 1-4 = M1-M4
 static uint8_t pendingEapolBssid[6] = {0};
+static uint8_t pendingEapolStation[6] = {0};
+static uint8_t pendingEapolFlags = 0;  // bit0: stationIsOurs
+
+// Visibility: handshake creation blocks (main thread only; printed rate-limited in update()).
+static uint32_t hsCreateBlockedCap = 0;
+static uint32_t hsCreateBlockedPressure = 0;
+static uint32_t hsCreateBlockedFree = 0;
+static uint32_t hsCreateBlockedFrag = 0;
 
 // Callback for NetworkRecon new network discovery -> XP events
 static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
@@ -474,6 +488,24 @@ void OinkMode::start() {
     
     // Initialize WSL bypasser for deauth frame injection
     WSLBypasser::init();
+
+    // Cache our STA MAC so we can filter probe-induced EAPOL traffic (station == our MAC).
+    // IMPORTANT: NetworkRecon may randomize the STA MAC on start(), so read it after ensuring recon is running.
+    esp_err_t macErr = esp_wifi_get_mac(WIFI_IF_STA, ourStaMac);
+    ourStaMacValid = (macErr == ESP_OK);
+    if (!ourStaMacValid) {
+        memset(ourStaMac, 0, sizeof(ourStaMac));
+        Serial.printf("[OINK] STA MAC read failed (%d); probe filtering disabled\n", (int)macErr);
+    } else {
+        Serial.printf("[OINK] STA MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      ourStaMac[0], ourStaMac[1], ourStaMac[2], ourStaMac[3], ourStaMac[4], ourStaMac[5]);
+    }
+
+    // Reset visibility counters for this run
+    hsCreateBlockedCap = 0;
+    hsCreateBlockedPressure = 0;
+    hsCreateBlockedFree = 0;
+    hsCreateBlockedFrag = 0;
     
     // Register our packet callback for EAPOL/handshake capture
     NetworkRecon::setPacketCallback(promiscuousCallback);
@@ -602,6 +634,19 @@ void OinkMode::update() {
         lastHeapLog = now;
     }
     // #endregion
+
+    // Rate-limited visibility: handshake/PMKID pool and handshake-create block reasons.
+    static uint32_t lastStatsLog = 0;
+    if (now - lastStatsLog >= 5000) {
+        Serial.printf("[OINK-STATS] hs=%u/%u pmkids=%u/%u hsBlk{cap=%u pressure=%u free=%u frag=%u}\n",
+                      (unsigned)handshakes.size(), (unsigned)handshakes.capacity(),
+                      (unsigned)pmkids.size(), (unsigned)pmkids.capacity(),
+                      (unsigned)hsCreateBlockedCap,
+                      (unsigned)hsCreateBlockedPressure,
+                      (unsigned)hsCreateBlockedFree,
+                      (unsigned)hsCreateBlockedFrag);
+        lastStatsLog = now;
+    }
     
     // Guard access to networks/handshakes vectors from promiscuous callback
     // NOTE: oinkBusy is secondary protection, spinlock is primary
@@ -701,10 +746,16 @@ void OinkMode::update() {
     uint8_t eapolMsg = pendingEapolMsg;  // volatile read
     if (eapolMsg) {
         uint8_t bssidCopy[6];
+        uint8_t stationCopy[6];
+        uint8_t flagsCopy = pendingEapolFlags;
         memcpy(bssidCopy, pendingEapolBssid, 6);
+        memcpy(stationCopy, pendingEapolStation, 6);
         pendingEapolMsg = 0;
-        Serial.printf("[OINK] EAPOL M%d %02X:%02X:%02X:%02X:%02X:%02X\n",
-            eapolMsg, bssidCopy[0], bssidCopy[1], bssidCopy[2], bssidCopy[3], bssidCopy[4], bssidCopy[5]);
+        Serial.printf("[OINK] EAPOL M%d b=%02X:%02X:%02X:%02X:%02X:%02X s=%02X:%02X:%02X:%02X:%02X:%02X%s\n",
+                      eapolMsg,
+                      bssidCopy[0], bssidCopy[1], bssidCopy[2], bssidCopy[3], bssidCopy[4], bssidCopy[5],
+                      stationCopy[0], stationCopy[1], stationCopy[2], stationCopy[3], stationCopy[4], stationCopy[5],
+                      (flagsCopy & 0x01) ? " (to-us)" : "");
     }
 
     // Process pending auto-save (callback set flag, we do SD I/O here)
@@ -2185,13 +2236,6 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     
     if (messageNum == 0) return;
 
-    // Deferred diagnostic: flag for main loop to print (no Serial in callback context)
-    if (!pendingEapolMsg) {
-        const uint8_t* bssidLog = (messageNum == 1 || messageNum == 3) ? srcMac : dstMac;
-        memcpy(pendingEapolBssid, bssidLog, 6);
-        pendingEapolMsg = messageNum;  // volatile write last — acts as release
-    }
-
     // Determine which is AP (sender of M1/M3) and station
     uint8_t bssid[6], station[6];
     if (messageNum == 1 || messageNum == 3) {
@@ -2201,6 +2245,17 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         memcpy(bssid, dstMac, 6);
         memcpy(station, srcMac, 6);
     }
+
+    const bool stationIsOurs = ourStaMacValid && (memcmp(station, ourStaMac, 6) == 0);
+    const bool stationIsUnicast = OinkCaptureFilters::isUnicastMac(station);
+
+    // Deferred diagnostic: flag for main loop to print (no Serial in callback context)
+    if (!pendingEapolMsg) {
+        memcpy(pendingEapolBssid, bssid, 6);
+        memcpy(pendingEapolStation, station, 6);
+        pendingEapolFlags = stationIsOurs ? 0x01 : 0x00;
+        pendingEapolMsg = messageNum;  // volatile write last — acts as release
+    }
     
     // M1 = AP initiating handshake = client reconnected after deauth!
     // If we're deauthing this target, our deauth worked!
@@ -2208,13 +2263,17 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     // targetIndex can become stale after cleanupStaleNetworks shifts indices on core 0)
     if (messageNum == 1 && deauthing && targetBssid[0] != 0) {
         if (memcmp(bssid, targetBssid, 6) == 0) {
-            // Stop blasting for a short window and listen for M2/M3/M4.
-            // Continuous deauth here can interrupt the handshake we just induced.
-            deauthPauseUntilMs.store(millis() + DEAUTH_POST_M1_LISTEN_MS, std::memory_order_relaxed);
-            // DEFERRED: Queue deauth success for main thread
-            if (!pendingDeauthSuccess) {
-                memcpy(pendingDeauthStation, station, 6);
-                pendingDeauthSuccess = true;
+            // PMKID probing can cause AP->STA M1 retransmits to our own station MAC.
+            // Do not treat those as "deauth success" (and don't pause jamming) or we will miss real client handshakes.
+            if (OinkCaptureFilters::shouldMarkDeauthSuccessOnM1(stationIsOurs, stationIsUnicast)) {
+                // Stop blasting for a short window and listen for M2/M3/M4.
+                // Continuous deauth here can interrupt the handshake we just induced.
+                deauthPauseUntilMs.store(millis() + DEAUTH_POST_M1_LISTEN_MS, std::memory_order_relaxed);
+                // DEFERRED: Queue deauth success for main thread
+                if (!pendingDeauthSuccess) {
+                    memcpy(pendingDeauthStation, station, 6);
+                    pendingDeauthSuccess = true;
+                }
             }
         }
     }
@@ -2321,6 +2380,12 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
                 }
             }
         }
+    }
+
+    // Treat EAPOL where station == our STA MAC as probe traffic: keep PMKID extraction above,
+    // but do not create/store handshake records (avoids burning handshake slots and deauth-success false positives).
+    if (!OinkCaptureFilters::shouldStoreHandshakeForStation(stationIsOurs)) {
+        return;
     }
     
     // Find or create handshake entry (lookup only - no push_back)
@@ -2537,27 +2602,42 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
             return i;
         }
     }
-    
-    // Limit check
-    if (handshakes.size() >= MAX_HANDSHAKES) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    // Pressure gate: block new handshakes at Warning+ (aggressive shedding)
-    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Warning) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    if (ESP.getFreeHeap() < HeapPolicy::kMinHeapForHandshakeAdd) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    if (handshakes.size() >= handshakes.capacity()) {
-        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-        if (largest < HANDSHAKE_ALLOC_MIN_BLOCK) {
-            NetworkRecon::exitCritical();
-            return -1;
+
+    const size_t sizeNow = handshakes.size();
+    const size_t capNow = handshakes.capacity();
+    const HeapPressureLevel pressure = HeapHealth::getPressureLevel();
+    const bool needGrow = sizeNow >= capNow;
+
+    // Only query heap metrics when we'd allocate/grow (keeps hot path allocation-free when capacity is available).
+    const size_t freeHeap = needGrow ? ESP.getFreeHeap() : 0;
+    const size_t largestBlock = needGrow ? heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) : 0;
+
+    const OinkCaptureFilters::HandshakeCreateGateResult gate =
+        OinkCaptureFilters::evaluateHandshakeCreateGate(sizeNow, capNow, MAX_HANDSHAKES,
+                                                        pressure,
+                                                        freeHeap, HeapPolicy::kMinHeapForHandshakeAdd,
+                                                        largestBlock, HANDSHAKE_ALLOC_MIN_BLOCK);
+
+    if (!gate.allowCreate) {
+        switch (gate.blockReason) {
+            case OinkCaptureFilters::HandshakeCreateBlockReason::MaxHandshakes:
+                hsCreateBlockedCap++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::Pressure:
+                hsCreateBlockedPressure++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::FreeHeap:
+                hsCreateBlockedFree++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::Fragmentation:
+                hsCreateBlockedFrag++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::None:
+            default:
+                break;
         }
+        NetworkRecon::exitCritical();
+        return -1;
     }
     
     // Create new entry
@@ -2573,7 +2653,7 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
     hs.beaconLen = 0;
     
     // Attach beacon if available
-    if (beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
+    if (gate.allowBeaconCopy && beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
         const uint8_t* beaconBssid = beaconFrame + 16;
         if (memcmp(beaconBssid, bssid, 6) == 0) {
             size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
