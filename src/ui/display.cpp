@@ -248,6 +248,132 @@ void Display::init() {
     Serial.println("[DISPLAY] Initialized");
 }
 
+// Info panel below avatar - shows character, recon, and loot stats
+// Uses the 94px space below the grass line (y=106 to y=200)
+static void drawInfoPanel(M5Canvas& canvas, PorkchopMode mode) {
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+    const int panelY = 106;
+
+    // Separator line
+    canvas.drawLine(4, panelY, DISPLAY_W - 4, panelY, fg);
+
+    // --- Row 1: Level, Title, XP bar ---
+    int y = panelY + 4;
+    canvas.setTextSize(1);
+    canvas.setTextColor(fg);
+    canvas.setTextDatum(TL_DATUM);
+
+    uint8_t level = XP::getLevel();
+    const char* title = XP::getDisplayTitle();
+    uint8_t progress = XP::getProgress();
+
+    char lvlBuf[32];
+    snprintf(lvlBuf, sizeof(lvlBuf), "L%d %s", level, title);
+    canvas.drawString(lvlBuf, 4, y);
+
+    // XP progress bar (right side of row 1)
+    const int barX = 180;
+    const int barW = 100;
+    const int barH = 7;
+    canvas.drawRect(barX, y + 1, barW, barH, fg);
+    int fillW = (barW - 2) * progress / 100;
+    if (fillW > 0) {
+        canvas.fillRect(barX + 1, y + 2, fillW, barH - 2, fg);
+    }
+    char xpBuf[8];
+    snprintf(xpBuf, sizeof(xpBuf), "%d%%", progress);
+    canvas.drawString(xpBuf, barX + barW + 4, y);
+
+    // --- Row 2: Network recon stats ---
+    y += 14;
+    const PorkXPData& xpData = XP::getData();
+    const SessionStats& sess = XP::getSession();
+
+    // Show different stats depending on mode
+    char line2[64];
+    if (mode == PorkchopMode::OINK_MODE) {
+        uint16_t netCount = OinkMode::getNetworkCount();
+        uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
+        uint32_t deauthCount = OinkMode::getDeauthCount();
+        snprintf(line2, sizeof(line2), "NET:%03d  HS:%02d  DEAUTH:%04lu  CH:%02d",
+                 netCount, hsCount, deauthCount, OinkMode::getChannel());
+    } else if (mode == PorkchopMode::DNH_MODE) {
+        uint16_t netCount = DoNoHamMode::getNetworkCount();
+        uint16_t pmkid = DoNoHamMode::getPMKIDCount();
+        uint16_t hs = DoNoHamMode::getHandshakeCount();
+        snprintf(line2, sizeof(line2), "NET:%03d  PMKID:%02d  HS:%02d  CH:%02d",
+                 netCount, pmkid, hs, DoNoHamMode::getCurrentChannel());
+    } else if (mode == PorkchopMode::WARHOG_MODE) {
+        uint32_t unique = WarhogMode::getTotalNetworks();
+        uint32_t saved = WarhogMode::getSavedCount();
+        uint32_t distM = sess.distanceM;
+        if (distM >= 1000) {
+            snprintf(line2, sizeof(line2), "SCAN:%lu  SAVED:%lu  DIST:%.1fKM",
+                     unique, saved, distM / 1000.0);
+        } else {
+            snprintf(line2, sizeof(line2), "SCAN:%lu  SAVED:%lu  DIST:%luM",
+                     unique, saved, distM);
+        }
+    } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
+        uint32_t total = PiggyBluesMode::getTotalPackets();
+        snprintf(line2, sizeof(line2), "BLE TX:%lu  A:%lu  G:%lu  S:%lu  W:%lu",
+                 total, PiggyBluesMode::getAppleCount(),
+                 PiggyBluesMode::getAndroidCount(),
+                 PiggyBluesMode::getSamsungCount(),
+                 PiggyBluesMode::getWindowsCount());
+    } else {
+        // IDLE / BACON / other
+        snprintf(line2, sizeof(line2), "NET:%lu  HS:%lu  PMKID:%lu  DEAUTH:%lu",
+                 xpData.lifetimeNetworks, xpData.lifetimeHS,
+                 xpData.lifetimePMKID, xpData.lifetimeDeauths);
+    }
+    canvas.drawString(line2, 4, y);
+
+    // --- Row 3: Loot & collections ---
+    y += 12;
+    char line3[64];
+    size_t lootCount = HashesMenu::getCount();
+    size_t trackCount = TracksMenu::getCount();
+    uint8_t badgeCount = XP::getUnlockedCount();
+    size_t broCount = BoarBrosMenu::getCount();
+    snprintf(line3, sizeof(line3), "LOOT:%u  TRKS:%u  BADGES:%u/%u  BROS:%u",
+             (unsigned)lootCount, (unsigned)trackCount,
+             badgeCount, (unsigned)BadgesMenu::TOTAL_ACHIEVEMENTS,
+             (unsigned)broCount);
+    canvas.drawString(line3, 4, y);
+
+    // --- Row 4: Session stats ---
+    y += 12;
+    char line4[64];
+    uint32_t uptime = porkchop.getUptime();
+    uint16_t mins = uptime / 60;
+    uint16_t secs = uptime % 60;
+    uint32_t sessNets = sess.networks;
+    uint32_t sessHS = sess.handshakes;
+    uint32_t sessXP = sess.xp;
+
+    if (GPS::hasFix() || JanusHog::hasC5GPSFix()) {
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
+        snprintf(line4, sizeof(line4), "SESS N:%lu HS:%lu XP:+%lu  %u:%02u  [%.2f,%.2f]",
+                 sessNets, sessHS, sessXP, mins, secs,
+                 gps.latitude, gps.longitude);
+    } else {
+        snprintf(line4, sizeof(line4), "SESS N:%lu HS:%lu XP:+%lu  UP:%u:%02u",
+                 sessNets, sessHS, sessXP, mins, secs);
+    }
+    canvas.drawString(line4, 4, y);
+
+    // --- Row 5: Lifetime totals ---
+    y += 12;
+    char line5[64];
+    uint32_t totalXP = XP::getTotalXP();
+    uint32_t distKm = xpData.lifetimeDistance / 1000;
+    snprintf(line5, sizeof(line5), "TOTAL XP:%lu  DIST:%luKM  SESSIONS:%u",
+             totalXP, distKm, xpData.sessions);
+    canvas.drawString(line5, 4, y);
+}
+
 void Display::update() {
     // Apply any pending top-bar message requests from worker tasks
     char pendingMsg[96];
@@ -318,6 +444,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
+            drawInfoPanel(mainCanvas, mode);
             break;
 
         case PorkchopMode::OINK_MODE:
@@ -328,6 +455,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
+            drawInfoPanel(mainCanvas, mode);
             break;
 
         case PorkchopMode::PIGSYNC_DEVICE_SELECT:

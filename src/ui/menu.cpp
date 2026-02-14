@@ -537,8 +537,8 @@ void Menu::drawRoot(M5Canvas& canvas) {
     // Root items
     canvas.setTextDatum(top_left);
     canvas.setTextSize(2);
-    int yOffset = 25;
-    int lineHeight = 18;
+    int yOffset = 28;
+    int lineHeight = 20;  // 320x240 screen: more breathing room
     
     for (uint8_t i = 0; i < VISIBLE_ITEMS && (rootScroll + i) < ROOT_COUNT; i++) {
         uint8_t idx = rootScroll + i;
@@ -612,11 +612,11 @@ void Menu::drawModal(M5Canvas& canvas) {
     uint16_t fg = getColorFG();
     uint16_t bg = getColorBG();
     
-    // Modal dimensions - Sirloin-style
-    int boxW = 220;
-    int boxH = 90;
+    // Modal dimensions - Core2 has more room
+    int boxW = 280;
+    int boxH = 160;
     int boxX = (DISPLAY_W - boxW) / 2;
-    int boxY = 20;
+    int boxY = 15;
     
     // Background with border
     canvas.fillRoundRect(boxX, boxY, boxW, boxH, 6, fg);
@@ -633,8 +633,8 @@ void Menu::drawModal(M5Canvas& canvas) {
     // Items
     const MenuItem* items = getGroupItems(activeGroup);
     uint8_t groupSize = getGroupSize(activeGroup);
-    int itemStartY = boxY + 24;
-    int itemHeight = 16;
+    int itemStartY = boxY + 26;
+    int itemHeight = 18;
     int itemPadX = 6;
     int textIndent = 10;
     int valueMargin = 14;

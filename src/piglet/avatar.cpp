@@ -186,7 +186,7 @@ void Avatar::init() {
     // This ensures bubble can float beside pig from the start
     bool startRight = random(0, 2) == 0;
     onRightSide = startRight;
-    currentX = startRight ? 108 : 20;  // Start at proper edge position
+    currentX = startRight ? 180 : 25;  // Start at proper edge position (scaled for 320px)
     facingRight = !startRight;  // Face toward center (more interesting)
     lastFlipTime = millis();
     flipInterval = random(25000, 50000);  // First walk: 25-50s
@@ -200,11 +200,11 @@ void Avatar::init() {
     grassSpeed = 80;
     lastGrassUpdate = millis();
     lastGrassStopTime = 0;  // No cooldown on fresh init
-    for (int i = 0; i < 26; i++) {
-        // Random grass pattern /\/\\//\/
+    for (int i = 0; i < 28; i++) {
+        // Random grass pattern /\/\\//\/ (28 chars covers 320px at textSize 2)
         grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
     }
-    grassPattern[26] = '\0';
+    grassPattern[28] = '\0';
 
     // Init star system, dormant until night
     starsActive = false;
@@ -286,7 +286,7 @@ void Avatar::draw(M5Canvas& canvas) {
             transitioning = false;
             currentX = transitionToX;
             facingRight = transitionToFacingRight;
-            onRightSide = (currentX > 60);  // Track which side we're on
+            onRightSide = (currentX > 105);  // Track which side we're on (midpoint of 25-180 range)
             
             // Start grass now if it was pending
             if (pendingGrassStart) {
@@ -400,8 +400,8 @@ void Avatar::draw(M5Canvas& canvas) {
             int targetX;
             
             // Define edge zones (bubble floats beside pig, not above)
-            const int LEFT_EDGE = 20;   // Left rest position
-            const int RIGHT_EDGE = 108; // Right rest position
+            const int LEFT_EDGE = 25;   // Left rest position (320px screen)
+            const int RIGHT_EDGE = 180; // Right rest position (320px screen)
             
             if (walkRoll < 50) {
                 // 50%: Walk to opposite edge (primary behavior)
@@ -412,9 +412,9 @@ void Avatar::draw(M5Canvas& canvas) {
             } else if (walkRoll < 95) {
                 // 10%: Short shuffle within current edge zone
                 if (onRightSide) {
-                    targetX = random(85, 108);  // Stay in right zone
+                    targetX = random(155, 180);  // Stay in right zone (320px)
                 } else {
-                    targetX = random(20, 45);   // Stay in left zone
+                    targetX = random(25, 55);    // Stay in left zone (320px)
                 }
             } else {
                 // 5%: Stay put, just turn around (fake walk)
@@ -633,9 +633,9 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
         grassDirection = directionRight;
         
         // Calculate correct treadmill position based on direction
-        // Grass RIGHT: pig at X=108 (tail margin on right)
-        // Grass LEFT: pig at X=20 (tail margin on left: 20-18=2)
-        int targetX = directionRight ? 108 : 20;
+        // Grass RIGHT: pig at X=180 (tail margin on right, 320px screen)
+        // Grass LEFT: pig at X=25 (tail margin on left: 25-18=7)
+        int targetX = directionRight ? 180 : 25;
         
         if (transitioning) {
             // Check if this is a coast-back transition (pig returning to rest at X=20)
@@ -672,8 +672,8 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
         // Reset walk timer to prevent immediate post-coast walk trigger
         lastFlipTime = millis();
         
-        // Coast back to left resting position (X=20 for tail margin)
-        startWindupSlide(20, false);  // X=20, face left when done
+        // Coast back to left resting position (X=25 for tail margin)
+        startWindupSlide(25, false);  // X=25, face left when done
     }
 }
 
@@ -682,16 +682,16 @@ void Avatar::setGrassSpeed(uint16_t ms) {
 }
 
 void Avatar::setGrassPattern(const char* pattern) {
-    strncpy(grassPattern, pattern, 26);
-    grassPattern[26] = '\0';
+    strncpy(grassPattern, pattern, 28);
+    grassPattern[28] = '\0';
 }
 
 void Avatar::resetGrassPattern() {
-    // Reset to random grass pattern /\/\\//\/
-    for (int i = 0; i < 26; i++) {
+    // Reset to random grass pattern /\/\\//\/ (28 chars for 320px)
+    for (int i = 0; i < 28; i++) {
         grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
     }
-    grassPattern[26] = '\0';
+    grassPattern[28] = '\0';
 }
 
 void Avatar::updateGrass() {
@@ -706,23 +706,23 @@ void Avatar::updateGrass() {
     // grassDirection=false: grass scrolls LEFT (pig faces right, walking right through world)
     if (grassDirection) {
         // Shift right (grass scrolls right)
-        char last = grassPattern[25];
-        for (int i = 25; i > 0; i--) {
+        char last = grassPattern[27];
+        for (int i = 27; i > 0; i--) {
             grassPattern[i] = grassPattern[i - 1];
         }
         grassPattern[0] = last;
     } else {
         // Shift left (grass scrolls left)
         char first = grassPattern[0];
-        for (int i = 0; i < 25; i++) {
+        for (int i = 0; i < 27; i++) {
             grassPattern[i] = grassPattern[i + 1];
         }
-        grassPattern[25] = first;
+        grassPattern[27] = first;
     }
-    
+
     // Occasionally mutate a character for variety
     if (random(0, 30) == 0) {
-        int pos = random(0, 26);
+        int pos = random(0, 28);
         grassPattern[pos] = (random(0, 2) == 0) ? '/' : '\\';
     }
 }
@@ -777,8 +777,8 @@ void Avatar::initStarPositions() {
     // Pre-gen star positions, hide until spawn
     for (uint8_t i = 0; i < MAX_STARS; i++) {
         // y 20-100 sky/backdrop, bubble still wins
-        // x 5-235 near full width
-        stars[i].x = random(5, 235);
+        // x 5-315 near full width (320px screen)
+        stars[i].x = random(5, 315);
         // Match rain clip: keep stars above grass (rain clips at y < 88)
         stars[i].y = random(20, 88);
         stars[i].size = 1;
@@ -849,7 +849,7 @@ void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
 
     // Clamp to screen
     if (boxX < 0) { boxW += boxX; boxX = 0; }
-    if (boxX + boxW > 240) boxW = 240 - boxX;
+    if (boxX + boxW > 320) boxW = 320 - boxX;
 
     canvas.fillRect(boxX, boxY, boxW, boxH, getBGColor());
 }

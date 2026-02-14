@@ -2641,7 +2641,7 @@ void Mood::draw(M5Canvas& canvas) {
     // Width based on longest line: chars * 6px + padding (10px)
     // Clamped between 50px (min) and 116px (max)
     const int MIN_BUBBLE_W = 50;
-    const int MAX_BUBBLE_W = 116;
+    const int MAX_BUBBLE_W = 170;  // 320px screen has more room
     int bubbleW = constrain(longestLineChars * 6 + 12, MIN_BUBBLE_W, MAX_BUBBLE_W);
     
     // === ADAPTIVE BUBBLE POSITIONING (Sirloin-style) ===
@@ -2666,8 +2666,8 @@ void Mood::draw(M5Canvas& canvas) {
     enum class BubbleMode { LEFT_EDGE, CENTER_TOP, RIGHT_EDGE };
     BubbleMode mode;
     
-    bool atLeftEdge = (pigX < 35);
-    bool atRightEdge = (pigX > 90);  // 240 - 108 (pig width) - margin
+    bool atLeftEdge = (pigX < 45);
+    bool atRightEdge = (pigX > 160);  // 320 - 108 (pig width) - margin
     
     // Arrow positioning constants
     const int ARROW_LENGTH = 8;
@@ -2701,7 +2701,7 @@ void Mood::draw(M5Canvas& canvas) {
     
     // Clamp bubble to screen edges (prevent overflow)
     if (bubbleX < 2) bubbleX = 2;
-    if (bubbleX + bubbleW > 238) bubbleX = 238 - bubbleW;
+    if (bubbleX + bubbleW > 318) bubbleX = 318 - bubbleW;
     
     // === DRAW BUBBLE ===
     // For CENTER_TOP mode with negative Y, draw to both topBar and mainCanvas
