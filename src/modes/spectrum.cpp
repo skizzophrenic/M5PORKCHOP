@@ -1452,9 +1452,20 @@ void SpectrumMode::drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
     snprintf(meta, sizeof(meta), "CH:%u %ddB %s", actionChannel, actionRssi, authModeToShortString(actionAuthmode));
     canvas.drawString(meta, textX, textY + lineH);
 
-    // Touch-friendly button labels
-    canvas.drawString("HS | MON | BRO | STOP | X", textX, textY + (lineH * 2));
-    canvas.drawString("TAP ZONE  B-HOLD:EXIT", textX, textY + (lineH * 3));
+    // Touch-friendly button row (5 distinct tap targets)
+    static const char* btnLabels[] = { "HS", "MON", "BRO", "STOP", "X" };
+    const int btnY = textY + (lineH * 2);
+    const int btnGap = 3;
+    const int innerW = boxW - 12;  // Margin inside box
+    const int btnW = (innerW - btnGap * 4) / 5;
+    for (int b = 0; b < 5; b++) {
+        int bx = textX + b * (btnW + btnGap);
+        canvas.drawRect(bx, btnY, btnW, lineH + 2, fg);
+        canvas.setTextDatum(top_center);
+        canvas.drawString(btnLabels[b], bx + btnW / 2, btnY + 1);
+    }
+    canvas.setTextDatum(top_left);
+    canvas.drawString("B-HOLD:EXIT", textX, btnY + lineH + 4);
 }
 
 // Handle input when in client monitor overlay [P11] [P13] [P14]
@@ -1835,7 +1846,7 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas, uint16_t fg) {
     canvas.setTextSize(1);
     canvas.setTextColor(fg);
     canvas.setTextDatum(top_right);  // top-right align
-    canvas.drawString(info, 236, infoY);
+    canvas.drawString(info, SPECTRUM_RIGHT, infoY);
     canvas.setTextDatum(top_left);  // reset
 }
 
@@ -1990,7 +2001,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
     // Bounds check [P3]
     if (!renderMonitor.valid) {
         canvas.setTextDatum(middle_center);
-        canvas.drawString("NETWORK LOST", 120, 45);
+        canvas.drawString("NETWORK LOST", DISPLAY_W / 2, 45);
         return;
     }
     
@@ -2014,8 +2025,8 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
     // Empty list message [P14]
     if (net.clientCount == 0) {
         canvas.setTextDatum(middle_center);
-        canvas.drawString("NEGATIVE CONTACT", 120, 40);
-        canvas.drawString("RECON IN PROGRESS...", 120, 55);
+        canvas.drawString("NEGATIVE CONTACT", DISPLAY_W / 2, 40);
+        canvas.drawString("RECON IN PROGRESS...", DISPLAY_W / 2, 55);
         return;
     }
     
@@ -2036,7 +2047,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
         
         // Highlight selected row
         if (selected) {
-            canvas.fillRect(0, y, 240, LINE_HEIGHT, fg);
+            canvas.fillRect(0, y, DISPLAY_W, LINE_HEIGHT, fg);
             canvas.setTextColor(bg, fg);
         } else {
             canvas.setTextColor(fg, bg);
@@ -2064,11 +2075,12 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
         else arrow = "==";                  // Same distance
         
         // [P9] Safe string formatting with bounds
-        // Show vendor (8 chars) + last 4 octets + arrow for hunting
-        snprintf(line, sizeof(line), "%d.%-8s %02X:%02X:%02X:%02X %03ddB %02luS %s",
+        // Full 6-octet MAC + vendor + arrow (320px width allows it)
+        snprintf(line, sizeof(line), "%d.%-8s %02X:%02X:%02X:%02X:%02X:%02X %ddB %luS %s",
             clientIdx + 1,
             vendorUpper,
-            client.mac[2], client.mac[3], client.mac[4], client.mac[5],
+            client.mac[0], client.mac[1], client.mac[2],
+            client.mac[3], client.mac[4], client.mac[5],
             client.rssi,
             age,
             arrow);
@@ -2081,11 +2093,11 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
     canvas.setTextColor(fg, bg);
     if (clientScrollOffset > 0) {
         canvas.setTextDatum(top_right);
-        canvas.drawString("^", 236, 18);  // More above
+        canvas.drawString("^", DISPLAY_W - 4, 18);  // More above
     }
     if (clientScrollOffset + VISIBLE_CLIENTS < net.clientCount) {
         canvas.setTextDatum(bottom_right);
-        canvas.drawString("v", 236, 82);  // More below
+        canvas.drawString("v", DISPLAY_W - 4, 18 + VISIBLE_CLIENTS * 16);  // More below
     }
     
     // Draw client detail popup if active
@@ -2095,9 +2107,9 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
 
     // Draw reveal mode overlay (persistent toast with live count)
     if (revealingClients) {
-        int boxW = 160;
+        int boxW = 180;
         int boxH = 40;
-        int boxX = (240 - boxW) / 2;
+        int boxX = (DISPLAY_W - boxW) / 2;
         int boxY = (90 - boxH) / 2;
 
         // Black border then inverted fill
@@ -2107,12 +2119,12 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
         // Black text on inverted background
         canvas.setTextColor(bg, fg);
         canvas.setTextDatum(middle_center);
-        canvas.drawString("WAKIE WAKIE", 120, boxY + 12);
-        
+        canvas.drawString("WAKIE WAKIE", DISPLAY_W / 2, boxY + 12);
+
         // Show live client count
         char countStr[24];
         snprintf(countStr, sizeof(countStr), "FOUND: %d", net.clientCount);
-        canvas.drawString(countStr, 120, boxY + 28);
+        canvas.drawString(countStr, DISPLAY_W / 2, boxY + 28);
     }
 }
 
@@ -2139,9 +2151,9 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
         return;
     }
     
-    // Modal box dimensions - medium size per design spec
-    const int boxW = 200;
-    const int boxH = 75;
+    // Modal box dimensions - widened for 320px screen
+    const int boxW = 280;
+    const int boxH = 80;
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     

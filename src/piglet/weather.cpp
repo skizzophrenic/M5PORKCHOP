@@ -9,7 +9,7 @@
 namespace Weather {
 
 // === CLOUD PARALLAX STATE ===
-static char cloudPattern[40] = {0};
+static char cloudPattern[56] = {0};  // 55 chars covers 320px at 6px/char
 static bool cloudMoving = true;  // Always drift
 static bool cloudDirection = true;  // true = right
 static uint32_t lastCloudUpdate = 0;
@@ -81,26 +81,27 @@ static void resetCloudPattern() {
     // Generate textured cloud pattern with multi-segment clusters
     const char cloudChars[] = {'.', '-', '_'};
     
+    const int LEN = sizeof(cloudPattern) - 1;  // 55
     // Fill with spaces first
-    for (int i = 0; i < 39; i++) {
+    for (int i = 0; i < LEN; i++) {
         cloudPattern[i] = ' ';
     }
-    cloudPattern[39] = '\0';
-    
+    cloudPattern[LEN] = '\0';
+
     int pos = 0;
-    while (pos < 36) {
+    while (pos < LEN - 3) {
         // Create a cloud entity (2-4 segments for texture)
         int segments = random(2, 5);
-        
-        for (int s = 0; s < segments && pos < 39; s++) {
+
+        for (int s = 0; s < segments && pos < LEN; s++) {
             char segChar = cloudChars[random(0, 3)];
             int segLen = random(1, 6);  // 1 to 5 chars per segment
-            
-            for (int k = 0; k < segLen && pos < 39; k++) {
+
+            for (int k = 0; k < segLen && pos < LEN; k++) {
                 cloudPattern[pos++] = segChar;
             }
         }
-        
+
         // Add gap between clouds
         int gap = random(4, 10);  // 4 to 9 spaces
         pos += gap;
@@ -108,24 +109,25 @@ static void resetCloudPattern() {
 }
 
 static void shiftCloudPattern(bool direction, bool allowMutation) {
+    const int LEN = sizeof(cloudPattern) - 1;
     if (direction) {
         // Shift right
-        char last = cloudPattern[38];
-        for (int i = 38; i > 0; i--) {
+        char last = cloudPattern[LEN - 1];
+        for (int i = LEN - 1; i > 0; i--) {
             cloudPattern[i] = cloudPattern[i - 1];
         }
         cloudPattern[0] = last;
     } else {
         // Shift left
         char first = cloudPattern[0];
-        for (int i = 0; i < 38; i++) {
+        for (int i = 0; i < LEN - 1; i++) {
             cloudPattern[i] = cloudPattern[i + 1];
         }
-        cloudPattern[38] = first;
+        cloudPattern[LEN - 1] = first;
     }
 
     if (allowMutation && random(0, 50) == 0) {
-        int pos = random(0, 39);
+        int pos = random(0, LEN);
         if (cloudPattern[pos] != ' ') {
             const char cloudChars[] = {'.', '-', '_'};
             cloudPattern[pos] = cloudChars[random(0, 3)];
@@ -200,7 +202,7 @@ void setRaining(bool active) {
     if (active && !rainActive) {
         // Spawn raindrops staggered across entire screen height for immediate rain
         for (int i = 0; i < RAIN_DROP_COUNT; i++) {
-            rainDrops[i].x = (float)random(0, 240);
+            rainDrops[i].x = (float)random(0, DISPLAY_W);
             // Distribute drops across visible area (stop above grass at Y=88)
             rainDrops[i].y = (float)random(16, 85);
             // Fast rain (5-8 pixels per update)
@@ -298,7 +300,7 @@ static void updateRain(uint32_t now) {
         // Grass starts at Y=91, stop rain 3px above it
         if (rainDrops[i].y >= 88.0f) {
             rainDrops[i].y = (float)random(16, 23);  // Just below cloud layer
-            rainDrops[i].x = (float)random(0, 240);
+            rainDrops[i].x = (float)random(0, DISPLAY_W);
             rainDrops[i].speed = random(5, 9);  // Fast rain
         }
     }
@@ -384,7 +386,7 @@ static void updateWind(uint32_t now) {
                         windParticles[i].y += (random(0, 3) - 1) * 0.5f;
                         
                         // Deactivate when off-screen right
-                        if (windParticles[i].x > 250.0f) {
+                        if (windParticles[i].x > (float)(DISPLAY_W + 10)) {
                             windParticles[i].active = false;
                         }
                     }

@@ -12,7 +12,7 @@
 #define MAX_SPECTRUM_CLIENTS 8
 #define MAX_SPECTRUM_NETWORKS 64  // Reduced from 100 for cleaner display
 #define CLIENT_STALE_TIMEOUT_MS 30000  // 30s before client considered gone
-#define VISIBLE_CLIENTS 4              // How many fit on screen
+#define VISIBLE_CLIENTS 10             // How many fit on screen (200px canvas, 18px header, 16px/row)
 #define SIGNAL_LOST_TIMEOUT_MS 15000   // 15s no beacon = signal lost
 #define CLIENT_BEEP_LIMIT 4            // Only beep for first N clients
 

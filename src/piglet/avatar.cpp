@@ -286,7 +286,7 @@ void Avatar::draw(M5Canvas& canvas) {
             transitioning = false;
             currentX = transitionToX;
             facingRight = transitionToFacingRight;
-            onRightSide = (currentX > 105);  // Track which side we're on (midpoint of 25-180 range)
+            onRightSide = (currentX > 110);  // Track which side we're on (midpoint of 10-200 range)
             
             // Start grass now if it was pending
             if (pendingGrassStart) {
@@ -400,9 +400,9 @@ void Avatar::draw(M5Canvas& canvas) {
             int targetX;
             
             // Define edge zones (bubble floats beside pig, not above)
-            const int LEFT_EDGE = 25;   // Left rest position (320px screen)
-            const int RIGHT_EDGE = 180; // Right rest position (320px screen)
-            
+            const int LEFT_EDGE = 10;   // Left rest position (320px screen)
+            const int RIGHT_EDGE = 200; // Right rest position (pig body ~126px at size 3)
+
             if (walkRoll < 50) {
                 // 50%: Walk to opposite edge (primary behavior)
                 targetX = onRightSide ? LEFT_EDGE : RIGHT_EDGE;
@@ -412,9 +412,9 @@ void Avatar::draw(M5Canvas& canvas) {
             } else if (walkRoll < 95) {
                 // 10%: Short shuffle within current edge zone
                 if (onRightSide) {
-                    targetX = random(155, 180);  // Stay in right zone (320px)
+                    targetX = random(170, 200);  // Stay in right zone (320px)
                 } else {
-                    targetX = random(25, 55);    // Stay in left zone (320px)
+                    targetX = random(10, 45);    // Stay in left zone (320px)
                 }
             } else {
                 // 5%: Stay put, just turn around (fake walk)
