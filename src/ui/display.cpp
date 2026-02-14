@@ -1296,7 +1296,8 @@ void Display::showInfoBox(const char* title, const char* line1,
         while ((millis() - startTime) < 60000) {  // 60s timeout
             M5.update();
             Input::update();
-            if (Input::select() || Input::back()) {
+            Input::TapEvent tapDismiss;
+            if (Input::select() || Input::back() || Input::tap(tapDismiss)) {
                 break;
             }
             delay(20);
