@@ -343,7 +343,7 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
     // Check for full sweep bonus (all 3 completed)
     if (sweepNow) {
         // TRIPLE THREAT BONUS - pig respects dedication (scales with mastery)
-        const uint16_t BONUS_XP = 50 + (XP::getLevel() * 3);
+        const uint16_t BONUS_XP = 50 + (XP::getLevel() * 8);
         XP::addXPSilent(BONUS_XP);  // Silent add - sweep fanfare is the celebration
 
         Display::showToast("WORTHY. 115200 REMEMBERS.");

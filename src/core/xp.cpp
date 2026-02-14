@@ -37,6 +37,11 @@ static bool pendingSaveFlag = false;
 
 static uint32_t lastSavedCRC = 0;
 
+// ============ RETURN BONUS ============
+// pig missed you. pig rewards loyalty.
+static uint32_t lastSessionEpoch = 0;       // epoch seconds from NVS (last save)
+static bool returnBonusChecked = false;      // one-shot per session
+
 static uint32_t computeDataCRC(const PorkXPData* d) {
     uint32_t crc = 0xFFFFFFFF;
     const uint8_t* bytes = (const uint8_t*)d;
@@ -576,8 +581,9 @@ void XP::load() {
     data.mercyCount = prefs.getUInt("mercy", 0);
     data.titleOverride = static_cast<TitleOverride>(prefs.getUChar("titleo", 0));
     data.unlockables = prefs.getUInt("unlock", 0);  // Unlockables v0.1.8
+    lastSessionEpoch = prefs.getUInt("lastsess", 0);  // Return bonus tracking
     data.cachedLevel = calculateLevel(data.totalXP);
-    
+
     prefs.end();
     lastSavedCRC = computeDataCRC(&data);
 }
@@ -616,7 +622,15 @@ void XP::save() {
     prefs.putUInt("mercy", data.mercyCount);
     prefs.putUChar("titleo", static_cast<uint8_t>(data.titleOverride));
     prefs.putUInt("unlock", data.unlockables);  // Unlockables v0.1.8
-    
+    // Update last session epoch for return bonus tracking
+    {
+        time_t now = time(nullptr);
+        if (now > 1700000000) {
+            prefs.putUInt("lastsess", (uint32_t)now);
+            lastSessionEpoch = (uint32_t)now;
+        }
+    }
+
     prefs.end();
     lastSavedCRC = currentCRC;
 
@@ -660,7 +674,7 @@ static uint16_t sessionWarhogXP = 0;
 static bool bleCapWarned = false;
 static bool warhogCapWarned = false;
 static const uint16_t BLE_XP_CAP = 500;      // ~250 bursts worth
-static const uint16_t WARHOG_XP_CAP = 300;   // ~150 geotagged networks
+static const uint16_t WARHOG_XP_CAP = 800;   // ~400 geotagged networks (tuned: wardriving-viable progression)
 
 // ============ DOPAMINE HOOKS ============
 // the pig giveth, sometimes generously
@@ -689,6 +703,7 @@ void XP::startSession() {
     captureStreak = 0;
     lastCaptureTime = 0;
     ultraStreakAnnounced = false;
+    returnBonusChecked = false;
     
     data.sessions++;
     
@@ -913,10 +928,32 @@ void XP::addXP(XPEvent event) {
                 unlockAchievement(ACH_MERCY_MODE);
             }
             break;
+        case XPEvent::SESSION_30MIN:
+        case XPEvent::SESSION_60MIN:
+        case XPEvent::SESSION_120MIN: {
+            // Scale session time bonuses by level tier so they stay meaningful at high levels
+            uint8_t lvl = data.cachedLevel;
+            uint8_t tier = 0;
+            if (lvl >= 41) tier = 4;
+            else if (lvl >= 31) tier = 3;
+            else if (lvl >= 21) tier = 2;
+            else if (lvl >= 11) tier = 1;
+            static const uint16_t SESSION_XP[5][3] = {
+                { 10,  25,  50},   // L1-10  (base)
+                { 15,  40,  80},   // L11-20
+                { 25,  65, 130},   // L21-30
+                { 40, 100, 200},   // L31-40
+                { 60, 150, 300},   // L41-50
+            };
+            uint8_t col = (event == XPEvent::SESSION_30MIN) ? 0 :
+                          (event == XPEvent::SESSION_60MIN) ? 1 : 2;
+            amount = SESSION_XP[tier][col];
+            break;
+        }
         default:
             break;
     }
-    
+
     // pig tracks your labor (challenges progress)
     Challenges::onXPEvent(event);
     
@@ -1125,8 +1162,27 @@ void XP::addDistance(uint32_t meters) {
 }
 
 void XP::updateSessionTime() {
+    // Return bonus: deferred until clock is valid (GPS/NTP sync)
+    if (!returnBonusChecked) {
+        time_t now = time(nullptr);
+        if (now > 1700000000) {
+            returnBonusChecked = true;
+            if (lastSessionEpoch > 0 && (uint32_t)now > lastSessionEpoch) {
+                uint32_t elapsed = (uint32_t)now - lastSessionEpoch;
+                if (elapsed >= 172800) {  // 48 hours in seconds
+                    uint16_t bonus = 25 + (data.cachedLevel * 2);
+                    addXPSilent(bonus);
+                    Display::showToast("PIG MISSED YOU!");
+                    SFX::play(SFX::ACHIEVEMENT);
+                    Serial.printf("[XP] Return bonus: +%d XP (absent %lu hours)\n",
+                                  bonus, (unsigned long)(elapsed / 3600));
+                }
+            }
+        }
+    }
+
     uint32_t sessionMinutes = (millis() - session.startTime) / 60000;
-    
+
     if (sessionMinutes >= 30 && !session.session30Awarded) {
         addXP(XPEvent::SESSION_30MIN);
         session.session30Awarded = true;
