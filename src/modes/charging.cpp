@@ -7,7 +7,10 @@
 #include "../gps/gps.h"
 #include "../core/config.h"
 #include "../core/xp.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
+#include "../ui/input.h"
 #include <esp_wifi.h>
 #include <WiFi.h>
 #include <NimBLEDevice.h>
@@ -212,6 +215,11 @@ void ChargingMode::update() {
 }
 
 void ChargingMode::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    if (Input::up() || Input::select() || Input::down() || Input::back()) {
+        exitRequested = true;
+    }
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -228,6 +236,7 @@ void ChargingMode::handleInput() {
         M5Cardputer.Keyboard.isPressed()) {
         exitRequested = true;
     }
+#endif
 }
 
 void ChargingMode::updateBattery() {

@@ -1,8 +1,8 @@
 // Menu system - Sirloin-style grouped modal
 
 #include "menu.h"
-#include <M5Cardputer.h>
 #include "display.h"
+#include "input.h"
 #include "../audio/sfx.h"
 #include <string.h>
 
@@ -369,23 +369,19 @@ void Menu::update() {
 // ============================================================================
 
 void Menu::handleInput() {
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    auto keys = M5Cardputer.Keyboard.keysState();
+    bool up = Input::up();
+    bool down = Input::down();
+    bool sel = Input::select();
+
+    if (!up && !down && !sel) return;
+
+    Display::resetDimTimer();
     
     if (activeGroup != GroupId::NONE) {
         // === MODAL INPUT ===
         uint8_t groupSize = getGroupSize(activeGroup);
         
-        if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+        if (up) {
             if (modalIdx > 0) {
                 modalIdx--;
                 SFX::play(SFX::MENU_CLICK);
@@ -395,7 +391,7 @@ void Menu::handleInput() {
             }
         }
         
-        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+        if (down) {
             if (modalIdx < groupSize - 1) {
                 modalIdx++;
                 SFX::play(SFX::MENU_CLICK);
@@ -405,7 +401,7 @@ void Menu::handleInput() {
             }
         }
         
-        if (keys.enter) {
+        if (sel) {
             SFX::play(SFX::MENU_CLICK);
             const MenuItem* items = getGroupItems(activeGroup);
             if (items && callback) {
@@ -414,13 +410,9 @@ void Menu::handleInput() {
             closeModal();
         }
         
-        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-            closeModal();
-        }
-        
     } else {
         // === ROOT INPUT ===
-        if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+        if (up) {
             // Move up, skip non-selectable
             int newIdx = rootIdx;
             do {
@@ -437,7 +429,7 @@ void Menu::handleInput() {
             }
         }
         
-        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+        if (down) {
             // Move down, skip non-selectable
             int newIdx = rootIdx;
             do {
@@ -454,7 +446,7 @@ void Menu::handleInput() {
             }
         }
         
-        if (keys.enter) {
+        if (sel) {
             SFX::play(SFX::MENU_CLICK);
             const RootItem& item = ROOT_ITEMS[rootIdx];
             if (item.type == RootType::GROUP) {

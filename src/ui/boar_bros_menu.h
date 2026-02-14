@@ -30,7 +30,11 @@ private:
     static bool keyWasPressed;
     static bool deleteConfirmActive;
     
+#if defined(PORKCHOP_TARGET_CORE2)
+    static const uint8_t VISIBLE_ITEMS = 10;
+#else
     static const uint8_t VISIBLE_ITEMS = 5;
+#endif
     
     static void handleInput();
     static void loadBros();

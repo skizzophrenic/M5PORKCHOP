@@ -1,11 +1,14 @@
 // Tracks Menu - View wardriving files with sync support
 
 #include "tracks_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <WiFi.h>
 #include <string.h>
 #include "display.h"
+#include "input.h"
 #include "../web/wigle.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -306,6 +309,89 @@ void TracksMenu::processAsyncScan() {
 }
 
 void TracksMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Handle sync modal
+    if (syncModalActive) {
+        if (syncState == WigleSyncState::ERROR || syncState == WigleSyncState::COMPLETE) {
+            if (Input::select() || Input::up()) {
+                syncModalActive = false;
+                syncState = WigleSyncState::IDLE;
+                scanFiles();
+            }
+        } else {
+            // BtnA cancels during sync (back-hold exits to MENU via core state machine).
+            if (Input::up()) {
+                cancelSync();
+            }
+        }
+        return;
+    }
+
+    // Detail view: any button closes
+    if (detailViewActive) {
+        if (Input::up() || Input::down() || Input::select()) {
+            detailViewActive = false;
+        }
+        return;
+    }
+
+    // Nuke confirmation modal (Core2 doesn't expose the shortcut, but keep logic)
+    if (nukeConfirmActive) {
+        if (Input::select()) {
+            nukeTrack();
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+        } else if (Input::up()) {
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+        }
+        return;
+    }
+
+    // Hold BtnA to start WiGLE sync.
+    static uint32_t aPressStartMs = 0;
+    static bool syncHoldFired = false;
+    constexpr uint32_t kSyncHoldMs = 900;
+    if (M5.BtnA.isPressed()) {
+        if (aPressStartMs == 0) aPressStartMs = millis();
+        if (!syncHoldFired && (millis() - aPressStartMs) >= kSyncHoldMs) {
+            startSync();
+            syncHoldFired = true;
+        }
+    } else {
+        aPressStartMs = 0;
+        syncHoldFired = false;
+    }
+
+    if (Input::up()) {
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+        }
+        return;
+    }
+
+    if (Input::down()) {
+        if (!files.empty() && selectedIndex < files.size() - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+        }
+        return;
+    }
+
+    if (Input::select()) {
+        if (!files.empty()) {
+            detailViewActive = true;
+        }
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -401,6 +487,7 @@ void TracksMenu::handleInput() {
             Display::setBottomOverlay("PERMANENT | NO UNDO");
         }
     }
+#endif
 }
 
 void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
@@ -416,7 +503,11 @@ void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
 
 void TracksMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
+#if defined(PORKCHOP_TARGET_CORE2)
+    snprintf(out, len, "B=DET HOLD-A=SYNC");
+#else
     snprintf(out, len, "ENT=DET S=SYNC D=NUKE");
+#endif
 }
 
 void TracksMenu::update() {

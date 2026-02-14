@@ -2,8 +2,10 @@
 // Main entry point
 // by 0ct0
 
-#include <M5Cardputer.h>
 #include <M5Unified.h>
+#if !defined(PORKCHOP_TARGET_CORE2)
+#include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <WiFi.h>              // <-- PATCH: init WiFi early (before heap fragmentation)
 #include <esp_heap_caps.h>     // For heap conditioning
@@ -17,6 +19,7 @@
 #include "core/heap_health.h"
 #include "core/network_recon.h"
 #include "ui/display.h"
+#include "ui/input.h"
 #include "gps/gps.h"
 #include "piglet/avatar.h"
 #include "piglet/mood.h"
@@ -92,20 +95,37 @@ void setup() {
     delay(100);
     Serial.println("\n=== PORKCHOP STARTING ===");
 
+    #if defined(PORKCHOP_TARGET_CORE2)
+    Serial.printf("[BOOT] PSRAM: size=%u free=%u\n",
+                  (unsigned)ESP.getPsramSize(),
+                  (unsigned)ESP.getFreePsram());
+    // Zero PSRAM BSS section (PSRAM is undefined at power-up)
+    extern uint8_t _psram_bss_start, _psram_bss_end;
+    memset(&_psram_bss_start, 0, &_psram_bss_end - &_psram_bss_start);
+    #endif
+
     // Deassert CapLoRa SX1262 CS BEFORE SD init. The SX1262 shares
     // MOSI(G14)/MISO(G39)/SCK(G40) with the SD card. If its CS floats low
     // the SX1262 responds on the bus and SD.begin() fails with f_mount(3).
     // MUST happen before M5Cardputer.begin() — GPIO5 is a keyboard matrix
     // input on v1.1 and begin() needs to reconfigure it as INPUT_PULLUP.
+    #if !defined(PORKCHOP_TARGET_CORE2)
     pinMode(5, OUTPUT);
     digitalWrite(5, HIGH);
+    #endif
 
-    // Init M5Cardputer hardware
+    // Init hardware
     auto cfg = M5.config();
+    #if defined(PORKCHOP_TARGET_CORE2)
+    M5.begin(cfg);
+    #else
     M5Cardputer.begin(cfg, true);   // enableKeyboard = true
+    #endif
 
     // Configure G0 button (GPIO0) as input with pullup
+    #if !defined(PORKCHOP_TARGET_CORE2)
     pinMode(0, INPUT_PULLUP);
+    #endif
 
     // Reservation fence: push WiFi driver allocations high in heap, then free
     // the fence to leave large contiguous space at the bottom.
@@ -127,6 +147,7 @@ void setup() {
 
     // Init display system
     Display::init();
+    Input::init();
 
     // Init audio early so boot sound plays
     SFX::init();
@@ -195,7 +216,8 @@ void setup() {
 }
 
 void loop() {
-    M5Cardputer.update();
+    M5.update();
+    Input::update();
     
     // #region agent log
     // [DEBUG] H1/H3: Periodic heap monitoring (every 5 seconds)

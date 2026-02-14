@@ -1,11 +1,14 @@
 // BOAR BROS Menu - Manage excluded networks
 
 #include "boar_bros_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <ctype.h>
 #include <string.h>
 #include "display.h"
+#include "input.h"
 #include "../modes/oink.h"
 #include "../core/sd_layout.h"
 
@@ -148,6 +151,43 @@ void BoarBrosMenu::update() {
 }
 
 void BoarBrosMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    if (deleteConfirmActive) {
+        // Confirm: BtnB = YES, BtnA = NO (matches global confirm pattern).
+        if (Input::select()) {
+            deleteSelected();
+            deleteConfirmActive = false;
+        } else if (Input::up()) {
+            deleteConfirmActive = false;
+        }
+        return;
+    }
+
+    if (Input::up()) {
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+        }
+    }
+
+    if (Input::down()) {
+        if (!bros.empty() && selectedIndex < bros.size() - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+        }
+    }
+
+    // Select triggers delete confirmation (no physical keyboard on Core2).
+    if (Input::select() && !bros.empty()) {
+        deleteConfirmActive = true;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -201,6 +241,7 @@ void BoarBrosMenu::handleInput() {
         hide();
         // Return to menu handled by porkchop.cpp
     }
+#endif
 }
 
 void BoarBrosMenu::deleteSelected() {
@@ -330,7 +371,11 @@ void BoarBrosMenu::drawDeleteConfirm(M5Canvas& canvas) {
     }
     canvas.drawString(broName, boxX + boxW / 2, boxY + 24);
     
+#if defined(PORKCHOP_TARGET_CORE2)
+    canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 40);
+#else
     canvas.drawString("[Y]ES  [N]O", boxX + boxW / 2, boxY + 40);
+#endif
     
     canvas.setTextDatum(top_left);
 }

@@ -19,6 +19,13 @@
 #include <mbedtls/base64.h>
 #include <string.h>
 #include <ctype.h>
+#include <esp_attr.h>
+
+#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
+#define PSRAM_BSS __attribute__((section(".psram_bss")))
+#else
+#define PSRAM_BSS
+#endif
 
 // NOTE: Per user request, JANUS HOG uses SERIAL logging only (no SDLog).
 #define C5_LOGF(fmt, ...) Serial.printf("[C5] " fmt "\n", ##__VA_ARGS__)
@@ -59,8 +66,8 @@ static bool     lineOverflow = false;  // Drop oversize lines safely until newli
 static constexpr uint8_t SCAN_CACHE_MAX = 64;
 // Double-buffered: keep last completed scan visible during an active scan.
 // This prevents Spectrum's 5GHz overlay from flickering to "no data" between scans.
-static C5ScanEntry  scanCacheA[SCAN_CACHE_MAX];
-static C5ScanEntry  scanCacheB[SCAN_CACHE_MAX];
+static C5ScanEntry  scanCacheA[SCAN_CACHE_MAX] PSRAM_BSS;
+static C5ScanEntry  scanCacheB[SCAN_CACHE_MAX] PSRAM_BSS;
 static C5ScanEntry* scanCacheActive = scanCacheA;
 static C5ScanEntry* scanCacheWork = scanCacheB;
 static uint8_t      scanCountActive = 0;

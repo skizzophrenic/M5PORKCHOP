@@ -1,11 +1,14 @@
 // DiagData Menu - System status snapshot
 
 #include "diagdata_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <time.h>
 #include <string.h>
 #include "display.h"
+#include "input.h"
 #include "../core/config.h"
 #include "../web/wpasec.h"
 #include "../web/wigle.h"
@@ -20,6 +23,7 @@
 // Static member initialization
 bool DiagDataMenu::active = false;
 bool DiagDataMenu::keyWasPressed = false;
+bool DiagDataMenu::wifiResetConfirmActive = false;
 uint16_t DiagDataMenu::cachedWpaCracked = 0;
 uint16_t DiagDataMenu::cachedWigleUploaded = 0;
 uint32_t DiagDataMenu::lastStatRefreshMs = 0;
@@ -28,12 +32,14 @@ uint32_t DiagDataMenu::statRefreshIntervalMs = 2000;  // tighter refresh interva
 void DiagDataMenu::show() {
     active = true;
     keyWasPressed = true;  // Ignore the Enter that brought us here
+    wifiResetConfirmActive = false;
     lastStatRefreshMs = 0; // force immediate refresh
     HeapHealth::setKnuthEnabled(true);
 }
 
 void DiagDataMenu::hide() {
     active = false;
+    wifiResetConfirmActive = false;
     HeapHealth::setKnuthEnabled(false);
     // Release caches when leaving
     WPASec::freeCacheMemory();
@@ -43,6 +49,62 @@ void DiagDataMenu::hide() {
 void DiagDataMenu::update() {
     if (!active) return;
 
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Periodically refresh stats (e.g., every 2 seconds)
+    if (millis() - lastStatRefreshMs > statRefreshIntervalMs) {
+        refreshStats();
+    }
+
+    // Local "GC" gesture: hold BtnA.
+    static uint32_t aPressStartMs = 0;
+    static bool gcFired = false;
+    constexpr uint32_t kGcHoldMs = 900;
+    if (M5.BtnA.isPressed()) {
+        if (aPressStartMs == 0) aPressStartMs = millis();
+        if (!gcFired && (millis() - aPressStartMs) >= kGcHoldMs) {
+            collectGarbage();
+            Display::setTopBarMessage("CACHE CLEARED", 3000);
+            gcFired = true;
+        }
+    } else {
+        aPressStartMs = 0;
+        gcFired = false;
+    }
+
+    // Confirm modal for WiFi reset (dangerous).
+    if (wifiResetConfirmActive) {
+        if (Input::select()) {
+            resetWiFi();
+            Display::setTopBarMessage("WIFI RESET", 3000);
+            wifiResetConfirmActive = false;
+        } else if (Input::up()) {
+            wifiResetConfirmActive = false;
+        }
+        return;
+    }
+
+    // BtnA = Save snapshot
+    if (Input::up()) {
+        saveSnapshot();
+        Display::setTopBarMessage("DIAG SNAPSHOT SAVED", 3000);
+        return;
+    }
+
+    // BtnB = WiFi reset (with confirm)
+    if (Input::select()) {
+        wifiResetConfirmActive = true;
+        return;
+    }
+
+    // BtnC = Heap log
+    if (Input::down()) {
+        logHeapSnapshot();
+        Display::setTopBarMessage("HEAP LOGGED", 3000);
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
 
     if (!anyPressed) {
@@ -92,6 +154,7 @@ void DiagDataMenu::update() {
     if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
     }
+#endif
 }
 
 void DiagDataMenu::saveSnapshot() {
@@ -211,7 +274,6 @@ void DiagDataMenu::collectGarbage() {
     // Free optional caches to claw back heap
     WPASec::freeCacheMemory();
     WiGLE::freeUploadedListMemory();
-    delay(200);
     yield();
 }
 
@@ -361,7 +423,38 @@ void DiagDataMenu::draw(M5Canvas& canvas) {
     y += lineH + 6;
 
     // Controls (compressed)
+    if (wifiResetConfirmActive) {
+        drawWiFiResetConfirm(canvas);
+        return;
+    }
+
+#if defined(PORKCHOP_TARGET_CORE2)
+    canvas.drawString("A SAVE  B WIFI  C HEAP", 4, y);
+    y += lineH;
+    canvas.drawString("HOLD A: GC  HOLD B: BACK", 4, y);
+#else
     canvas.drawString("[ENT]SAVE [R]WIFI", 4, y);
     y += lineH;
     canvas.drawString("[H]HEAP [G]GC [BKSPC]BACK", 4, y);
+#endif
+}
+
+void DiagDataMenu::drawWiFiResetConfirm(M5Canvas& canvas) {
+    const int boxW = 190;
+    const int boxH = 55;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2 - 5;
+
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+
+    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextDatum(top_center);
+    canvas.drawString("RESET WIFI STACK?", boxX + boxW / 2, boxY + 12);
+#if defined(PORKCHOP_TARGET_CORE2)
+    canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 34);
+#else
+    canvas.drawString("[Y]ES  [N]O", boxX + boxW / 2, boxY + 34);
+#endif
+    canvas.setTextDatum(top_left);
 }

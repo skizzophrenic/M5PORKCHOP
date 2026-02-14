@@ -21,6 +21,13 @@
 #include "../piglet/avatar.h"
 #include <SD.h>
 #include <esp_heap_caps.h>
+#include <esp_attr.h>
+
+#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
+#define PSRAM_BSS __attribute__((section(".psram_bss")))
+#else
+#define PSRAM_BSS
+#endif
 #include <atomic>
 
 // PCAP file format structures (same as OINK for WPA-SEC compatibility)
@@ -120,7 +127,7 @@ struct PendingHandshakeFrame {
 };
 // Ring-buffered deferred handshake frame add (heap allocated on start)
 static const uint8_t PENDING_HS_SLOTS = 2;
-static PendingHandshakeFrame pendingHandshakeFallback;
+static PendingHandshakeFrame pendingHandshakeFallback PSRAM_BSS;
 static PendingHandshakeFrame* pendingHandshakePool = &pendingHandshakeFallback;
 static bool pendingHandshakePoolAllocated = false;
 static uint8_t pendingHandshakeSlots = 1;
@@ -139,7 +146,7 @@ static volatile bool pendingSaveFlag = false;
 // Callback copies beacon data here, update() does the malloc and attachment
 static volatile bool pendingBeaconStore = false;
 static uint8_t pendingBeaconBSSID[6];
-static uint8_t pendingBeaconData[512];  // Static buffer, no malloc in callback
+static uint8_t pendingBeaconData[512] PSRAM_BSS;  // Static buffer, no malloc in callback
 static uint16_t pendingBeaconLen = 0;
 
 // Ring-buffered deferred incomplete handshake tracking (small, static)
@@ -382,7 +389,7 @@ void DoNoHamMode::update() {
     // Process deferred beacon storage for handshakes (ESP32 dual-core race fix)
     // Callback copied beacon to static buffer, we do malloc here in main thread
     uint8_t pendingBeaconBssidLocal[6] = {0};
-    static uint8_t pendingBeaconDataLocal[512];
+    static uint8_t pendingBeaconDataLocal[512] PSRAM_BSS;
     uint16_t pendingBeaconLenLocal = 0;
     bool hasPendingBeacon = false;
     taskENTER_CRITICAL(&pendingBeaconMux);
@@ -526,7 +533,7 @@ void DoNoHamMode::update() {
     }
     
     // Process deferred handshake frame add (ring buffer)
-    static PendingHandshakeFrame pendingHandshakeLocal;
+    static PendingHandshakeFrame pendingHandshakeLocal PSRAM_BSS;
     while (true) {
         bool hasPendingHandshake = false;
         taskENTER_CRITICAL(&pendingHandshakeMux);

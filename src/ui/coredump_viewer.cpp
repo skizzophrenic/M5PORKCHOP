@@ -2,9 +2,12 @@
 
 #include "coredump_viewer.h"
 #include "display.h"
+#include "input.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <algorithm>
 #include <time.h>
@@ -29,7 +32,11 @@ bool CoreDumpViewer::keyWasPressed = false;
 char CoreDumpViewer::activeFile[64] = {0};
 
 static const uint16_t MAX_LOG_LINES = 120;
+#if defined(PORKCHOP_TARGET_CORE2)
+static const uint8_t VISIBLE_LINES = 16;
+#else
 static const uint8_t VISIBLE_LINES = 9;
+#endif
 static const uint8_t LINE_HEIGHT = 11;
 
 void CoreDumpViewer::init() {
@@ -339,12 +346,98 @@ void CoreDumpViewer::drawNukeConfirm(M5Canvas& canvas) {
     snprintf(cmd, sizeof(cmd), "rm -rf %s/*", SDLayout::crashDir());
     canvas.drawString(cmd, centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE DUMPS.", centerX, boxY + 36);
+#if defined(PORKCHOP_TARGET_CORE2)
+    canvas.drawString("B=DO IT  A=ABORT", centerX, boxY + 54);
+#else
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
+#endif
 }
 
 void CoreDumpViewer::update() {
     if (!active) return;
 
+#if defined(PORKCHOP_TARGET_CORE2)
+    if (nukeConfirmActive) {
+        if (Input::select()) {
+            nukeCrashFiles();
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+            fileViewActive = false;
+            fileLines.clear();
+            scanCrashFiles();
+        } else if (Input::up()) {
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+        }
+        return;
+    }
+
+    if (fileViewActive) {
+        if (Input::up()) {
+            if (fileScroll > 0) {
+                fileScroll--;
+            }
+        } else if (Input::down()) {
+            if (totalLines > VISIBLE_LINES && fileScroll < totalLines - VISIBLE_LINES) {
+                fileScroll++;
+            }
+        } else if (Input::select()) {
+            fileViewActive = false;
+            fileLines.clear();
+            totalLines = 0;
+            activeFile[0] = '\0';
+        }
+        return;
+    }
+
+    // Dangerous action: hold BtnA to arm the nuke modal.
+    static uint32_t aPressStartMs = 0;
+    static bool aHoldFired = false;
+    constexpr uint32_t kNukeHoldMs = 1200;
+    if (M5.BtnA.isPressed()) {
+        if (aPressStartMs == 0) aPressStartMs = millis();
+        if (!aHoldFired && (millis() - aPressStartMs) >= kNukeHoldMs) {
+            if (!crashFiles.empty()) {
+                nukeConfirmActive = true;
+                Display::setBottomOverlay("PERMANENT | NO UNDO");
+            }
+            aHoldFired = true;
+        }
+    } else {
+        aPressStartMs = 0;
+        aHoldFired = false;
+    }
+
+    if (Input::up()) {
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < listScroll) {
+                listScroll = selectedIndex;
+            }
+        }
+        return;
+    }
+
+    if (Input::down()) {
+        if (selectedIndex + 1 < crashFiles.size()) {
+            selectedIndex++;
+            if (selectedIndex >= listScroll + VISIBLE_LINES) {
+                listScroll = selectedIndex - VISIBLE_LINES + 1;
+            }
+        }
+        return;
+    }
+
+    if (Input::select()) {
+        if (!crashFiles.empty() && selectedIndex < crashFiles.size()) {
+            loadCrashFile(crashFiles[selectedIndex].path);
+            fileViewActive = true;
+        }
+        return;
+    }
+
+    return;
+#else
     if (!M5Cardputer.Keyboard.isPressed()) {
         keyWasPressed = false;
         return;
@@ -416,6 +509,7 @@ void CoreDumpViewer::update() {
             fileViewActive = true;
         }
     }
+#endif
 }
 
 void CoreDumpViewer::draw(M5Canvas& canvas) {

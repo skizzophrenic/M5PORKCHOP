@@ -32,9 +32,27 @@ namespace CapLoraPins {
 // GPS power management settings
 struct GPSConfig {
     bool enabled = true;
-    GPSSource source = GPSSource::GROVE;  // GPS module source (auto-selects pins)
-    uint8_t rxPin = 1;              // G1 for Grove GPS, G15 for Cap LoRa868 (auto-set from source)
-    uint8_t txPin = 2;              // G2 for Grove GPS, G13 for Cap LoRa868 (auto-set from source)
+    GPSSource source =
+    #if defined(PORKCHOP_TARGET_CORE2)
+        GPSSource::GROVE;   // Core2: treat GROVE as PORT.C UART by default (see docs/ports/core2/10_pinmap.md)
+    #else
+        GPSSource::GROVE;   // Cardputer: Grove GPS on G1/G2 (auto-set from source)
+    #endif
+
+    uint8_t rxPin =
+    #if defined(PORKCHOP_TARGET_CORE2)
+        13;  // PORT.C RXD2
+    #else
+        1;   // Grove GPS RX (G1)
+    #endif
+
+    uint8_t txPin =
+    #if defined(PORKCHOP_TARGET_CORE2)
+        14;  // PORT.C TXD2
+    #else
+        2;   // Grove GPS TX (G2)
+    #endif
+
     uint32_t baudRate = 115200;     // 115200 for most modern GPS modules
     uint16_t updateInterval = 5;        // Seconds between GPS updates
     uint16_t sleepTimeMs = 5000;        // Sleep duration when stationary
@@ -132,8 +150,19 @@ struct C5Config {
     bool enabled = false;           // Opt-in: disabled by default
     uint32_t baudRate = 115200;     // UART baud rate
     uint16_t scanIntervalMs = 30000; // Auto-scan interval (0 = manual only)
-    uint8_t uartTxPin = 2;         // Grove G2 default
-    uint8_t uartRxPin = 1;         // Grove G1 default
+    uint8_t uartTxPin =
+    #if defined(PORKCHOP_TARGET_CORE2)
+        14;  // PORT.C TXD2
+    #else
+        2;   // Grove G2 default
+    #endif
+
+    uint8_t uartRxPin =
+    #if defined(PORKCHOP_TARGET_CORE2)
+        13;  // PORT.C RXD2
+    #else
+        1;   // Grove G1 default
+    #endif
 };
 
 class Config {

@@ -3,8 +3,11 @@
 // Refactored to match captures_menu/boar_bros_menu patterns
 
 #include "bounty_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include "display.h"
+#include "input.h"
 #include "../modes/pigsync_mode.h"
 #include "../modes/warhog.h"
 
@@ -85,6 +88,30 @@ void BountyMenu::update() {
 }
 
 void BountyMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Use cached bounties (refreshed by draw() each frame)
+    const size_t count = cachedBounties.size();
+
+    if (Input::up()) {
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+        }
+    }
+
+    if (Input::down()) {
+        if (count > 0 && selectedIndex < count - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+        }
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -121,6 +148,7 @@ void BountyMenu::handleInput() {
     if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
     }
+#endif
 }
 
 void BountyMenu::draw(M5Canvas& canvas) {

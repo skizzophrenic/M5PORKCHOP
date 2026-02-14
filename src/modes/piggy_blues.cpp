@@ -9,7 +9,10 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../audio/sfx.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
+#include "../ui/input.h"
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <algorithm>
@@ -526,34 +529,52 @@ bool PiggyBluesMode::showWarningDialog() {
     
     while ((millis() - startTime) < timeout) {
         M5.update();
+#if defined(PORKCHOP_TARGET_CORE2)
+        Input::update();
+#else
         M5Cardputer.update();
-        
+#endif
+
         uint32_t remaining = (timeout - (millis() - startTime)) / 1000 + 1;
-        
+
         // Clear and redraw
         canvas.fillSprite(COLOR_BG);
-        
+
         // Black border then pink fill
         canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
         canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-        
+
         // Black text on pink background
         canvas.setTextColor(COLOR_BG, COLOR_FG);
         canvas.setTextDatum(top_center);
         canvas.setTextSize(1);
         canvas.setFont(&fonts::Font0);
-        
+
         int centerX = DISPLAY_W / 2;
         canvas.drawString("!! WARNING !!", centerX, boxY + 8);
         canvas.drawString("BLE NOTIFICATION SPAM", centerX, boxY + 22);
         canvas.drawString("EDUCATIONAL USE ONLY!", centerX, boxY + 36);
-        
-        char buf[24];
+
+        char buf[48];
+#if defined(PORKCHOP_TARGET_CORE2)
+        snprintf(buf, sizeof(buf), "B=YES  A=NO (%lu)", remaining);
+#else
         snprintf(buf, sizeof(buf), "[Y] YES  [N] NO (%lu)", remaining);
+#endif
         canvas.drawString(buf, centerX, boxY + 54);
-        
+
         Display::pushAll();
-        
+
+#if defined(PORKCHOP_TARGET_CORE2)
+        if (Input::select()) {
+            Display::clearBottomOverlay();
+            return true;
+        }
+        if (Input::up() || Input::back()) {
+            Display::clearBottomOverlay();
+            return false;
+        }
+#else
         if (M5Cardputer.Keyboard.isChange()) {
             if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
                 Display::clearBottomOverlay();
@@ -564,7 +585,8 @@ bool PiggyBluesMode::showWarningDialog() {
                 return true;
             }
         }
-        
+#endif
+
         delay(50);
     }
     

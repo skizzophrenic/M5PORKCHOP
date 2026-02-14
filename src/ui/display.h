@@ -6,12 +6,27 @@
 // Forward declarations
 enum class PorkchopMode : uint8_t;
 
-// Display layout constants (240x135 screen)
+// Display layout constants
+#if defined(PORKCHOP_TARGET_CORE2)
+// Core2: 320x240 (landscape)
+#define DISPLAY_W 320
+#define DISPLAY_H 240
+#define TOP_BAR_H 20
+#define BOTTOM_BAR_H 20
+#else
+// Cardputer/legacy: 240x135
 #define DISPLAY_W 240
 #define DISPLAY_H 135
 #define TOP_BAR_H 14
 #define BOTTOM_BAR_H 14
+#endif
+
 #define MAIN_H (DISPLAY_H - TOP_BAR_H - BOTTOM_BAR_H)
+
+#ifndef PORKCHOP_COLOR_DEPTH
+// Default to RGB332 for heap stability and to match existing theme palette.
+#define PORKCHOP_COLOR_DEPTH 8
+#endif
 
 // Theme structure
 struct PorkTheme {

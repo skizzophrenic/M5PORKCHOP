@@ -1,8 +1,11 @@
 // Badges Menu - View unlocked achievements
 
 #include "badges_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include "display.h"
+#include "input.h"
 #include "../core/xp.h"
 #include <ctype.h>
 #include <string.h>
@@ -121,6 +124,42 @@ void BadgesMenu::update() {
 }
 
 void BadgesMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // If showing detail, any button closes it.
+    if (showingDetail) {
+        if (Input::up() || Input::down() || Input::select()) {
+            showingDetail = false;
+        }
+        return;
+    }
+
+    if (Input::up()) {
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+            updateBottomOverlay();
+        }
+    }
+
+    if (Input::down()) {
+        if (selectedIndex < TOTAL_ACHIEVEMENTS - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+            updateBottomOverlay();
+        }
+    }
+
+    if (Input::select()) {
+        showingDetail = true;
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -170,6 +209,7 @@ void BadgesMenu::handleInput() {
     if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
     }
+#endif
 }
 
 void BadgesMenu::draw(M5Canvas& canvas) {

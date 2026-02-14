@@ -7,7 +7,10 @@
 #include "../piglet/mood.h"
 #include "../piglet/weather.h"
 #include "../web/wigle.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
+#include "input.h"
 
 // Static member initialization
 bool FlexesScreen::active = false;
@@ -129,6 +132,56 @@ void FlexesScreen::update() {
 }
 
 void FlexesScreen::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Tab cycling: BtnA cycles left, BtnC cycles right.
+    if (Input::up()) {
+        switch (currentTab) {
+            case StatsTab::STATS:
+                currentTab = StatsTab::WIGLE;
+                break;
+            case StatsTab::BOOSTS:
+                currentTab = StatsTab::STATS;
+                break;
+            case StatsTab::WIGLE:
+                currentTab = StatsTab::BOOSTS;
+                break;
+        }
+        return;
+    }
+
+    if (Input::down()) {
+        switch (currentTab) {
+            case StatsTab::STATS:
+                currentTab = StatsTab::BOOSTS;
+                break;
+            case StatsTab::BOOSTS:
+                currentTab = StatsTab::WIGLE;
+                break;
+            case StatsTab::WIGLE:
+                currentTab = StatsTab::STATS;
+                break;
+        }
+        return;
+    }
+
+    // BtnB cycles available title overrides (only on STATS tab).
+    if (Input::select() && currentTab == StatsTab::STATS) {
+        TitleOverride next = XP::getNextAvailableOverride();
+        XP::setTitleOverride(next);
+
+        const char* newTitle = XP::getDisplayTitle();
+        if (next == TitleOverride::NONE) {
+            Display::showToast("T1TLE: DEFAULT");
+        } else {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "T1TLE: %s", newTitle);
+            Display::showToast(buf);
+        }
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -192,6 +245,7 @@ void FlexesScreen::handleInput() {
     if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
     }
+#endif
 }
 
 BuffState FlexesScreen::calculateBuffs() {

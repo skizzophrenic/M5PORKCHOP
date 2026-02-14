@@ -10,7 +10,9 @@
 #include <esp_wifi.h>
 #include <WiFi.h>
 #include <SD.h>
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <sys/time.h>  // Phase 3: settimeofday for RTC sync
 #include "../core/config.h"
 #include "../core/sdlog.h"
@@ -817,6 +819,10 @@ void PigSyncMode::init() {
 
 // Handle keyboard input for device selection and interaction
 void PigSyncMode::handleKeyboardInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Core2 uses TouchA/B/C handled by the core state machine (Porkchop::handleInput).
+    return;
+#else
     M5Cardputer.update();
 
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
@@ -857,6 +863,7 @@ void PigSyncMode::handleKeyboardInput() {
             }
         }
     }
+#endif
 }
 
 // Ensure ESP-NOW is ready (other modes may have deinitialized it)

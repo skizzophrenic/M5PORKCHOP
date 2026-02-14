@@ -1,13 +1,16 @@
 // Hashes Menu - View saved handshake captures
 
 #include "hashes_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <SD.h>
 #include <WiFi.h>
 #include <time.h>
 #include <ctype.h>
 #include <string.h>
 #include "display.h"
+#include "input.h"
 #include "../web/wpasec.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -40,7 +43,11 @@ uint8_t HashesMenu::hintIndex = 0;
 const char* const HashesMenu::HINTS[] = {
     "FEED YO HASHCAT.",
     "COLLECTED PAIN. COMPRESSED.",
+#if defined(PORKCHOP_TARGET_CORE2)
+    "B:DET  HOLD-A:SYNC",
+#else
     "ENT:DET  S:SYNC  D:NUKE",
+#endif
     "MALLOC SAID NAH.",
     "YOUR LOOT. YOUR PROBLEM."
 };
@@ -521,6 +528,95 @@ void HashesMenu::update() {
 }
 
 void HashesMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // --- Sync modal (takes over input) ---
+    if (syncModalActive) {
+        if (syncState == SyncState::ERROR || syncState == SyncState::COMPLETE) {
+            // BtnB closes the modal after completion/error
+            if (Input::select() || Input::up()) {
+                syncModalActive = false;
+                syncState = SyncState::IDLE;
+                scanCaptures();  // Rescan captures after sync
+            }
+        } else {
+            // BtnA cancels during sync (back-hold exits to MENU via core state machine).
+            if (Input::up()) {
+                cancelSync();
+            }
+        }
+        return;
+    }
+
+    // --- Nuke confirmation modal (Core2 doesn't expose the shortcut, but keep logic) ---
+    if (nukeConfirmActive) {
+        if (Input::select()) {
+            nukeLoot();
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+            scanCaptures();
+        } else if (Input::up()) {
+            nukeConfirmActive = false;
+            Display::clearBottomOverlay();
+        }
+        return;
+    }
+
+    // --- Detail view modal ---
+    if (detailViewActive) {
+        if (Input::select() || Input::up() || Input::down()) {
+            detailViewActive = false;
+        }
+        return;
+    }
+
+    // Hold BtnA to start WPA-SEC sync (keeps navigation as click-only).
+    static uint32_t aPressStartMs = 0;
+    static bool syncHoldFired = false;
+    constexpr uint32_t kSyncHoldMs = 900;
+    if (M5.BtnA.isPressed()) {
+        if (aPressStartMs == 0) aPressStartMs = millis();
+        if (!syncHoldFired && (millis() - aPressStartMs) >= kSyncHoldMs) {
+            startSync();
+            syncHoldFired = true;
+        }
+    } else {
+        aPressStartMs = 0;
+        syncHoldFired = false;
+    }
+
+    // Navigation with BtnA (up) and BtnC (down) — also rotates hints.
+    if (Input::up()) {
+        hintIndex = (hintIndex + 1) % HINT_COUNT;
+        if (selectedIndex > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+        }
+        return;
+    }
+
+    if (Input::down()) {
+        hintIndex = (hintIndex + 1) % HINT_COUNT;
+        if (!captures.empty() && selectedIndex < captures.size() - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+        }
+        return;
+    }
+
+    // BtnB opens detail view.
+    if (Input::select()) {
+        if (!captures.empty() && selectedIndex < captures.size()) {
+            detailViewActive = true;
+        }
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -620,6 +716,7 @@ void HashesMenu::handleInput() {
     if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
     }
+#endif
 }
 
 void HashesMenu::formatTime(char* out, size_t len, time_t t) {
@@ -825,7 +922,11 @@ void HashesMenu::drawNukeConfirm(M5Canvas& canvas) {
     snprintf(cmd, sizeof(cmd), "rm -rf %s/*", scanRoot);
     canvas.drawString(cmd, centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE LOOT.", centerX, boxY + 36);
+#if defined(PORKCHOP_TARGET_CORE2)
+    canvas.drawString("B=DO IT  A=ABORT", centerX, boxY + 54);
+#else
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
+#endif
 }
 
 void HashesMenu::nukeLoot() {

@@ -20,6 +20,7 @@ public:
     static void update();
     static void draw(M5Canvas& canvas);
     static bool isActive() { return active; }
+    static bool isTextEditing() { return textEditing; }
     static bool wantsExit() { return exitRequested; }
     static void clearExit() { exitRequested = false; }
     
@@ -39,5 +40,9 @@ private:
     static char textBuffer[33];
     static uint8_t textLen;
     
+#if defined(PORKCHOP_TARGET_CORE2)
+    static const uint8_t VISIBLE_ITEMS = 10;
+#else
     static const uint8_t VISIBLE_ITEMS = 5;
+#endif
 };

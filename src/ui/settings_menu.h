@@ -20,6 +20,7 @@ public:
     static void show();
     static void hide();
     static bool isActive() { return active; }
+    static bool isTextEditing() { return textEditing; }
     static bool shouldExit() { return exitRequested; }
     static void clearExit() { exitRequested = false; }
     static const char* getSelectedDescription();

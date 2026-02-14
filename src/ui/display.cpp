@@ -1,7 +1,6 @@
 // Display management implementation
 
 #include "display.h"
-#include <M5Cardputer.h>
 #include <SD.h>
 #include <stdarg.h>
 #include <time.h>
@@ -41,6 +40,7 @@
 #include "unlockables_menu.h"
 #include "bounty_menu.h"
 #include "sd_format_menu.h"
+#include "input.h"
 #include "../core/heap_health.h"
 #include "../core/janus_hog.h"
 
@@ -208,10 +208,9 @@ extern Porkchop porkchop;
 void Display::init() {
     M5.Display.setRotation(1);
     
-    // CRITICAL: Set 8-bit mode for display AND sprites to avoid color conversion crashes
-    // Must explicitly set sprite color depth - they don't inherit from display
-    // 8-bit RGB332 saves ~50% memory: 240×135×3 sprites × 1 byte = ~97KB vs ~194KB
-    M5.Display.setColorDepth(8);
+    // CRITICAL: Set color depth BEFORE creating sprites; M5GFX allocates sprite buffers
+    // using the current depth at create time.
+    M5.Display.setColorDepth(PORKCHOP_COLOR_DEPTH);
     
     M5.Display.fillScreen(COLOR_BG);
     M5.Display.setTextColor(COLOR_FG);
@@ -220,13 +219,20 @@ void Display::init() {
     // M5GFX allocates the sprite buffer in createSprite() using the current depth.
     // Wrong order = 16-bit alloc (2 bytes/pixel) instead of 8-bit (1 byte/pixel),
     // wasting ~97KB on a 300KB device.
-    topBar.setColorDepth(8);
+    // On PSRAM-capable targets (Core2), keep the large UI sprites out of internal heap.
+    #if defined(PORKCHOP_TARGET_CORE2)
+    topBar.setPsram(true);
+    mainCanvas.setPsram(true);
+    bottomBar.setPsram(true);
+    #endif
+
+    topBar.setColorDepth(PORKCHOP_COLOR_DEPTH);
     topBar.createSprite(DISPLAY_W, TOP_BAR_H);
 
-    mainCanvas.setColorDepth(8);
+    mainCanvas.setColorDepth(PORKCHOP_COLOR_DEPTH);
     mainCanvas.createSprite(DISPLAY_W, MAIN_H);
 
-    bottomBar.setColorDepth(8);
+    bottomBar.setColorDepth(PORKCHOP_COLOR_DEPTH);
     bottomBar.createSprite(DISPLAY_W, BOTTOM_BAR_H);
     
     topBar.setTextSize(1);
@@ -878,14 +884,14 @@ void Display::drawTopBarMessageTwoLineDirect() {
 
     uint16_t fg = getColorFG();
     uint16_t bg = getColorBG();
-    M5Cardputer.Display.fillRect(0, 0, DISPLAY_W, TOP_BAR_H * 2, fg);
-    M5Cardputer.Display.setTextColor(bg, fg);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(2, 3);
-    M5Cardputer.Display.setFont(&fonts::Font0);
-    M5Cardputer.Display.print(line1Buf);
-    M5Cardputer.Display.setCursor(2, TOP_BAR_H + 3);
-    M5Cardputer.Display.print(line2Buf);
+    M5.Display.fillRect(0, 0, DISPLAY_W, TOP_BAR_H * 2, fg);
+    M5.Display.setTextColor(bg, fg);
+    M5.Display.setTextSize(1);
+    M5.Display.setCursor(2, 3);
+    M5.Display.setFont(&fonts::Font0);
+    M5.Display.print(line1Buf);
+    M5.Display.setCursor(2, TOP_BAR_H + 3);
+    M5.Display.print(line2Buf);
 }
 
 void Display::drawBottomBar() {
@@ -1165,7 +1171,7 @@ void Display::showInfoBox(const char* title, const char* line1,
     }
     
     if (blocking) {
-        mainCanvas.drawString("[ENTER to continue]", DISPLAY_W / 2, MAIN_H - 20);
+        mainCanvas.drawString("[B] CONTINUE", DISPLAY_W / 2, MAIN_H - 20);
     }
     
     pushAll();
@@ -1174,16 +1180,12 @@ void Display::showInfoBox(const char* title, const char* line1,
         uint32_t startTime = millis();
         while ((millis() - startTime) < 60000) {  // 60s timeout
             M5.update();
-            M5Cardputer.update();
-            if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-                while (M5Cardputer.Keyboard.isPressed()) {
-                    M5.update();
-                    M5Cardputer.update();
-                    delay(20);  // TCA8418 I2C throttle
-                }
+            Input::update();
+            if (Input::select() || Input::back()) {
                 break;
             }
-            delay(20);  // TCA8418 I2C throttle
+            delay(20);
+            yield();  // Feed watchdog during blocking wait
         }
     }
 }
@@ -1200,23 +1202,18 @@ bool Display::showConfirmBox(const char* title, const char* message) {
 
     mainCanvas.setTextSize(1);
     mainCanvas.drawString(message, DISPLAY_W / 2, 45);
-    mainCanvas.drawString("[Y]ES / [N]O", DISPLAY_W / 2, MAIN_H - 20);
+    mainCanvas.drawString("[B] YES / [A] NO", DISPLAY_W / 2, MAIN_H - 20);
     
     pushAll();
     
     uint32_t startTime = millis();
     while ((millis() - startTime) < 30000) {  // 30s timeout, default No
         M5.update();
-        M5Cardputer.update();
-        
-        if (M5Cardputer.Keyboard.isChange()) {
-            auto keys = M5Cardputer.Keyboard.keysState();
-            for (auto c : keys.word) {
-                if (c == 'y' || c == 'Y') return true;
-                if (c == 'n' || c == 'N') return false;
-            }
-        }
-        delay(20);  // TCA8418 I2C throttle
+        Input::update();
+
+        if (Input::select()) return true;  // BtnB = YES
+        if (Input::up() || Input::back()) return false;  // BtnA or back-hold = NO
+        delay(20);
         yield();  // Feed watchdog during blocking wait
     }
     return false;  // Timeout = No
@@ -1302,7 +1299,8 @@ void Display::showChallenges() {
         } else {
             snprintf(progBuf, sizeof(progBuf), "%d/%d", ch.progress, ch.target);
         }
-        mainCanvas.drawString(progBuf, 150, y + 2);
+        const int progX = DISPLAY_W - 90;  // Leaves room for right-aligned XP
+        mainCanvas.drawString(progBuf, progX, y + 2);
         
         // XP reward (right aligned)
         char xpBuf[8];
@@ -1328,20 +1326,12 @@ void Display::showChallenges() {
     uint32_t startTime = millis();
     while ((millis() - startTime) < 30000) {  // 30s timeout
         M5.update();
-        M5Cardputer.update();
-        
-        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || 
-            M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-            // Wait for key release
-            while (M5Cardputer.Keyboard.isPressed()) {
-                M5.update();
-                M5Cardputer.update();
-                delay(20);
-                yield();  // Feed watchdog
-            }
+        Input::update();
+
+        if (Input::select() || Input::back()) {
             break;
         }
-        delay(20);  // TCA8418 I2C throttle
+        delay(20);
         yield();  // Feed watchdog during blocking wait
     }
 }
@@ -1350,7 +1340,7 @@ static void bootSplashDelay(uint32_t ms) {
     uint32_t start = millis();
     while ((millis() - start) < ms) {
         M5.update();
-        M5Cardputer.update();
+        Input::update();
         SFX::update();
         delay(20);
         yield();
@@ -1554,7 +1544,7 @@ void Display::clearTopBarMessage() {
     topBarMessageDuration = 0;
 }
 
-// M5Cardputer NeoPixel LED on GPIO 21
+// Cardputer NeoPixel LED (not present on Core2).
 #define LED_PIN 21
 #define SIREN_COOLDOWN_MS 2000
 
@@ -1567,6 +1557,11 @@ void Display::flashSiren(uint8_t cycles) {
 }
 
 void Display::setLED(uint8_t r, uint8_t g, uint8_t b) {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Core2 has no Cardputer NeoPixel; keep calls safe/no-op.
+    (void)r; (void)g; (void)b;
+    return;
+#else
     // Static LED glow - for ambient effects like riddle mode
     // CRITICAL FIX: Scale LED output to prevent voltage sag at high display brightness
     uint8_t displayBrightness = Config::personality().brightness;
@@ -1586,6 +1581,7 @@ void Display::setLED(uint8_t r, uint8_t g, uint8_t b) {
     }
     
     neopixelWrite(LED_PIN, r, g, b);
+#endif
 }
 
 void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
@@ -1649,8 +1645,8 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     uint32_t startTime = millis();
     while ((millis() - startTime) < 2500) {
         M5.update();
-        M5Cardputer.update();
-        if (M5Cardputer.Keyboard.isChange()) {
+        Input::update();
+        if (Input::up() || Input::down() || Input::select() || Input::back()) {
             break;  // Any key dismisses
         }
         delay(50);
@@ -1711,9 +1707,9 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
     uint32_t startTime = millis();
     while ((millis() - startTime) < 2500) {
         M5.update();
-        M5Cardputer.update();
+        Input::update();
         SFX::update();  // Tick audio during wait
-        if (M5Cardputer.Keyboard.isChange()) {
+        if (Input::up() || Input::down() || Input::select() || Input::back()) {
             break;
         }
         delay(50);
@@ -3262,10 +3258,10 @@ void Display::drawUploadProgressDirect() {
     uint16_t bgColor = getColorBG();
 
     // Draw in top-left corner directly to physical display with inverted colors (like XP notification)
-    M5Cardputer.Display.setTextColor(bgColor, fgColor);  // Use BG color as text, FG color as background
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(2, 3);  // Same Y=3 as XP notification
-    M5Cardputer.Display.print(progressText);
+    M5.Display.setTextColor(bgColor, fgColor);  // Use BG color as text, FG color as background
+    M5.Display.setTextSize(1);
+    M5.Display.setCursor(2, 3);  // Same Y=3 as XP notification
+    M5.Display.print(progressText);
 }
 
 void Display::clearUploadProgress() {

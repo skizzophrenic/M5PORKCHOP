@@ -1,8 +1,11 @@
 // Porkchop core state machine implementation
 
 #include "porkchop.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include "../ui/display.h"
+#include "../ui/input.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/hashes_menu.h"
@@ -622,6 +625,152 @@ void Porkchop::processEvents() {
 }
 
 void Porkchop::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Global: screenshot (BtnC hold)
+    if (Input::screenshot()) {
+        Display::resetDimTimer();
+        if (!Display::isSnapping()) {
+            Display::takeScreenshot();
+        }
+        return;
+    }
+
+    // MENU: BtnB-hold closes modal, otherwise exits to IDLE.
+    if (currentMode == PorkchopMode::MENU) {
+        if (Input::back()) {
+            Display::resetDimTimer();
+            if (Menu::closeModal()) {
+                return;
+            }
+            setMode(PorkchopMode::IDLE);
+            return;
+        }
+        return;  // Menu consumes Up/Down/Select in its own update().
+    }
+
+    // ABOUT: BtnB-hold returns to MENU; BtnB-click triggers the easter egg.
+    if (currentMode == PorkchopMode::ABOUT) {
+        if (Input::back()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::MENU);
+            return;
+        }
+        if (Input::select()) {
+            Display::resetDimTimer();
+            Display::onAboutEnterPressed();
+            return;
+        }
+        return;
+    }
+
+    // SETTINGS: allow text-edit overlays to consume back-hold first.
+    if (currentMode == PorkchopMode::SETTINGS) {
+        if (!SettingsMenu::isTextEditing() && Input::back()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::MENU);
+            return;
+        }
+        return;
+    }
+
+    // UNLOCKABLES: allow phrase entry overlay to consume back-hold first.
+    if (currentMode == PorkchopMode::UNLOCKABLES) {
+        if (!UnlockablesMenu::isTextEditing() && Input::back()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::MENU);
+            return;
+        }
+        return;
+    }
+
+    // Other UI screens: back-hold returns to MENU.
+    switch (currentMode) {
+        case PorkchopMode::HASHES:
+        case PorkchopMode::BADGES:
+        case PorkchopMode::COREDUMP:
+        case PorkchopMode::DIAGDATA:
+        case PorkchopMode::FLEXES:
+        case PorkchopMode::BOAR_BROS:
+        case PorkchopMode::TRACKS:
+        case PorkchopMode::BOUNTY:
+        case PorkchopMode::SD_FORMAT:
+            if (Input::back()) {
+                Display::resetDimTimer();
+                setMode(PorkchopMode::MENU);
+                return;
+            }
+            return;
+        default:
+            break;
+    }
+
+    // PigSync device select (button-only)
+    if (currentMode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
+        if (Input::back()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::MENU);
+            return;
+        }
+
+        bool up = Input::up();
+        bool down = Input::down();
+        bool sel = Input::select();
+        if (up || down || sel) {
+            Display::resetDimTimer();
+        }
+
+        if (PigSyncMode::isConnected()) {
+            if (up && PigSyncMode::isSyncing()) {
+                PigSyncMode::abortSync();
+            }
+            if (down) {
+                PigSyncMode::disconnect();
+            }
+            return;
+        }
+
+        const uint8_t deviceCount = PigSyncMode::getDeviceCount();
+        if (deviceCount > 0) {
+            if (up) {
+                PigSyncMode::selectDevice(PigSyncMode::getSelectedIndex() > 0
+                    ? PigSyncMode::getSelectedIndex() - 1
+                    : deviceCount - 1);
+            }
+            if (down) {
+                PigSyncMode::selectDevice((PigSyncMode::getSelectedIndex() + 1) % deviceCount);
+            }
+            if (sel) {
+                uint8_t selectedIdx = PigSyncMode::getSelectedIndex();
+                if (selectedIdx < deviceCount) {
+                    PigSyncMode::connectTo(selectedIdx);
+                }
+            }
+        } else {
+            if (sel && !PigSyncMode::isScanning()) {
+                PigSyncMode::startScan();
+            }
+        }
+        return;
+    }
+
+    // IDLE: BtnB click opens menu.
+    if (currentMode == PorkchopMode::IDLE) {
+        if (Input::select()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::MENU);
+        }
+        return;
+    }
+
+    // Active modes: BtnB-hold exits to IDLE.
+    if (Input::back()) {
+        Display::resetDimTimer();
+        setMode(PorkchopMode::IDLE);
+        return;
+    }
+
+    return;
+#else
     // G0 button (GPIO0 on top side) - configurable action
     static bool g0WasPressed = false;
     bool g0Pressed = (digitalRead(0) == LOW);  // G0 is active LOW
@@ -899,6 +1048,7 @@ void Porkchop::handleInput() {
     }
     
     yield(); // Allow other tasks to run after processing input
+#endif
 }
 
 void Porkchop::updateMode() {
@@ -998,6 +1148,39 @@ void Porkchop::updateMode() {
             }
             break;
         case PorkchopMode::JANUS_HOG_MODE: {
+#if defined(PORKCHOP_TARGET_CORE2)
+            // Core2: map A/B/C to common Janus Hog actions.
+            bool up = Input::up();
+            bool sel = Input::select();
+            bool down = Input::down();
+            if (up || sel || down) {
+                Display::resetDimTimer();
+            }
+
+            if (up) {
+                if (JanusHog::isConnected()) {
+                    JanusHog::requestScan();
+                    Display::notify(NoticeKind::STATUS, "C5 SCAN STARTED", 1500, NoticeChannel::TOP_BAR);
+                } else {
+                    Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            } else if (sel) {
+                if (JanusHog::isConnected()) {
+                    JanusHog::requestChannelView();
+                    Display::notify(NoticeKind::STATUS, "CH VIEW STARTED", 1500, NoticeChannel::TOP_BAR);
+                } else {
+                    Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            } else if (down) {
+                if (JanusHog::isConnected()) {
+                    if (JanusHog::requestImportNewestHandshake()) {
+                        Display::notify(NoticeKind::STATUS, "IMPORT STARTED", 1500, NoticeChannel::TOP_BAR);
+                    }
+                } else {
+                    Display::notify(NoticeKind::STATUS, "C5 NOT CONNECTED", 1500, NoticeChannel::TOP_BAR);
+                }
+            }
+#else
             // Keyboard handling for JANUS HOG viewer (with debounce)
             static bool c5KeyWasPressed = false;
             bool c5AnyPressed = M5Cardputer.Keyboard.isPressed();
@@ -1038,6 +1221,7 @@ void Porkchop::updateMode() {
                 JanusHog::requestStop();
                 Display::notify(NoticeKind::STATUS, "C5 STOP", 1000, NoticeChannel::TOP_BAR);
             }
+#endif
             break;
         }
         case PorkchopMode::CHARGING:

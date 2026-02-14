@@ -5,7 +5,6 @@
 #include "../modes/do_no_ham.h"
 #include "../ui/display.h"
 #include "heap_policy.h"
-#include <M5Cardputer.h>
 
 // Static member definitions
 bool StressTest::active = false;

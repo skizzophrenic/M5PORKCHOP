@@ -1,9 +1,13 @@
 // Unlockables Menu - Secret challenges for the worthy
 
 #include "unlockables_menu.h"
+#if !defined(PORKCHOP_TARGET_CORE2)
 #include <M5Cardputer.h>
+#endif
 #include <mbedtls/sha256.h>
 #include "display.h"
+#include "input.h"
+#include "soft_keyboard.h"
 #include "../core/xp.h"
 #include "../piglet/mood.h"
 #include <string.h>
@@ -75,6 +79,7 @@ void UnlockablesMenu::hide() {
     active = false;
     textEditing = false;
     textBuffer[0] = '\0'; textLen = 0;
+    SoftKeyboard::stop();
     Display::clearBottomOverlay();
 }
 
@@ -105,6 +110,79 @@ bool UnlockablesMenu::validatePhrase(const char* phrase, const char* expectedHas
 }
 
 void UnlockablesMenu::handleInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    // Touch keyboard flow
+    if (textEditing) {
+        SoftKeyboard::update();
+        bool accepted = false;
+        if (SoftKeyboard::consumeDone(accepted)) {
+            if (accepted) {
+                if (TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES) {
+                    // Convert to lowercase for comparison
+                    char phrase[33];
+                    size_t len = strnlen(textBuffer, 32);
+                    for (size_t i = 0; i < len && i + 1 < sizeof(phrase); i++) {
+                        phrase[i] = (char)tolower((unsigned char)textBuffer[i]);
+                    }
+                    phrase[len] = '\0';
+
+                    if (validatePhrase(phrase, UNLOCKABLES[selectedIndex].hashHex)) {
+                        XP::setUnlockable(UNLOCKABLES[selectedIndex].bitIndex);
+                        Display::showToast("UNLOCKED");
+                        Display::flashSiren(3);
+                        Mood::adjustHappiness(30);
+                    } else {
+                        Display::showToast("WRONG");
+                        Mood::adjustHappiness(-20);
+                    }
+                }
+            }
+
+            textEditing = false;
+            textBuffer[0] = '\0';
+            textLen = 0;
+            SoftKeyboard::stop();
+            updateBottomOverlay();
+        }
+        return;
+    }
+
+    if (Input::up()) {
+        if (selectedIndex > 0 && TOTAL_UNLOCKABLES > 0) {
+            selectedIndex--;
+            if (selectedIndex < scrollOffset) {
+                scrollOffset = selectedIndex;
+            }
+            updateBottomOverlay();
+        }
+        return;
+    }
+
+    if (Input::down()) {
+        if (TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES - 1) {
+            selectedIndex++;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            }
+            updateBottomOverlay();
+        }
+        return;
+    }
+
+    if (Input::select() && TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES) {
+        if (XP::hasUnlockable(UNLOCKABLES[selectedIndex].bitIndex)) {
+            Display::showToast("ALREADY YOURS");
+        } else {
+            textEditing = true;
+            textBuffer[0] = '\0';
+            textLen = 0;
+            SoftKeyboard::start("PHRASE", textBuffer, sizeof(textBuffer), 32, false);
+        }
+        return;
+    }
+
+    return;
+#else
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -162,9 +240,13 @@ void UnlockablesMenu::handleInput() {
         exitRequested = true;
         hide();
     }
+#endif
 }
 
 void UnlockablesMenu::handleTextInput() {
+#if defined(PORKCHOP_TARGET_CORE2)
+    return;
+#else
     auto keys = M5Cardputer.Keyboard.keysState();
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
@@ -242,6 +324,7 @@ void UnlockablesMenu::handleTextInput() {
             }
         }
     }
+#endif
 }
 
 void UnlockablesMenu::draw(M5Canvas& canvas) {
@@ -249,7 +332,11 @@ void UnlockablesMenu::draw(M5Canvas& canvas) {
     
     // If text editing, show input overlay
     if (textEditing) {
+        #if defined(PORKCHOP_TARGET_CORE2)
+        SoftKeyboard::draw(canvas);
+        #else
         drawTextInput(canvas);
+        #endif
         return;
     }
     

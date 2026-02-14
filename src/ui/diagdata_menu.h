@@ -15,6 +15,7 @@ public:
 private:
     static bool active;
     static bool keyWasPressed;
+    static bool wifiResetConfirmActive;
     static uint16_t cachedWpaCracked;
     static uint16_t cachedWigleUploaded;
     static uint32_t lastStatRefreshMs;
@@ -24,4 +25,5 @@ private:
     static void logHeapSnapshot();
     static void collectGarbage();
     static void refreshStats();
+    static void drawWiFiResetConfirm(M5Canvas& canvas);
 };
