@@ -249,8 +249,8 @@ void DiagDataMenu::draw(M5Canvas& canvas) {
     snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreeHeap());
     canvas.drawString(heapBuf, 80, y);
     y += lineH;
-    canvas.drawString("LARGEST:", 4, y);
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreeHeap());
+    canvas.drawString("PSRAM:", 4, y);
+    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreePsram());
     canvas.drawString(heapBuf, 80, y);
     y += lineH;
     canvas.drawString("MIN FREE:", 4, y);

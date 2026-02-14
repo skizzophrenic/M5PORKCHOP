@@ -3,6 +3,7 @@
 #include "porkchop.h"
 #include "../ui/display.h"
 #include "../ui/input.h"
+#include "../ui/haptic.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/hashes_menu.h"
@@ -749,11 +750,24 @@ void Porkchop::handleInput() {
         return;
     }
 
-    // IDLE: BtnB click opens menu.
+    // IDLE: BtnB click opens menu, tap avatar to pet.
     if (currentMode == PorkchopMode::IDLE) {
         if (Input::select()) {
             Display::resetDimTimer();
             setMode(PorkchopMode::MENU);
+            return;
+        }
+        // Tap-to-pet: tap on avatar area triggers cuteJump + mood boost
+        Input::TapEvent tapEv;
+        if (Input::tap(tapEv)) {
+            static uint32_t lastPetMs = 0;
+            uint32_t now = millis();
+            if (now - lastPetMs > 5000) {  // 5s cooldown
+                lastPetMs = now;
+                Avatar::cuteJump();
+                Mood::adjustHappiness(3);
+                Haptic::tick();
+            }
         }
         return;
     }

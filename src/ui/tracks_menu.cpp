@@ -6,6 +6,7 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../web/wigle.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -357,6 +358,47 @@ void TracksMenu::handleInput() {
     } else {
         aPressStartMs = 0;
         syncHoldFired = false;
+    }
+
+    // Tap-to-select: startY=22, lineHeight=16
+    Input::TapEvent tapEv;
+    if (Input::tap(tapEv)) {
+        if (!files.empty()) {
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 22) / 16;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+                uint8_t idx = scrollOffset + hitIdx;
+                if (idx < files.size()) {
+                    if (idx == selectedIndex) {
+                        detailViewActive = true;
+                    } else {
+                        selectedIndex = idx;
+                        Haptic::tick();
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Vertical swipe for page scrolling
+    if (Input::swipeUp()) {
+        if (selectedIndex > 0) {
+            int n = (int)selectedIndex - VISIBLE_ITEMS;
+            selectedIndex = n < 0 ? 0 : n;
+            if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+        }
+        return;
+    }
+    if (Input::swipeDown()) {
+        if (!files.empty() && selectedIndex < files.size() - 1) {
+            int n = (int)selectedIndex + VISIBLE_ITEMS;
+            if (n >= (int)files.size()) n = files.size() - 1;
+            selectedIndex = n;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+        }
+        return;
     }
 
     if (Input::up()) {

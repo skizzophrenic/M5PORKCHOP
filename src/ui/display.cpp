@@ -41,6 +41,7 @@
 #include "bounty_menu.h"
 #include "sd_format_menu.h"
 #include "input.h"
+#include "haptic.h"
 #include "../core/heap_health.h"
 #include "../core/janus_hog.h"
 
@@ -250,7 +251,7 @@ void Display::init() {
 
 // Info panel below avatar - shows character, recon, and loot stats
 // Uses the 94px space below the grass line (y=106 to y=200)
-static void drawInfoPanel(M5Canvas& canvas, PorkchopMode mode) {
+static void drawInfoPanel(M5Canvas& canvas) {
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
     const int panelY = 106;
@@ -258,7 +259,7 @@ static void drawInfoPanel(M5Canvas& canvas, PorkchopMode mode) {
     // Separator line
     canvas.drawLine(4, panelY, DISPLAY_W - 4, panelY, fg);
 
-    // --- Row 1: Level, Title, XP bar ---
+    // --- Row 1: Level+Title+Class LEFT, XP bar RIGHT ---
     int y = panelY + 4;
     canvas.setTextSize(1);
     canvas.setTextColor(fg);
@@ -266,68 +267,43 @@ static void drawInfoPanel(M5Canvas& canvas, PorkchopMode mode) {
 
     uint8_t level = XP::getLevel();
     const char* title = XP::getDisplayTitle();
+    const char* className = XP::getClassName();
     uint8_t progress = XP::getProgress();
 
+    // Level + title left
     char lvlBuf[32];
     snprintf(lvlBuf, sizeof(lvlBuf), "L%d %s", level, title);
     canvas.drawString(lvlBuf, 4, y);
 
-    // XP progress bar (right side of row 1)
-    const int barX = 180;
-    const int barW = 100;
-    const int barH = 7;
-    canvas.drawRect(barX, y + 1, barW, barH, fg);
-    int fillW = (barW - 2) * progress / 100;
-    if (fillW > 0) {
-        canvas.fillRect(barX + 1, y + 2, fillW, barH - 2, fg);
-    }
-    char xpBuf[8];
-    snprintf(xpBuf, sizeof(xpBuf), "%d%%", progress);
-    canvas.drawString(xpBuf, barX + barW + 4, y);
+    // Class tier after title
+    char classBuf[16];
+    snprintf(classBuf, sizeof(classBuf), "[%s]", className);
+    int classX = 4 + canvas.textWidth(lvlBuf) + 4;
+    canvas.drawString(classBuf, classX, y);
 
-    // --- Row 2: Network recon stats ---
+    // XP progress bar (right side, dynamic X)
+    int barX = classX + canvas.textWidth(classBuf) + 6;
+    if (barX < 190) barX = 190;
+    const int barEnd = 306;
+    const int barW = barEnd - barX - 24;
+    const int barH = 7;
+    if (barW > 20) {
+        canvas.drawRect(barX, y + 1, barW, barH, fg);
+        int fillW = (barW - 2) * progress / 100;
+        if (fillW > 0) canvas.fillRect(barX + 1, y + 2, fillW, barH - 2, fg);
+        char xpBuf[8];
+        snprintf(xpBuf, sizeof(xpBuf), "%d%%", progress);
+        canvas.drawString(xpBuf, barX + barW + 2, y);
+    }
+
+    // --- Row 2: Lifetime recon stats (persistent across all modes) ---
     y += 14;
     const PorkXPData& xpData = XP::getData();
     const SessionStats& sess = XP::getSession();
-
-    // Show different stats depending on mode
     char line2[64];
-    if (mode == PorkchopMode::OINK_MODE) {
-        uint16_t netCount = OinkMode::getNetworkCount();
-        uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
-        uint32_t deauthCount = OinkMode::getDeauthCount();
-        snprintf(line2, sizeof(line2), "NET:%03d  HS:%02d  DEAUTH:%04lu  CH:%02d",
-                 netCount, hsCount, deauthCount, OinkMode::getChannel());
-    } else if (mode == PorkchopMode::DNH_MODE) {
-        uint16_t netCount = DoNoHamMode::getNetworkCount();
-        uint16_t pmkid = DoNoHamMode::getPMKIDCount();
-        uint16_t hs = DoNoHamMode::getHandshakeCount();
-        snprintf(line2, sizeof(line2), "NET:%03d  PMKID:%02d  HS:%02d  CH:%02d",
-                 netCount, pmkid, hs, DoNoHamMode::getCurrentChannel());
-    } else if (mode == PorkchopMode::WARHOG_MODE) {
-        uint32_t unique = WarhogMode::getTotalNetworks();
-        uint32_t saved = WarhogMode::getSavedCount();
-        uint32_t distM = sess.distanceM;
-        if (distM >= 1000) {
-            snprintf(line2, sizeof(line2), "SCAN:%lu  SAVED:%lu  DIST:%.1fKM",
-                     unique, saved, distM / 1000.0);
-        } else {
-            snprintf(line2, sizeof(line2), "SCAN:%lu  SAVED:%lu  DIST:%luM",
-                     unique, saved, distM);
-        }
-    } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
-        uint32_t total = PiggyBluesMode::getTotalPackets();
-        snprintf(line2, sizeof(line2), "BLE TX:%lu  A:%lu  G:%lu  S:%lu  W:%lu",
-                 total, PiggyBluesMode::getAppleCount(),
-                 PiggyBluesMode::getAndroidCount(),
-                 PiggyBluesMode::getSamsungCount(),
-                 PiggyBluesMode::getWindowsCount());
-    } else {
-        // IDLE / BACON / other
-        snprintf(line2, sizeof(line2), "NET:%lu  HS:%lu  PMKID:%lu  DEAUTH:%lu",
-                 xpData.lifetimeNetworks, xpData.lifetimeHS,
-                 xpData.lifetimePMKID, xpData.lifetimeDeauths);
-    }
+    snprintf(line2, sizeof(line2), "NET:%lu  HS:%lu  PMKID:%lu  DEAUTH:%lu",
+             xpData.lifetimeNetworks, xpData.lifetimeHS,
+             xpData.lifetimePMKID, xpData.lifetimeDeauths);
     canvas.drawString(line2, 4, y);
 
     // --- Row 3: Loot & collections ---
@@ -372,6 +348,42 @@ static void drawInfoPanel(M5Canvas& canvas, PorkchopMode mode) {
     snprintf(line5, sizeof(line5), "TOTAL XP:%lu  DIST:%luKM  SESSIONS:%u",
              totalXP, distKm, xpData.sessions);
     canvas.drawString(line5, 4, y);
+
+    // --- Row 6: Challenge progress ---
+    y += 12;
+    uint8_t chalDone = Challenges::getCompletedCount();
+    uint8_t chalTotal = Challenges::getActiveCount();
+    char line6[64];
+    if (chalTotal > 0) {
+        char c0 = ' ', c1 = ' ', c2 = ' ';
+        ActiveChallenge ch;
+        if (Challenges::getSnapshot(0, ch)) c0 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
+        if (Challenges::getSnapshot(1, ch)) c1 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
+        if (Challenges::getSnapshot(2, ch)) c2 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
+        snprintf(line6, sizeof(line6), "P1G [%c][%c][%c] %u/%u", c0, c1, c2, chalDone, chalTotal);
+    } else {
+        snprintf(line6, sizeof(line6), "P1G SLEEPS...");
+    }
+    // Mood value on the right of same line
+    int moodVal = Mood::getEffectiveHappiness();
+    char moodStr[16];
+    snprintf(moodStr, sizeof(moodStr), "MOOD:%d", moodVal);
+    canvas.drawString(line6, 4, y);
+    canvas.setTextDatum(TR_DATUM);
+    canvas.drawString(moodStr, DISPLAY_W - 4, y);
+    canvas.setTextDatum(TL_DATUM);
+
+    // --- Row 7: Mood bar ---
+    y += 12;
+    const int moodBarX = 4;
+    const int moodBarW = DISPLAY_W - 8;
+    const int moodBarH = 5;
+    canvas.drawRect(moodBarX, y, moodBarW, moodBarH, fg);
+    // Map -100..100 to 0..barW-2
+    int fillW = ((moodVal + 100) * (moodBarW - 2)) / 200;
+    if (fillW < 0) fillW = 0;
+    if (fillW > moodBarW - 2) fillW = moodBarW - 2;
+    if (fillW > 0) canvas.fillRect(moodBarX + 1, y + 1, fillW, moodBarH - 2, fg);
 }
 
 void Display::update() {
@@ -394,6 +406,9 @@ void Display::update() {
 
     // Update heap health state (rate-limited)
     HeapHealth::update();
+
+    // Auto-stop haptic motor when timer expires
+    Haptic::update();
 
     // Cache theme colors once per frame
     const uint16_t fg = getColorFG();
@@ -444,7 +459,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
-            drawInfoPanel(mainCanvas, mode);
+            drawInfoPanel(mainCanvas);
             break;
 
         case PorkchopMode::OINK_MODE:
@@ -455,7 +470,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
-            drawInfoPanel(mainCanvas, mode);
+            drawInfoPanel(mainCanvas);
             break;
 
         case PorkchopMode::PIGSYNC_DEVICE_SELECT:
@@ -1047,7 +1062,6 @@ void Display::drawBottomBar() {
     char statsBuf[96];
     statsBuf[0] = '\0';
     const char* statsStr = "";
-    bool showHealthBar = false;
     
     if (mode == PorkchopMode::WARHOG_MODE) {
         // WARHOG: show unique networks, saved, distance, GPS info
@@ -1190,14 +1204,14 @@ void Display::drawBottomBar() {
         BountyMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
         statsStr = statsBuf;
     } else if (mode == PorkchopMode::IDLE) {
-        // IDLE: show Networks only (HS shown in OINK)
-        uint16_t netCount = porkchop.getNetworkCount();
-        char buf[24];
-        snprintf(buf, sizeof(buf), "N:%03d", netCount);
+        // IDLE: show session Networks, Handshakes, XP
+        const SessionStats& sess = XP::getSession();
+        char buf[48];
+        snprintf(buf, sizeof(buf), "N:%03lu  HS:%02lu  XP:+%lu",
+                 sess.networks, sess.handshakes, sess.xp);
         strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
         statsBuf[sizeof(statsBuf) - 1] = '\0';
         statsStr = statsBuf;
-        showHealthBar = true;
     } else if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
         // PIGSYNC_DEVICE_SELECT: control hints (state shown in terminal)
         statsStr = "ENTER=CALL UP/DN=SELECT ESC=EXIT";
@@ -1209,39 +1223,10 @@ void Display::drawBottomBar() {
         strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
         statsBuf[sizeof(statsBuf) - 1] = '\0';
         statsStr = statsBuf;
-        showHealthBar = true;
     }
 
     bottomBar.drawString(statsStr ? statsStr : "", 2, 3);
 
-    // Center: Heap health bar (XP-style, inverted)
-    if (showHealthBar) {
-        int pct = HeapHealth::getDisplayPercent();
-
-        const int barW = 80;
-        const int barH = 6;
-        const int barY = 4;
-        const int gap = 4;
-        int barX = (DISPLAY_W - barW) / 2;
-
-        // Draw heart icon (upright, black) instead of text label
-        const int heartW = 9;
-        int heartX = barX - gap - heartW;
-        int heartY = 3;
-        drawHeartIcon(bottomBar, heartX, heartY, bg);
-
-        bottomBar.drawRect(barX, barY, barW, barH, bg);
-        int fillW = (barW - 2) * pct / 100;
-        if (fillW > 0) {
-            bottomBar.fillRect(barX + 1, barY + 1, fillW, barH - 2, bg);
-        }
-
-        char pctBuf[8];
-        snprintf(pctBuf, sizeof(pctBuf), "%3d%%", pct);
-        bottomBar.setTextDatum(top_left);
-        bottomBar.drawString(pctBuf, barX + barW + gap, 3);
-    }
-    
     // Right: uptime or PIGSYNC channel
     bottomBar.setTextDatum(top_right);
     if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
@@ -1262,9 +1247,7 @@ void Display::drawBottomBar() {
                mode == PorkchopMode::TRACKS ||
                mode == PorkchopMode::UNLOCKABLES ||
                mode == PorkchopMode::BOUNTY ||
-               mode == PorkchopMode::SD_FORMAT ||
-               mode == PorkchopMode::OINK_MODE || 
-               mode == PorkchopMode::DNH_MODE) {
+               mode == PorkchopMode::SD_FORMAT) {
         // No uptime on menu and submenu screens
     } else {
         uint32_t uptime = porkchop.getUptime();
@@ -1823,10 +1806,10 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
 
 // ==[ PIGSYNC DEVICE SELECT UI ]==
 
-static const uint8_t PIGSYNC_TERM_MAX_LINES = 5;
-static const uint8_t PIGSYNC_TERM_MAX_CHARS = 40;
-static const uint8_t PIGSYNC_TERM_LINE_HEIGHT = 12;
-static const uint8_t PIGSYNC_TERM_LOG_START_Y = 22;
+static const uint8_t PIGSYNC_TERM_MAX_LINES = 10;
+static const uint8_t PIGSYNC_TERM_MAX_CHARS = 50;
+static const uint8_t PIGSYNC_TERM_LINE_HEIGHT = 11;
+static const uint8_t PIGSYNC_TERM_LOG_START_Y = 20;
 
 static const char* const FATHER_INIT_PHRASES[] = {
     "FATHER//WAKE SEQUENCE COMPLETE",

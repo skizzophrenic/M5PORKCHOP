@@ -3,6 +3,7 @@
 #include "menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../audio/sfx.h"
 #include <string.h>
 
@@ -368,19 +369,119 @@ void Menu::update() {
 // INPUT HANDLING
 // ============================================================================
 
+void Menu::selectRootItem() {
+    SFX::play(SFX::MENU_CLICK);
+    Haptic::tick();
+    const RootItem& item = ROOT_ITEMS[rootIdx];
+    if (item.type == RootType::GROUP) {
+        activeGroup = item.groupId;
+        modalIdx = 0;
+        modalScroll = 0;
+        const MenuItem* items = getGroupItems(activeGroup);
+        uint8_t groupSize = getGroupSize(activeGroup);
+        uint8_t* indices = nullptr;
+        switch (activeGroup) {
+            case GroupId::ATTACK: indices = attackHintIndex; break;
+            case GroupId::RECON:  indices = reconHintIndex; break;
+            case GroupId::LOOT:   indices = lootHintIndex;   break;
+            case GroupId::COMMS:  indices = commsHintIndex;  break;
+            case GroupId::RANK:   indices = rankHintIndex;   break;
+            case GroupId::SYSTEM: indices = systemHintIndex; break;
+            default: break;
+        }
+        if (items && indices) {
+            uint8_t maxIndex = 0;
+            switch (activeGroup) {
+                case GroupId::ATTACK: maxIndex = sizeof(attackHintIndex)/sizeof(attackHintIndex[0]); break;
+                case GroupId::RECON:  maxIndex = sizeof(reconHintIndex)/sizeof(reconHintIndex[0]); break;
+                case GroupId::LOOT:   maxIndex = sizeof(lootHintIndex)/sizeof(lootHintIndex[0]); break;
+                case GroupId::COMMS:  maxIndex = sizeof(commsHintIndex)/sizeof(commsHintIndex[0]); break;
+                case GroupId::RANK:   maxIndex = sizeof(rankHintIndex)/sizeof(rankHintIndex[0]); break;
+                case GroupId::SYSTEM: maxIndex = sizeof(systemHintIndex)/sizeof(systemHintIndex[0]); break;
+                default: maxIndex = 0; break;
+            }
+            for (uint8_t i = 0; i < groupSize && i < maxIndex; i++) {
+                if (items[i].hintCount > 0) {
+                    indices[i] = esp_random() % items[i].hintCount;
+                } else {
+                    indices[i] = 0;
+                }
+            }
+        }
+    } else if (item.type == RootType::DIRECT) {
+        if (callback) {
+            callback(item.actionId);
+        }
+    }
+}
+
+void Menu::selectModalItem() {
+    SFX::play(SFX::MENU_CLICK);
+    Haptic::tick();
+    const MenuItem* items = getGroupItems(activeGroup);
+    if (items && callback) {
+        callback(items[modalIdx].actionId);
+    }
+    closeModal();
+}
+
 void Menu::handleInput() {
     bool up = Input::up();
     bool down = Input::down();
     bool sel = Input::select();
 
-    if (!up && !down && !sel) return;
+    // Tap-to-select
+    Input::TapEvent tapEv;
+    bool tapped = Input::tap(tapEv);
+
+    // Vertical swipe for page scrolling
+    bool swUp = Input::swipeUp();
+    bool swDown = Input::swipeDown();
+
+    if (!up && !down && !sel && !tapped && !swUp && !swDown) return;
 
     Display::resetDimTimer();
-    
+
     if (activeGroup != GroupId::NONE) {
         // === MODAL INPUT ===
         uint8_t groupSize = getGroupSize(activeGroup);
-        
+
+        if (tapped) {
+            // Modal box: boxX=20, boxY=15, itemStartY=boxY+26=41, itemHeight=18
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 41) / 18;
+            if (hitIdx >= 0 && hitIdx < MODAL_VISIBLE) {
+                uint8_t tapped_idx = modalScroll + hitIdx;
+                if (tapped_idx < groupSize) {
+                    if (tapped_idx == modalIdx) {
+                        selectModalItem();
+                    } else {
+                        modalIdx = tapped_idx;
+                        SFX::play(SFX::MENU_CLICK);
+                        Haptic::tick();
+                    }
+                }
+            }
+            return;
+        }
+
+        if (swUp && modalIdx > 0) {
+            int newIdx = (int)modalIdx - MODAL_VISIBLE;
+            if (newIdx < 0) newIdx = 0;
+            modalIdx = newIdx;
+            if (modalIdx < modalScroll) modalScroll = modalIdx;
+            SFX::play(SFX::MENU_CLICK);
+            return;
+        }
+        if (swDown && modalIdx < groupSize - 1) {
+            int newIdx = (int)modalIdx + MODAL_VISIBLE;
+            if (newIdx >= groupSize) newIdx = groupSize - 1;
+            modalIdx = newIdx;
+            if (modalIdx >= modalScroll + MODAL_VISIBLE) modalScroll = modalIdx - MODAL_VISIBLE + 1;
+            SFX::play(SFX::MENU_CLICK);
+            return;
+        }
+
         if (up) {
             if (modalIdx > 0) {
                 modalIdx--;
@@ -390,7 +491,7 @@ void Menu::handleInput() {
                 }
             }
         }
-        
+
         if (down) {
             if (modalIdx < groupSize - 1) {
                 modalIdx++;
@@ -400,26 +501,66 @@ void Menu::handleInput() {
                 }
             }
         }
-        
+
         if (sel) {
-            SFX::play(SFX::MENU_CLICK);
-            const MenuItem* items = getGroupItems(activeGroup);
-            if (items && callback) {
-                callback(items[modalIdx].actionId);
-            }
-            closeModal();
+            selectModalItem();
         }
-        
+
     } else {
         // === ROOT INPUT ===
+        if (tapped) {
+            // Root list: yOffset=28, lineHeight=20
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 28) / 20;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+                uint8_t tapped_idx = rootScroll + hitIdx;
+                if (tapped_idx < ROOT_COUNT && isRootSelectable(tapped_idx)) {
+                    if (tapped_idx == rootIdx) {
+                        selectRootItem();
+                    } else {
+                        rootIdx = tapped_idx;
+                        SFX::play(SFX::MENU_CLICK);
+                        Haptic::tick();
+                    }
+                }
+            }
+            return;
+        }
+
+        if (swUp) {
+            int newIdx = rootIdx;
+            for (int i = 0; i < VISIBLE_ITEMS && newIdx > 0; i++) {
+                newIdx--;
+                while (newIdx > 0 && !isRootSelectable(newIdx)) newIdx--;
+            }
+            if (isRootSelectable(newIdx) && newIdx != rootIdx) {
+                rootIdx = newIdx;
+                SFX::play(SFX::MENU_CLICK);
+                if (rootIdx < rootScroll) rootScroll = rootIdx;
+            }
+            return;
+        }
+        if (swDown) {
+            int newIdx = rootIdx;
+            for (int i = 0; i < VISIBLE_ITEMS && newIdx < ROOT_COUNT - 1; i++) {
+                newIdx++;
+                while (newIdx < ROOT_COUNT - 1 && !isRootSelectable(newIdx)) newIdx++;
+            }
+            if (isRootSelectable(newIdx) && newIdx != rootIdx) {
+                rootIdx = newIdx;
+                SFX::play(SFX::MENU_CLICK);
+                if (rootIdx >= rootScroll + VISIBLE_ITEMS) rootScroll = rootIdx - VISIBLE_ITEMS + 1;
+            }
+            return;
+        }
+
         if (up) {
-            // Move up, skip non-selectable
             int newIdx = rootIdx;
             do {
                 if (newIdx > 0) newIdx--;
                 else break;
             } while (!isRootSelectable(newIdx) && newIdx > 0);
-            
+
             if (isRootSelectable(newIdx) && newIdx != rootIdx) {
                 rootIdx = newIdx;
                 SFX::play(SFX::MENU_CLICK);
@@ -428,15 +569,14 @@ void Menu::handleInput() {
                 }
             }
         }
-        
+
         if (down) {
-            // Move down, skip non-selectable
             int newIdx = rootIdx;
             do {
                 if (newIdx < ROOT_COUNT - 1) newIdx++;
                 else break;
             } while (!isRootSelectable(newIdx) && newIdx < ROOT_COUNT - 1);
-            
+
             if (isRootSelectable(newIdx) && newIdx != rootIdx) {
                 rootIdx = newIdx;
                 SFX::play(SFX::MENU_CLICK);
@@ -445,53 +585,9 @@ void Menu::handleInput() {
                 }
             }
         }
-        
+
         if (sel) {
-            SFX::play(SFX::MENU_CLICK);
-            const RootItem& item = ROOT_ITEMS[rootIdx];
-            if (item.type == RootType::GROUP) {
-                // Open modal
-                activeGroup = item.groupId;
-                modalIdx = 0;
-                modalScroll = 0;
-                // Pick modal hints for the group
-                const MenuItem* items = getGroupItems(activeGroup);
-                uint8_t groupSize = getGroupSize(activeGroup);
-                uint8_t* indices = nullptr;
-                switch (activeGroup) {
-                    case GroupId::ATTACK: indices = attackHintIndex; break;
-                    case GroupId::RECON:  indices = reconHintIndex; break;
-                    case GroupId::LOOT:   indices = lootHintIndex;   break;
-                    case GroupId::COMMS:  indices = commsHintIndex;  break;
-                    case GroupId::RANK:   indices = rankHintIndex;   break;
-                    case GroupId::SYSTEM: indices = systemHintIndex; break;
-                    default: break;
-                }
-                if (items && indices) {
-                    uint8_t maxIndex = 0;
-                    switch (activeGroup) {
-                        case GroupId::ATTACK: maxIndex = sizeof(attackHintIndex)/sizeof(attackHintIndex[0]); break;
-                        case GroupId::RECON:  maxIndex = sizeof(reconHintIndex)/sizeof(reconHintIndex[0]); break;
-                        case GroupId::LOOT:   maxIndex = sizeof(lootHintIndex)/sizeof(lootHintIndex[0]); break;
-                        case GroupId::COMMS:  maxIndex = sizeof(commsHintIndex)/sizeof(commsHintIndex[0]); break;
-                        case GroupId::RANK:   maxIndex = sizeof(rankHintIndex)/sizeof(rankHintIndex[0]); break;
-                        case GroupId::SYSTEM: maxIndex = sizeof(systemHintIndex)/sizeof(systemHintIndex[0]); break;
-                        default: maxIndex = 0; break;
-                    }
-                    for (uint8_t i = 0; i < groupSize && i < maxIndex; i++) {
-                        if (items[i].hintCount > 0) {
-                            indices[i] = esp_random() % items[i].hintCount;
-                        } else {
-                            indices[i] = 0;
-                        }
-                    }
-                }
-            } else if (item.type == RootType::DIRECT) {
-                // Direct action
-                if (callback) {
-                    callback(item.actionId);
-                }
-            }
+            selectRootItem();
         }
     }
 }

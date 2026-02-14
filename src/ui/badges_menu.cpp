@@ -3,6 +3,7 @@
 #include "badges_menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../core/xp.h"
 #include <ctype.h>
 #include <string.h>
@@ -121,10 +122,53 @@ void BadgesMenu::update() {
 }
 
 void BadgesMenu::handleInput() {
-    // If showing detail, any button closes it.
+    // If showing detail, any button/tap closes it.
     if (showingDetail) {
-        if (Input::up() || Input::down() || Input::select()) {
+        Input::TapEvent tmp;
+        if (Input::up() || Input::down() || Input::select() || Input::tap(tmp)) {
             showingDetail = false;
+        }
+        return;
+    }
+
+    // Tap-to-select: startY=2, lineHeight=18
+    Input::TapEvent tapEv;
+    if (Input::tap(tapEv)) {
+        int canvasY = tapEv.y - TOP_BAR_H;
+        int hitIdx = (canvasY - 2) / 18;
+        if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+            uint8_t idx = scrollOffset + hitIdx;
+            if (idx < TOTAL_ACHIEVEMENTS) {
+                if (idx == selectedIndex) {
+                    showingDetail = true;
+                } else {
+                    selectedIndex = idx;
+                    Haptic::tick();
+                    updateBottomOverlay();
+                }
+            }
+        }
+        return;
+    }
+
+    // Vertical swipe for page scrolling
+    if (Input::swipeUp()) {
+        if (selectedIndex > 0) {
+            int n = (int)selectedIndex - VISIBLE_ITEMS;
+            selectedIndex = n < 0 ? 0 : n;
+            if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+            updateBottomOverlay();
+        }
+        return;
+    }
+    if (Input::swipeDown()) {
+        if (selectedIndex < TOTAL_ACHIEVEMENTS - 1) {
+            int n = (int)selectedIndex + VISIBLE_ITEMS;
+            if (n >= TOTAL_ACHIEVEMENTS) n = TOTAL_ACHIEVEMENTS - 1;
+            selectedIndex = n;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            updateBottomOverlay();
         }
         return;
     }
@@ -191,9 +235,9 @@ void BadgesMenu::draw(M5Canvas& canvas) {
         canvas.setCursor(4, y);
         canvas.print(hasIt ? "[X]" : "[ ]");
         
-        // Achievement name (show ??? if locked)
+        // Achievement name (always show name, even if locked)
         canvas.setCursor(28, y);
-        canvas.print(hasIt ? ACHIEVEMENTS[i].name : "???");
+        canvas.print(ACHIEVEMENTS[i].name);
         
         y += lineHeight;
     }

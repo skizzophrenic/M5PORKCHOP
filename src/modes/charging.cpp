@@ -434,10 +434,22 @@ void ChargingMode::draw(M5Canvas& canvas) {
         canvas.drawString(pctBuf, centerX, midY);
     }
 
-    // Voltage line
+    // Battery gauge icon
+    const int gaugeW = 120, gaugeH = 36;
+    const int gaugeX = centerX - gaugeW / 2;
+    int gaugeY = midY + lineH + lineGap;
+    // Battery body
+    canvas.drawRoundRect(gaugeX, gaugeY, gaugeW, gaugeH, 4, fg);
+    // Battery nub (positive terminal)
+    canvas.fillRect(gaugeX + gaugeW, gaugeY + gaugeH / 2 - 6, 6, 12, fg);
+    // Fill proportional to percent
+    int fillW = (gaugeW - 6) * batteryPercent / 100;
+    if (fillW > 0) canvas.fillRect(gaugeX + 3, gaugeY + 3, fillW, gaugeH - 6, fg);
+
+    // Voltage below gauge
     char voltBuf[16];
     snprintf(voltBuf, sizeof(voltBuf), "%.2fV", batteryVoltage);
-    int voltY = midY + lineH + lineGap;
+    canvas.setTextSize(1);
     canvas.setTextDatum(top_center);
-    canvas.drawString(voltBuf, centerX, voltY);
+    canvas.drawString(voltBuf, centerX, gaugeY + gaugeH + 4);
 }

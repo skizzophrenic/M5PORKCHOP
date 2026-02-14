@@ -43,6 +43,7 @@ struct SpectrumNetwork {
 // Render snapshot (heap-safe, no vector pointers)
 struct SpectrumRenderNet {
     uint8_t bssid[6];
+    char ssid[33];
     uint8_t channel;
     int8_t rssi;
     wifi_auth_mode_t authmode;
@@ -197,10 +198,16 @@ private:
     static uint32_t displayPps;              // Displayed pps (updated per second)
     static uint32_t lastPpsUpdate;           // Last pps calculation time
     
+    // Network list state (below spectrum)
+    static uint8_t listScrollOffset;
+    static uint8_t listSelectedIdx;
+    static const uint8_t LIST_VISIBLE = 7;
+
     static void handleInput();
     static void handleActionPromptInput();
     static void handleClientMonitorInput();  // Input when monitoring
     static void drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg);

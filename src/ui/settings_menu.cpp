@@ -12,6 +12,7 @@
 #include <SD.h>
 #include <string.h>
 #include "input.h"
+#include "haptic.h"
 #include "soft_keyboard.h"
 
 namespace {
@@ -1045,12 +1046,95 @@ void SettingsMenu::handleInput() {
     bool sel = Input::select();
     bool back = Input::back();
 
-    if (!up && !down && !sel && !back) return;
+    // Tap-to-select
+    Input::TapEvent tapEv;
+    bool tapped = Input::tap(tapEv);
+
+    // Vertical swipe for page scrolling
+    bool swUp = Input::swipeUp();
+    bool swDown = Input::swipeDown();
+
+    if (!up && !down && !sel && !back && !tapped && !swUp && !swDown) return;
 
     lastInputMs = millis();
 
     GroupId group = static_cast<GroupId>(activeGroup);
     const size_t rootCount = sizeof(kRootEntries) / sizeof(kRootEntries[0]);
+
+    // Tap-to-select (only when not editing)
+    if (tapped && !editing) {
+        int canvasY = tapEv.y - TOP_BAR_H;
+        const int lineHeight = 20;
+        if (group == GROUP_NONE) {
+            int hitIdx = (canvasY - 2) / lineHeight;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ROOT_ITEMS) {
+                uint8_t idx = rootScroll + hitIdx;
+                if (idx < rootCount) {
+                    if (idx == rootIndex) {
+                        sel = true;  // double-tap = select
+                    } else {
+                        rootIndex = idx;
+                        Haptic::tick();
+                        if (rootIndex < rootScroll) rootScroll = rootIndex;
+                        else if (rootIndex >= rootScroll + VISIBLE_ROOT_ITEMS)
+                            rootScroll = rootIndex - VISIBLE_ROOT_ITEMS + 1;
+                    }
+                }
+            }
+        } else {
+            // Group view: header is 20px, items start at 22
+            int hitIdx = (canvasY - 22) / lineHeight;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_GROUP_ITEMS) {
+                size_t count = 0;
+                getGroupEntries(group, &count);
+                uint8_t idx = groupScroll + hitIdx;
+                if (idx < count) {
+                    if (idx == groupIndex) {
+                        sel = true;  // double-tap = select
+                    } else {
+                        groupIndex = idx;
+                        Haptic::tick();
+                        if (groupIndex < groupScroll) groupScroll = groupIndex;
+                        else if (groupIndex >= groupScroll + VISIBLE_GROUP_ITEMS)
+                            groupScroll = groupIndex - VISIBLE_GROUP_ITEMS + 1;
+                    }
+                }
+            }
+        }
+        if (!sel) return;
+    }
+
+    // Vertical swipe page scrolling (when not editing)
+    if ((swUp || swDown) && !editing) {
+        if (group == GROUP_NONE) {
+            if (swUp && rootIndex > 0) {
+                int n = (int)rootIndex - VISIBLE_ROOT_ITEMS;
+                rootIndex = n < 0 ? 0 : n;
+                if (rootIndex < rootScroll) rootScroll = rootIndex;
+            } else if (swDown && rootIndex + 1 < rootCount) {
+                int n = (int)rootIndex + VISIBLE_ROOT_ITEMS;
+                if (n >= (int)rootCount) n = rootCount - 1;
+                rootIndex = n;
+                if (rootIndex >= rootScroll + VISIBLE_ROOT_ITEMS)
+                    rootScroll = rootIndex - VISIBLE_ROOT_ITEMS + 1;
+            }
+        } else {
+            size_t count = 0;
+            getGroupEntries(group, &count);
+            if (swUp && groupIndex > 0) {
+                int n = (int)groupIndex - VISIBLE_GROUP_ITEMS;
+                groupIndex = n < 0 ? 0 : n;
+                if (groupIndex < groupScroll) groupScroll = groupIndex;
+            } else if (swDown && groupIndex + 1 < count) {
+                int n = (int)groupIndex + VISIBLE_GROUP_ITEMS;
+                if (n >= (int)count) n = count - 1;
+                groupIndex = n;
+                if (groupIndex >= groupScroll + VISIBLE_GROUP_ITEMS)
+                    groupScroll = groupIndex - VISIBLE_GROUP_ITEMS + 1;
+            }
+        }
+        return;
+    }
 
     if (up || down) {
         if (editing) {
@@ -1297,7 +1381,7 @@ void SettingsMenu::draw(M5Canvas& canvas) {
     canvas.setTextColor(COLOR_BG);
     canvas.setTextSize(2);
 
-    const int lineHeight = 18;
+    const int lineHeight = 20;
     GroupId group = static_cast<GroupId>(activeGroup);
 
     if (group == GROUP_NONE) {

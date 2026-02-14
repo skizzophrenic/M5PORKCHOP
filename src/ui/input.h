@@ -26,6 +26,8 @@ bool screenshot();  // BtnC hold
 // Touch gestures (edge-triggered; consume-on-read).
 bool swipeLeft();
 bool swipeRight();
+bool swipeUp();
+bool swipeDown();
 bool tap(TapEvent& out);
 
 }  // namespace Input

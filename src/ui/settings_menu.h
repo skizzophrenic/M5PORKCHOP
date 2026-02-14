@@ -51,8 +51,8 @@ private:
     static uint8_t origC5RxPin;
     static uint32_t origC5Baud;
 
-    static const uint8_t VISIBLE_ROOT_ITEMS = 5;
-    static const uint8_t VISIBLE_GROUP_ITEMS = 4;
+    static const uint8_t VISIBLE_ROOT_ITEMS = 9;
+    static const uint8_t VISIBLE_GROUP_ITEMS = 8;
     static const uint32_t AUTO_SAVE_MS = 3000;
 
     static void handleInput();

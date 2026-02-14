@@ -8,6 +8,7 @@
 #include "../piglet/weather.h"
 #include "../web/wigle.h"
 #include "input.h"
+#include "haptic.h"
 
 // Static member initialization
 bool FlexesScreen::active = false;
@@ -129,6 +130,36 @@ void FlexesScreen::update() {
 }
 
 void FlexesScreen::handleInput() {
+    // Tap on tab bar (canvasY 0-12) to switch tabs directly
+    Input::TapEvent tapEv;
+    if (Input::tap(tapEv)) {
+        int canvasY = tapEv.y - TOP_BAR_H;
+        if (canvasY >= 0 && canvasY < 12) {
+            // Hit-test tab bar using same dynamic width calculation as drawTabBar
+            const int totalTabs = 3;
+            const int margin = 2;
+            const int spacing = 3;
+            const int availableW = DISPLAY_W - margin * 2 - spacing * (totalTabs - 1);
+            const int baseW = availableW / totalTabs;
+            const int remainder = availableW % totalTabs;
+
+            int x = margin;
+            StatsTab tabs[] = { StatsTab::STATS, StatsTab::BOOSTS, StatsTab::WIGLE };
+            for (int i = 0; i < totalTabs; i++) {
+                int w = baseW + (i < remainder ? 1 : 0);
+                if (tapEv.x >= x && tapEv.x < x + w) {
+                    if (tabs[i] != currentTab) {
+                        currentTab = tabs[i];
+                        Haptic::tick();
+                    }
+                    break;
+                }
+                x += w + spacing;
+            }
+        }
+        return;
+    }
+
     // Tab cycling: BtnA cycles left, BtnC cycles right.
     if (Input::up()) {
         switch (currentTab) {

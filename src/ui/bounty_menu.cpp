@@ -5,8 +5,11 @@
 #include "bounty_menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../modes/pigsync_mode.h"
 #include "../modes/warhog.h"
+#include "../modes/oink.h"
+#include "../core/network_recon.h"
 
 // Static member initialization
 uint16_t BountyMenu::selectedIndex = 0;
@@ -19,6 +22,25 @@ static std::vector<uint64_t> cachedBounties;
 static const uint32_t BOUNTY_CACHE_REFRESH_MS = 1000;
 static uint32_t lastCacheRefreshMs = 0;
 static bool cacheDirty = true;
+
+// Look up SSID from NetworkRecon by uint64_t BSSID key
+static const char* lookupSSID(uint64_t bssidKey) {
+    uint8_t target[6];
+    target[0] = (uint8_t)(bssidKey >> 40);
+    target[1] = (uint8_t)(bssidKey >> 32);
+    target[2] = (uint8_t)(bssidKey >> 24);
+    target[3] = (uint8_t)(bssidKey >> 16);
+    target[4] = (uint8_t)(bssidKey >> 8);
+    target[5] = (uint8_t)(bssidKey);
+    NetworkRecon::CriticalSection lock;
+    const auto& nets = NetworkRecon::getNetworks();
+    for (size_t i = 0; i < nets.size(); i++) {
+        if (memcmp(nets[i].bssid, target, 6) == 0 && nets[i].ssid[0] != '\0') {
+            return nets[i].ssid;
+        }
+    }
+    return nullptr;
+}
 
 static void refreshBountyCache(bool force) {
     uint32_t now = millis();
@@ -85,8 +107,44 @@ void BountyMenu::update() {
 }
 
 void BountyMenu::handleInput() {
-    // Use cached bounties (refreshed by draw() each frame)
     const size_t count = cachedBounties.size();
+
+    // Tap-to-select: startY=2, lineH=LINE_H(17)
+    Input::TapEvent tapEv;
+    if (Input::tap(tapEv)) {
+        if (count > 0) {
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 2) / LINE_H;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+                uint16_t idx = scrollOffset + hitIdx;
+                if (idx < count) {
+                    selectedIndex = idx;
+                    Haptic::tick();
+                }
+            }
+        }
+        return;
+    }
+
+    // Vertical swipe for page scrolling
+    if (Input::swipeUp()) {
+        if (selectedIndex > 0) {
+            int n = (int)selectedIndex - VISIBLE_ITEMS;
+            selectedIndex = n < 0 ? 0 : n;
+            if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+        }
+        return;
+    }
+    if (Input::swipeDown()) {
+        if (count > 0 && selectedIndex < count - 1) {
+            int n = (int)selectedIndex + VISIBLE_ITEMS;
+            if (n >= (int)count) n = count - 1;
+            selectedIndex = n;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+        }
+        return;
+    }
 
     if (Input::up()) {
         if (selectedIndex > 0) {
@@ -157,6 +215,20 @@ void BountyMenu::drawList(M5Canvas& canvas) {
         // BSSID (clean, left-aligned)
         canvas.setCursor(COL_LEFT, y);
         canvas.print(bssidStr);
+
+        // SSID from recon cache (right of BSSID)
+        const char* ssid = lookupSSID(bssid);
+        if (ssid) {
+            char ssidBuf[16];
+            strncpy(ssidBuf, ssid, 15);
+            ssidBuf[15] = '\0';
+            if (strlen(ssid) > 15) {
+                ssidBuf[13] = '.';
+                ssidBuf[14] = '.';
+            }
+            canvas.setCursor(130, y);
+            canvas.print(ssidBuf);
+        }
         
         y += LINE_H;
     }

@@ -6,6 +6,7 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../modes/oink.h"
 #include "../core/sd_layout.h"
 
@@ -149,12 +150,53 @@ void BoarBrosMenu::update() {
 
 void BoarBrosMenu::handleInput() {
     if (deleteConfirmActive) {
-        // Confirm: BtnB = YES, BtnA = NO (matches global confirm pattern).
-        if (Input::select()) {
+        Input::TapEvent tmp;
+        if (Input::select() || Input::tap(tmp)) {
             deleteSelected();
             deleteConfirmActive = false;
         } else if (Input::up()) {
             deleteConfirmActive = false;
+        }
+        return;
+    }
+
+    // Tap-to-select: startY=2, lineHeight=18
+    Input::TapEvent tapEv;
+    if (Input::tap(tapEv)) {
+        if (!bros.empty()) {
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 2) / 18;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+                uint8_t idx = scrollOffset + hitIdx;
+                if (idx < bros.size()) {
+                    if (idx == selectedIndex) {
+                        deleteConfirmActive = true;
+                    } else {
+                        selectedIndex = idx;
+                        Haptic::tick();
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Vertical swipe for page scrolling
+    if (Input::swipeUp()) {
+        if (selectedIndex > 0) {
+            int n = (int)selectedIndex - VISIBLE_ITEMS;
+            selectedIndex = n < 0 ? 0 : n;
+            if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+        }
+        return;
+    }
+    if (Input::swipeDown()) {
+        if (!bros.empty() && selectedIndex < bros.size() - 1) {
+            int n = (int)selectedIndex + VISIBLE_ITEMS;
+            if (n >= (int)bros.size()) n = bros.size() - 1;
+            selectedIndex = n;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
         }
         return;
     }
@@ -177,7 +219,6 @@ void BoarBrosMenu::handleInput() {
         }
     }
 
-    // Select triggers delete confirmation (no physical keyboard on Core2).
     if (Input::select() && !bros.empty()) {
         deleteConfirmActive = true;
     }

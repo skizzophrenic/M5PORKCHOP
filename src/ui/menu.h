@@ -105,6 +105,8 @@ private:
     
     // Helpers
     static void handleInput();
+    static void selectRootItem();
+    static void selectModalItem();
     static void drawRoot(M5Canvas& canvas);
     static void drawModal(M5Canvas& canvas);
     static bool isRootSelectable(uint8_t idx);

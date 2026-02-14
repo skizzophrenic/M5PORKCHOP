@@ -4,6 +4,7 @@
 #include <mbedtls/sha256.h>
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "soft_keyboard.h"
 #include "../core/xp.h"
 #include "../piglet/mood.h"
@@ -143,6 +144,51 @@ void UnlockablesMenu::handleInput() {
         return;
     }
 
+    // Tap-to-select: startY=2, lineHeight=18
+    Input::TapEvent tapEv;
+    bool tapSelect = false;
+    if (Input::tap(tapEv)) {
+        if (TOTAL_UNLOCKABLES > 0) {
+            int canvasY = tapEv.y - TOP_BAR_H;
+            int hitIdx = (canvasY - 2) / 18;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
+                uint8_t idx = scrollOffset + hitIdx;
+                if (idx < TOTAL_UNLOCKABLES) {
+                    if (idx == selectedIndex) {
+                        tapSelect = true;  // double-tap = try unlock
+                    } else {
+                        selectedIndex = idx;
+                        Haptic::tick();
+                        updateBottomOverlay();
+                    }
+                }
+            }
+        }
+        if (!tapSelect) return;
+    }
+
+    // Vertical swipe for page scrolling
+    if (Input::swipeUp()) {
+        if (selectedIndex > 0 && TOTAL_UNLOCKABLES > 0) {
+            int n = (int)selectedIndex - VISIBLE_ITEMS;
+            selectedIndex = n < 0 ? 0 : n;
+            if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+            updateBottomOverlay();
+        }
+        return;
+    }
+    if (Input::swipeDown()) {
+        if (TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES - 1) {
+            int n = (int)selectedIndex + VISIBLE_ITEMS;
+            if (n >= TOTAL_UNLOCKABLES) n = TOTAL_UNLOCKABLES - 1;
+            selectedIndex = n;
+            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
+                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+            updateBottomOverlay();
+        }
+        return;
+    }
+
     if (Input::up()) {
         if (selectedIndex > 0 && TOTAL_UNLOCKABLES > 0) {
             selectedIndex--;
@@ -165,7 +211,7 @@ void UnlockablesMenu::handleInput() {
         return;
     }
 
-    if (Input::select() && TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES) {
+    if ((Input::select() || tapSelect) && TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES) {
         if (XP::hasUnlockable(UNLOCKABLES[selectedIndex].bitIndex)) {
             Display::showToast("ALREADY YOURS");
         } else {

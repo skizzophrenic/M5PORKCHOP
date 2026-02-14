@@ -26,6 +26,8 @@ static constexpr uint32_t kShotHoldMs = 1100;
 // --- Touch gesture state ---
 static bool evSwipeLeft = false;
 static bool evSwipeRight = false;
+static bool evSwipeUp = false;
+static bool evSwipeDown = false;
 static bool evTap = false;
 static TapEvent tapEv = {};
 
@@ -45,7 +47,7 @@ void init() {
 
 static void clearFrameEvents() {
     evUp = evDown = evSelect = evBack = evScreenshot = false;
-    evSwipeLeft = evSwipeRight = false;
+    evSwipeLeft = evSwipeRight = evSwipeUp = evSwipeDown = false;
     evTap = false;
     tapEv = {};
 }
@@ -109,6 +111,9 @@ void update() {
         } else if (dt <= kSwipeMaxMs && adx >= kSwipeMinPx && adx > (ady * 2)) {
             if (dx < 0) evSwipeLeft = true;
             else evSwipeRight = true;
+        } else if (dt <= kSwipeMaxMs && ady >= kSwipeMinPx && ady > (adx * 2)) {
+            if (dy < 0) evSwipeUp = true;
+            else evSwipeDown = true;
         }
     }
 }
@@ -120,6 +125,8 @@ bool back() { bool v = evBack; evBack = false; return v; }
 bool screenshot() { bool v = evScreenshot; evScreenshot = false; return v; }
 bool swipeLeft() { bool v = evSwipeLeft; evSwipeLeft = false; return v; }
 bool swipeRight() { bool v = evSwipeRight; evSwipeRight = false; return v; }
+bool swipeUp() { bool v = evSwipeUp; evSwipeUp = false; return v; }
+bool swipeDown() { bool v = evSwipeDown; evSwipeDown = false; return v; }
 bool tap(TapEvent& out) {
     if (!evTap) return false;
     out = tapEv;
