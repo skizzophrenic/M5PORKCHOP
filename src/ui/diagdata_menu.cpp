@@ -1,9 +1,6 @@
 // DiagData Menu - System status snapshot
 
 #include "diagdata_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <time.h>
 #include <string.h>
@@ -49,7 +46,6 @@ void DiagDataMenu::hide() {
 void DiagDataMenu::update() {
     if (!active) return;
 
-#if defined(PORKCHOP_TARGET_CORE2)
     // Periodically refresh stats (e.g., every 2 seconds)
     if (millis() - lastStatRefreshMs > statRefreshIntervalMs) {
         refreshStats();
@@ -102,59 +98,6 @@ void DiagDataMenu::update() {
         Display::setTopBarMessage("HEAP LOGGED", 3000);
         return;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    auto keys = M5Cardputer.Keyboard.keysState();
-
-    // Enter/S - save snapshot
-    if (keys.enter || M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
-        saveSnapshot();
-        Display::setTopBarMessage("DIAG SNAPSHOT SAVED", 3000);
-        return;
-    }
-
-    // R key - reset WiFi stack
-    if (M5Cardputer.Keyboard.isKeyPressed('r') || M5Cardputer.Keyboard.isKeyPressed('R')) {
-        resetWiFi();
-        Display::setTopBarMessage("WIFI RESET", 3000);
-        return;
-    }
-
-    // H key - append quick heap log
-    if (M5Cardputer.Keyboard.isKeyPressed('h') || M5Cardputer.Keyboard.isKeyPressed('H')) {
-        logHeapSnapshot();
-        Display::setTopBarMessage("HEAP LOGGED", 3000);
-        return;
-    }
-
-    // G key - free caches / pseudo GC
-    if (M5Cardputer.Keyboard.isKeyPressed('g') || M5Cardputer.Keyboard.isKeyPressed('G')) {
-        collectGarbage();
-        Display::setTopBarMessage("CACHE CLEARED", 3000);
-        return;
-    }
-
-    // Periodically refresh stats (e.g., every 5 seconds)
-    if (millis() - lastStatRefreshMs > statRefreshIntervalMs) {
-        refreshStats();
-    }
-
-    // Backspace - go back to previous menu
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-    }
-#endif
 }
 
 void DiagDataMenu::saveSnapshot() {
@@ -428,15 +371,9 @@ void DiagDataMenu::draw(M5Canvas& canvas) {
         return;
     }
 
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("A SAVE  B WIFI  C HEAP", 4, y);
     y += lineH;
     canvas.drawString("HOLD A: GC  HOLD B: BACK", 4, y);
-#else
-    canvas.drawString("[ENT]SAVE [R]WIFI", 4, y);
-    y += lineH;
-    canvas.drawString("[H]HEAP [G]GC [BKSPC]BACK", 4, y);
-#endif
 }
 
 void DiagDataMenu::drawWiFiResetConfirm(M5Canvas& canvas) {
@@ -451,10 +388,6 @@ void DiagDataMenu::drawWiFiResetConfirm(M5Canvas& canvas) {
     canvas.setTextColor(COLOR_BG, COLOR_FG);
     canvas.setTextDatum(top_center);
     canvas.drawString("RESET WIFI STACK?", boxX + boxW / 2, boxY + 12);
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 34);
-#else
-    canvas.drawString("[Y]ES  [N]O", boxX + boxW / 2, boxY + 34);
-#endif
     canvas.setTextDatum(top_left);
 }

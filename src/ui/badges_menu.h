@@ -20,12 +20,8 @@ private:
     static bool active;
     static bool keyWasPressed;
     static bool showingDetail;  // Showing achievement detail popup
-    
-#if defined(PORKCHOP_TARGET_CORE2)
+
     static const uint8_t VISIBLE_ITEMS = 10;
-#else
-    static const uint8_t VISIBLE_ITEMS = 5;
-#endif
     
     static void handleInput();
     static void drawDetail(M5Canvas& canvas);

@@ -3,9 +3,6 @@
 // Refactored to match captures_menu/boar_bros_menu patterns
 
 #include "bounty_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include "display.h"
 #include "input.h"
 #include "../modes/pigsync_mode.h"
@@ -88,7 +85,6 @@ void BountyMenu::update() {
 }
 
 void BountyMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // Use cached bounties (refreshed by draw() each frame)
     const size_t count = cachedBounties.size();
 
@@ -109,46 +105,6 @@ void BountyMenu::handleInput() {
             }
         }
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    // Use cached bounties (refreshed by draw() each frame)
-    size_t count = cachedBounties.size();
-    
-    // Navigation (; = up, . = down)
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
-    }
-    
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (count > 0 && selectedIndex < count - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
-        }
-    }
-    
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-    }
-#endif
 }
 
 void BountyMenu::draw(M5Canvas& canvas) {

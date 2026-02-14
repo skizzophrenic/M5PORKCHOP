@@ -9,9 +9,6 @@
 #include "../core/sd_layout.h"
 #include "../core/sdlog.h"
 #include "../gps/gps.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <string.h>
 #include "input.h"
@@ -1037,7 +1034,6 @@ void SettingsMenu::saveIfDirty(bool showToast) {
     }
 }
 void SettingsMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // Core2: SoftKeyboard overlay handles text editing
     if (textEditing) {
         handleTextInput();
@@ -1052,29 +1048,6 @@ void SettingsMenu::handleInput() {
     if (!up && !down && !sel && !back) return;
 
     lastInputMs = millis();
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-
-    if (textEditing) {
-        handleTextInput();
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    lastInputMs = millis();
-
-    auto keys = M5Cardputer.Keyboard.keysState();
-    bool up = M5Cardputer.Keyboard.isKeyPressed(';');
-    bool down = M5Cardputer.Keyboard.isKeyPressed('.');
-    bool back = M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE);
-#endif
 
     GroupId group = static_cast<GroupId>(activeGroup);
     const size_t rootCount = sizeof(kRootEntries) / sizeof(kRootEntries[0]);
@@ -1161,11 +1134,7 @@ void SettingsMenu::handleInput() {
         }
     }
 
-#if defined(PORKCHOP_TARGET_CORE2)
     bool enterPressed = sel;
-#else
-    bool enterPressed = keys.enter;
-#endif
     if (enterPressed) {
         if (group == GROUP_NONE) {
             const RootEntry& entry = kRootEntries[rootIndex];
@@ -1188,8 +1157,7 @@ void SettingsMenu::handleInput() {
                     editing = !editing;
                 } else if (direct->type == SettingType::TEXT) {
                     if (isTextEditable(direct->id)) {
-#if defined(PORKCHOP_TARGET_CORE2)
-                        // Launch SoftKeyboard for text editing on Core2
+                        // Launch SoftKeyboard for text editing
                         {
                             SettingId sid = direct->id;
                             getSettingTextBuf(sid, textBuffer, sizeof(textBuffer));
@@ -1203,13 +1171,6 @@ void SettingsMenu::handleInput() {
                                 getTextLimit(sid), masked);
                             textEditing = true;
                         }
-#else
-                        textEditing = true;
-                        getSettingTextBuf(direct->id, textBuffer, sizeof(textBuffer));
-                        textLen = strlen(textBuffer);
-                        textEditId = direct->id;
-                        keyWasPressed = true;
-#endif
                     }
                 }
             }
@@ -1260,7 +1221,6 @@ void SettingsMenu::handleInput() {
                     break;
                 case SettingType::TEXT:
                     if (isTextEditable(entry.id)) {
-#if defined(PORKCHOP_TARGET_CORE2)
                         {
                             SettingId sid = entry.id;
                             getSettingTextBuf(sid, textBuffer, sizeof(textBuffer));
@@ -1274,13 +1234,6 @@ void SettingsMenu::handleInput() {
                                 getTextLimit(sid), masked);
                             textEditing = true;
                         }
-#else
-                        textEditing = true;
-                        getSettingTextBuf(entry.id, textBuffer, sizeof(textBuffer));
-                        textLen = strlen(textBuffer);
-                        textEditId = entry.id;
-                        keyWasPressed = true;
-#endif
                     }
                     break;
             }
@@ -1301,8 +1254,7 @@ void SettingsMenu::handleInput() {
     }
 }
 void SettingsMenu::handleTextInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
-    // Core2: SoftKeyboard handles all text input via touch overlay.
+    // SoftKeyboard handles all text input via touch overlay.
     SoftKeyboard::update();
 
     bool accepted = false;
@@ -1320,64 +1272,6 @@ void SettingsMenu::handleTextInput() {
         SoftKeyboard::stop();
     }
     return;
-#else
-    auto keys = M5Cardputer.Keyboard.keysState();
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-
-    bool hasPrintable = !keys.word.empty();
-    bool hasActionKey = keys.enter || keys.del;
-
-    if (!hasPrintable && !hasActionKey) {
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    lastInputMs = millis();
-
-    if (keys.enter) {
-        SettingId sid = static_cast<SettingId>(textEditId);
-        bool changed = setSettingText(sid, textBuffer);
-        if (changed) {
-            if (isPersonalitySetting(sid)) dirtyPersonality = true;
-            else dirtyConfig = true;
-        }
-        textEditing = false;
-        textBuffer[0] = '\0'; textLen = 0;
-        return;
-    }
-
-    if (keys.del) {
-        if (textLen > 0) {
-            textBuffer[--textLen] = '\0';
-        }
-        return;
-    }
-
-    for (char c : keys.word) {
-        if (c == '`') {
-            textEditing = false;
-            textBuffer[0] = '\0'; textLen = 0;
-            return;
-        }
-    }
-
-    const size_t limit = getTextLimit(static_cast<SettingId>(textEditId));
-    if (textLen < limit) {
-        for (char c : keys.word) {
-            if (c >= 32 && c <= 126 && c != '`' && textLen < limit) {
-                textBuffer[textLen++] = c;
-                textBuffer[textLen] = '\0';
-            }
-        }
-    }
-#endif  // !PORKCHOP_TARGET_CORE2
 }
 
 const char* SettingsMenu::getSelectedDescription() {
@@ -1395,12 +1289,10 @@ const char* SettingsMenu::getSelectedDescription() {
 }
 
 void SettingsMenu::draw(M5Canvas& canvas) {
-#if defined(PORKCHOP_TARGET_CORE2)
     if (textEditing && SoftKeyboard::isActive()) {
         SoftKeyboard::draw(canvas);
         return;
     }
-#endif
     canvas.fillSprite(COLOR_FG);
     canvas.setTextColor(COLOR_BG);
     canvas.setTextSize(2);

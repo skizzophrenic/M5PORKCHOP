@@ -21,11 +21,7 @@
 #include <ctype.h>
 #include <esp_attr.h>
 
-#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
-#define PSRAM_BSS __attribute__((section(".psram_bss")))
-#else
-#define PSRAM_BSS
-#endif
+// Large buffers allocated from PSRAM via ps_calloc() in init()
 
 // NOTE: Per user request, JANUS HOG uses SERIAL logging only (no SDLog).
 #define C5_LOGF(fmt, ...) Serial.printf("[C5] " fmt "\n", ##__VA_ARGS__)
@@ -66,10 +62,10 @@ static bool     lineOverflow = false;  // Drop oversize lines safely until newli
 static constexpr uint8_t SCAN_CACHE_MAX = 64;
 // Double-buffered: keep last completed scan visible during an active scan.
 // This prevents Spectrum's 5GHz overlay from flickering to "no data" between scans.
-static C5ScanEntry  scanCacheA[SCAN_CACHE_MAX] PSRAM_BSS;
-static C5ScanEntry  scanCacheB[SCAN_CACHE_MAX] PSRAM_BSS;
-static C5ScanEntry* scanCacheActive = scanCacheA;
-static C5ScanEntry* scanCacheWork = scanCacheB;
+static C5ScanEntry* scanCacheA = nullptr;  // PSRAM
+static C5ScanEntry* scanCacheB = nullptr;  // PSRAM
+static C5ScanEntry* scanCacheActive = nullptr;
+static C5ScanEntry* scanCacheWork = nullptr;
 static uint8_t      scanCountActive = 0;
 static uint8_t      scanCountWork = 0;
 static bool         scanWork5GHzXpAwarded = false;  // Once per scan batch
@@ -226,8 +222,10 @@ void JanusHog::init() {
     c5GpsConfigSent = false;
     c5GpsConfigSentMs = 0;
     pktPerSecond = 0;
-    memset(scanCacheA, 0, sizeof(scanCacheA));
-    memset(scanCacheB, 0, sizeof(scanCacheB));
+    if (!scanCacheA) scanCacheA = (C5ScanEntry*)ps_calloc(SCAN_CACHE_MAX, sizeof(C5ScanEntry));
+    if (!scanCacheB) scanCacheB = (C5ScanEntry*)ps_calloc(SCAN_CACHE_MAX, sizeof(C5ScanEntry));
+    memset(scanCacheA, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
+    memset(scanCacheB, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
     scanCacheActive = scanCacheA;
     scanCacheWork = scanCacheB;
     memset(&channelCounts, 0, sizeof(channelCounts));

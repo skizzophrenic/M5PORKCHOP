@@ -5,9 +5,6 @@
 #include "input.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <algorithm>
 #include <time.h>
@@ -32,11 +29,7 @@ bool CoreDumpViewer::keyWasPressed = false;
 char CoreDumpViewer::activeFile[64] = {0};
 
 static const uint16_t MAX_LOG_LINES = 120;
-#if defined(PORKCHOP_TARGET_CORE2)
 static const uint8_t VISIBLE_LINES = 16;
-#else
-static const uint8_t VISIBLE_LINES = 9;
-#endif
 static const uint8_t LINE_HEIGHT = 11;
 
 void CoreDumpViewer::init() {
@@ -346,17 +339,12 @@ void CoreDumpViewer::drawNukeConfirm(M5Canvas& canvas) {
     snprintf(cmd, sizeof(cmd), "rm -rf %s/*", SDLayout::crashDir());
     canvas.drawString(cmd, centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE DUMPS.", centerX, boxY + 36);
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=DO IT  A=ABORT", centerX, boxY + 54);
-#else
-    canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
-#endif
 }
 
 void CoreDumpViewer::update() {
     if (!active) return;
 
-#if defined(PORKCHOP_TARGET_CORE2)
     if (nukeConfirmActive) {
         if (Input::select()) {
             nukeCrashFiles();
@@ -435,81 +423,6 @@ void CoreDumpViewer::update() {
         }
         return;
     }
-
-    return;
-#else
-    if (!M5Cardputer.Keyboard.isPressed()) {
-        keyWasPressed = false;
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
-
-    if (nukeConfirmActive) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            nukeCrashFiles();
-            nukeConfirmActive = false;
-            Display::clearBottomOverlay();
-            fileViewActive = false;
-            fileLines.clear();
-            scanCrashFiles();
-        } else if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') ||
-                   M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
-            nukeConfirmActive = false;
-            Display::clearBottomOverlay();
-        }
-        return;
-    }
-
-    if (fileViewActive) {
-        if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-            if (fileScroll > 0) {
-                fileScroll--;
-            }
-        } else if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-            if (totalLines > VISIBLE_LINES && fileScroll < totalLines - VISIBLE_LINES) {
-                fileScroll++;
-            }
-        } else if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
-            fileViewActive = false;
-            fileLines.clear();
-            totalLines = 0;
-            activeFile[0] = '\0';
-        }
-        return;
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < listScroll) {
-                listScroll = selectedIndex;
-            }
-        }
-    } else if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (selectedIndex + 1 < crashFiles.size()) {
-            selectedIndex++;
-            if (selectedIndex >= listScroll + VISIBLE_LINES) {
-                listScroll = selectedIndex - VISIBLE_LINES + 1;
-            }
-        }
-    } else if (M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) {
-        if (!crashFiles.empty()) {
-            nukeConfirmActive = true;
-            Display::setBottomOverlay("PERMANENT | NO UNDO");
-        }
-    } else if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-    } else if (keys.enter) {
-        if (!crashFiles.empty() && selectedIndex < crashFiles.size()) {
-            loadCrashFile(crashFiles[selectedIndex].path);
-            fileViewActive = true;
-        }
-    }
-#endif
 }
 
 void CoreDumpViewer::draw(M5Canvas& canvas) {

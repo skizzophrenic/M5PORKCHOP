@@ -22,9 +22,6 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <WiFi.h>
 #include <SD.h>
 #include <freertos/FreeRTOS.h>
@@ -34,11 +31,7 @@
 #include <esp_heap_caps.h>
 #include <esp_attr.h>
 
-#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
-#define PSRAM_BSS __attribute__((section(".psram_bss")))
-#else
-#define PSRAM_BSS
-#endif
+// Large buffers allocated from PSRAM via ps_calloc() in start()
 
 // Bloom filter for seen BSSIDs (fixed memory, no heap churn)
 // 4KB = 32,768 bits -> ~1.5% false positives around 5k entries with 3 hashes
@@ -110,8 +103,8 @@ static uint32_t lastDistanceCheck = 0;
 bool WarhogMode::running = false;
 uint32_t WarhogMode::lastScanTime = 0;
 uint32_t WarhogMode::scanInterval = 5000;
-static uint8_t seenBloom[SEEN_BLOOM_BYTES] PSRAM_BSS;
-static uint8_t capturedBloom[CAPTURED_BLOOM_BYTES] PSRAM_BSS;
+static uint8_t* seenBloom = nullptr;
+static uint8_t* capturedBloom = nullptr;
 static uint64_t bountyPool[BOUNTY_POOL_SIZE];
 static uint16_t bountyPoolCount = 0;
 static uint32_t bountySeenTotal = 0;
@@ -167,8 +160,10 @@ static void bloomAdd(uint8_t* bloom, size_t mask, uint8_t hashes, uint64_t key) 
 }
 
 static void resetSeenTracking() {
-    memset(seenBloom, 0, sizeof(seenBloom));
-    memset(capturedBloom, 0, sizeof(capturedBloom));
+    if (!seenBloom)     seenBloom     = (uint8_t*)ps_calloc(SEEN_BLOOM_BYTES, 1);
+    if (!capturedBloom) capturedBloom = (uint8_t*)ps_calloc(CAPTURED_BLOOM_BYTES, 1);
+    memset(seenBloom, 0, SEEN_BLOOM_BYTES);
+    memset(capturedBloom, 0, CAPTURED_BLOOM_BYTES);
     bountyPoolCount = 0;
     bountySeenTotal = 0;
 }
@@ -589,11 +584,7 @@ bool WarhogMode::ensureWigleFileReady() {
     #else
     f.print("0.1.x");
     #endif
-#if defined(PORKCHOP_TARGET_CORE2)
     f.print(",model=M5Core2,release=ESP32,device=PORKCHOP,display=320x240,board=m5stack,brand=M5Stack,star=Sol,body=3,subBody=0\n");
-#else
-    f.print(",model=M5Cardputer,release=ESP32-S3,device=PORKCHOP,display=240x135,board=m5stack,brand=M5Stack,star=Sol,body=3,subBody=0\n");
-#endif
     
     // WiGLE format header
     f.println("MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type");

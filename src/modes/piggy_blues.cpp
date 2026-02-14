@@ -9,9 +9,6 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../audio/sfx.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include "../ui/input.h"
 #include <NimBLEDevice.h>
 #include <WiFi.h>
@@ -529,11 +526,7 @@ bool PiggyBluesMode::showWarningDialog() {
     
     while ((millis() - startTime) < timeout) {
         M5.update();
-#if defined(PORKCHOP_TARGET_CORE2)
         Input::update();
-#else
-        M5Cardputer.update();
-#endif
 
         uint32_t remaining = (timeout - (millis() - startTime)) / 1000 + 1;
 
@@ -556,16 +549,11 @@ bool PiggyBluesMode::showWarningDialog() {
         canvas.drawString("EDUCATIONAL USE ONLY!", centerX, boxY + 36);
 
         char buf[48];
-#if defined(PORKCHOP_TARGET_CORE2)
         snprintf(buf, sizeof(buf), "B=YES  A=NO (%lu)", remaining);
-#else
-        snprintf(buf, sizeof(buf), "[Y] YES  [N] NO (%lu)", remaining);
-#endif
         canvas.drawString(buf, centerX, boxY + 54);
 
         Display::pushAll();
 
-#if defined(PORKCHOP_TARGET_CORE2)
         if (Input::select()) {
             Display::clearBottomOverlay();
             return true;
@@ -574,18 +562,6 @@ bool PiggyBluesMode::showWarningDialog() {
             Display::clearBottomOverlay();
             return false;
         }
-#else
-        if (M5Cardputer.Keyboard.isChange()) {
-            if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-                Display::clearBottomOverlay();
-                return false;
-            }
-            if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-                Display::clearBottomOverlay();
-                return true;
-            }
-        }
-#endif
 
         delay(50);
     }

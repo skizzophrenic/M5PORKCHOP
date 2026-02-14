@@ -1,9 +1,6 @@
 // Tracks Menu - View wardriving files with sync support
 
 #include "tracks_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <WiFi.h>
 #include <string.h>
@@ -309,7 +306,6 @@ void TracksMenu::processAsyncScan() {
 }
 
 void TracksMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // Handle sync modal
     if (syncModalActive) {
         if (syncState == WigleSyncState::ERROR || syncState == WigleSyncState::COMPLETE) {
@@ -335,7 +331,7 @@ void TracksMenu::handleInput() {
         return;
     }
 
-    // Nuke confirmation modal (Core2 doesn't expose the shortcut, but keep logic)
+    // Nuke confirmation modal
     if (nukeConfirmActive) {
         if (Input::select()) {
             nukeTrack();
@@ -389,105 +385,6 @@ void TracksMenu::handleInput() {
         }
         return;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    auto keys = M5Cardputer.Keyboard.keysState();
-    
-    // Handle sync modal
-    if (syncModalActive) {
-        if (syncState == WigleSyncState::ERROR || syncState == WigleSyncState::COMPLETE) {
-            // Enter closes the modal after completion/error
-            if (keys.enter || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-                syncModalActive = false;
-                syncState = WigleSyncState::IDLE;
-                scanFiles();  // Rescan files after sync
-            }
-        } else {
-            // ESC cancels during sync
-            if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-                cancelSync();
-            }
-        }
-        return;  // Block other inputs during sync
-    }
-    
-    // Handle detail view input - any key closes
-    if (detailViewActive) {
-        detailViewActive = false;
-        return;
-    }
-    
-    // Handle nuke confirmation modal
-    if (nukeConfirmActive) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            nukeTrack();
-            nukeConfirmActive = false;
-            Display::clearBottomOverlay();
-            return;
-        }
-        if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') ||
-            M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-            nukeConfirmActive = false;  // Cancel
-            Display::clearBottomOverlay();
-            return;
-        }
-        return;  // Ignore other keys when modal active
-    }
-    
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-        return;
-    }
-    
-    // Navigation with ; (prev) and . (next)
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
-    }
-    
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (!files.empty() && selectedIndex < files.size() - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
-        }
-    }
-    
-    // Enter - show detail view
-    if (keys.enter && !files.empty()) {
-        detailViewActive = true;
-    }
-    
-    // S key triggers WiGLE sync
-    if (M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
-        startSync();
-    }
-    
-    // D key - nuke selected track
-    if ((M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) && !files.empty()) {
-        if (selectedIndex < files.size()) {
-            nukeConfirmActive = true;
-            Display::setBottomOverlay("PERMANENT | NO UNDO");
-        }
-    }
-#endif
 }
 
 void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
@@ -503,11 +400,7 @@ void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
 
 void TracksMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
-#if defined(PORKCHOP_TARGET_CORE2)
     snprintf(out, len, "B=DET HOLD-A=SYNC");
-#else
-    snprintf(out, len, "ENT=DET S=SYNC D=NUKE");
-#endif
 }
 
 void TracksMenu::update() {

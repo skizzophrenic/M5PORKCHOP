@@ -7,9 +7,6 @@
 #include "../core/config.h"
 #include "../core/network_recon.h"
 #include "../web/xfer_server.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include "input.h"
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -159,7 +156,6 @@ void SdFormatMenu::doReboot() {
 // ============================================================================
 
 void SdFormatMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // ---- CONFIRM_ENTRY STATE ----
     // Entry warning dialog: BtnB to enter, BtnA to cancel.
     if (state == State::CONFIRM_ENTRY) {
@@ -214,86 +210,6 @@ void SdFormatMenu::handleInput() {
         }
         return;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    bool up = M5Cardputer.Keyboard.isKeyPressed(';');
-    bool down = M5Cardputer.Keyboard.isKeyPressed('.');
-    bool back = M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE);
-
-    // ---- CONFIRM_ENTRY STATE ----
-    // Entry warning dialog: Y to enter, N to bail
-    if (state == State::CONFIRM_ENTRY) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            // User confirmed entry - stop everything and proceed
-            stopEverything();
-            state = State::SELECT;
-            return;
-        }
-        if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') || back) {
-            // User cancelled - return to menu (nothing stopped)
-            active = false;
-            barsHidden = false;
-            Display::clearBottomOverlay();
-            return;
-        }
-        return;  // Ignore other keys
-    }
-
-    // ---- CONFIRM STATE (format confirmation) ----
-    if (state == State::CONFIRM) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            // SAFETY: Require external power to prevent data corruption from power loss
-            if (!M5.Power.isCharging()) {
-                Display::notify(NoticeKind::WARNING, "PLUG IN POWER!", 2000);
-                return;
-            }
-            state = State::WORKING;
-        } else if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') || back) {
-            state = State::SELECT;
-        }
-        return;
-    }
-
-    // ---- RESULT STATE ----
-    if (state == State::RESULT) {
-        // Any key triggers reboot (anyPressed already true at this point)
-        doReboot();  // Never returns
-    }
-
-    // ---- SELECT STATE ----
-    if (state == State::SELECT) {
-        // Navigation toggles format mode (list-style selection)
-        if (up || down) {
-            formatMode = (formatMode == SDFormat::FormatMode::QUICK)
-                ? SDFormat::FormatMode::FULL
-                : SDFormat::FormatMode::QUICK;
-            return;
-        }
-        if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-            // SD was already validated when entering the menu - proceed to confirm
-            state = State::CONFIRM;
-            return;
-        }
-        // Backspace in SELECT means exit - but we must reboot since system is stopped
-        if (back) {
-            // Increase brightness briefly for warning visibility
-            M5.Display.setBrightness(128);
-            Display::notify(NoticeKind::WARNING, "REBOOT REQUIRED", 1500);
-            delay(1500);
-            doReboot();  // Never returns
-        }
-        return;
-    }
-#endif
 }
 
 void SdFormatMenu::startFormat() {
@@ -390,11 +306,7 @@ void SdFormatMenu::drawConfirmEntry(M5Canvas& canvas) {
     y += 12;
     
     // Controls - must fit within MAIN_H (107px), y should be <= 95
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=ENTER  A=CANCEL", centerX, y);
-#else
-    canvas.drawString("[Y] ENTER  [N] CANCEL", centerX, y);
-#endif
 }
 
 void SdFormatMenu::drawSelect(M5Canvas& canvas) {
@@ -453,11 +365,7 @@ void SdFormatMenu::drawSelect(M5Canvas& canvas) {
 
     // Nav hints - smaller text
     canvas.setTextSize(1);
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("A/C NAV  B=OK", DISPLAY_W / 2, y);
-#else
-    canvas.drawString("^v NAV  ENTER=OK", DISPLAY_W / 2, y);
-#endif
 }
 
 void SdFormatMenu::drawWorking(M5Canvas& canvas) {
@@ -565,9 +473,5 @@ void SdFormatMenu::drawConfirm(M5Canvas& canvas) {
 
     // Controls
     canvas.setTextSize(1);
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=DO IT    A=ABORT", centerX, boxY + 70);
-#else
-    canvas.drawString("[Y] DO IT    [N] ABORT", centerX, boxY + 70);
-#endif
 }

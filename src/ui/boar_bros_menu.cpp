@@ -1,9 +1,6 @@
 // BOAR BROS Menu - Manage excluded networks
 
 #include "boar_bros_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <ctype.h>
 #include <string.h>
@@ -151,7 +148,6 @@ void BoarBrosMenu::update() {
 }
 
 void BoarBrosMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     if (deleteConfirmActive) {
         // Confirm: BtnB = YES, BtnA = NO (matches global confirm pattern).
         if (Input::select()) {
@@ -185,63 +181,6 @@ void BoarBrosMenu::handleInput() {
     if (Input::select() && !bros.empty()) {
         deleteConfirmActive = true;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    auto keys = M5Cardputer.Keyboard.keysState();
-    
-    // Handle delete confirmation modal
-    if (deleteConfirmActive) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            deleteSelected();
-            deleteConfirmActive = false;
-        } else if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') ||
-                   M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
-            deleteConfirmActive = false;  // Cancel
-        }
-        return;
-    }
-    
-    // Navigation with ; (prev/up) and . (next/down)
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
-    }
-    
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (!bros.empty() && selectedIndex < bros.size() - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
-        }
-    }
-    
-    // D key - delete selected
-    if ((M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) && !bros.empty()) {
-        deleteConfirmActive = true;
-    }
-    
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-        // Return to menu handled by porkchop.cpp
-    }
-#endif
 }
 
 void BoarBrosMenu::deleteSelected() {
@@ -371,11 +310,7 @@ void BoarBrosMenu::drawDeleteConfirm(M5Canvas& canvas) {
     }
     canvas.drawString(broName, boxX + boxW / 2, boxY + 24);
     
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 40);
-#else
-    canvas.drawString("[Y]ES  [N]O", boxX + boxW / 2, boxY + 40);
-#endif
     
     canvas.setTextDatum(top_left);
 }

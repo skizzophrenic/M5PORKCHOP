@@ -10,29 +10,15 @@
 #include <driver/gpio.h>
 
 // ---- microSD wiring (explicit pinmap) ----
-// We use an explicit SPI bus + explicit pins for deterministic SD init across stacks.
-#if defined(PORKCHOP_TARGET_CORE2)
 // Core2 (ESP32) TF card pin map:
 //   MISO=GPIO38 MOSI=GPIO23 SCK=GPIO18 CS=GPIO4
 static constexpr int SD_CS_PIN   = 4;
 static constexpr int SD_MOSI_PIN = 23;
 static constexpr int SD_MISO_PIN = 38;
 static constexpr int SD_SCK_PIN  = 18;
-#else
-// Cardputer (ESP32-S3 StampS3) microSD pin map:
-//   MISO=GPIO39 MOSI=GPIO14 SCK=GPIO40 CS=GPIO12
-static constexpr int SD_CS_PIN   = 12;  // CS
-static constexpr int SD_MOSI_PIN = 14;  // MOSI
-static constexpr int SD_MISO_PIN = 39;  // MISO
-static constexpr int SD_SCK_PIN  = 40;  // SCK/CLK
-#endif
 
 // Dedicated SPI bus instance for SD.
-#if defined(PORKCHOP_TARGET_CORE2)
 static SPIClass sdSPI(VSPI);
-#else
-static SPIClass sdSPI(FSPI);
-#endif
 static bool sdSpiBegun = false;
 
 // Static member initialization
@@ -240,11 +226,7 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     if (gps.source == GPSSource::CAP_LORA) {
         gps.rxPin = 15; gps.txPin = 13;
     } else if (gps.source == GPSSource::GROVE) {
-        #if defined(PORKCHOP_TARGET_CORE2)
         gps.rxPin = 13; gps.txPin = 14;  // Core2 PORT.C (UART2)
-        #else
-        gps.rxPin = 1;  gps.txPin = 2;   // Cardputer Grove (G1/G2)
-        #endif
     }
 
     wifi.channelHopInterval   = b.channelHopInterval;
@@ -567,22 +549,12 @@ bool Config::applyJson(const JsonDocument& doc) {
             gpsConfig.rxPin = 15;  // Cap LoRa868 GPS RX
             gpsConfig.txPin = 13;  // Cap LoRa868 GPS TX
         } else if (gpsConfig.source == GPSSource::GROVE) {
-            #if defined(PORKCHOP_TARGET_CORE2)
             gpsConfig.rxPin = 13;  // Core2 PORT.C RXD2
             gpsConfig.txPin = 14;  // Core2 PORT.C TXD2
-            #else
-            gpsConfig.rxPin = 1;   // Grove GPS RX
-            gpsConfig.txPin = 2;   // Grove GPS TX
-            #endif
         } else {
             // CUSTOM: load pins from config
-            #if defined(PORKCHOP_TARGET_CORE2)
             gpsConfig.rxPin = doc["gps"]["rxPin"] | 13;
             gpsConfig.txPin = doc["gps"]["txPin"] | 14;
-            #else
-            gpsConfig.rxPin = doc["gps"]["rxPin"] | 1;
-            gpsConfig.txPin = doc["gps"]["txPin"] | 2;
-            #endif
         }
 
         gpsConfig.baudRate = doc["gps"]["baudRate"] | 115200;

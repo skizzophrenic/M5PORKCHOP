@@ -14,20 +14,13 @@
 #include "../core/xp.h"
 #include "../ui/display.h"
 #include "../piglet/mood.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include "../ui/input.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>  // For heap_caps_get_largest_free_block
 #include <esp_attr.h>
 
-#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
-#define PSRAM_BSS __attribute__((section(".psram_bss")))
-#else
-#define PSRAM_BSS
-#endif
+// Large buffers allocated from PSRAM via ps_calloc() in start()
 #include <NimBLEDevice.h>   // For BLE coexistence check
 #include <algorithm>
 #include <atomic>
@@ -137,7 +130,7 @@ static const float SINC_LUT[45] = {
 static int8_t spectrumBuffer[SPECTRUM_WIDTH];           // Current frame RSSI per column
 static int8_t spectrumPersist[SPECTRUM_WIDTH];          // Persistence (rolling average)
 static int8_t spectrumPeak[SPECTRUM_WIDTH];             // Peak hold per column
-static uint8_t waterfallBuffer[WATERFALL_ROWS][SPECTRUM_WIDTH] PSRAM_BSS;  // History (0-255 intensity)
+static uint8_t (*waterfallBuffer)[SPECTRUM_WIDTH] = nullptr;  // History (0-255 intensity) — PSRAM
 static uint8_t waterfallWriteRow = 0;                   // Current write position (circular)
 static uint32_t lastWaterfallUpdate = 0;
 static const uint32_t WATERFALL_UPDATE_MS = 100;        // 10 FPS waterfall scroll
@@ -188,7 +181,7 @@ static int8_t channelAvgRSSI[CHANNEL_SLOTS] = {};
 static uint32_t lastActivityUpdate = 0;
 static uint32_t lastPeakDecay = 0;
 static const uint32_t PEAK_DECAY_INTERVAL_MS = 200;  // Decay peaks every 200ms
-static char mergeSsidKeys[MAX_SPECTRUM_NETWORKS][33] PSRAM_BSS;
+static char (*mergeSsidKeys)[33] = nullptr;  // PSRAM
 static uint8_t mergeSsidBssid[MAX_SPECTRUM_NETWORKS][6] = {};
 static int8_t mergeSsidRssi[MAX_SPECTRUM_NETWORKS] = {};
 static uint32_t mergeSsidLastSeen[MAX_SPECTRUM_NETWORKS] = {};
@@ -373,11 +366,15 @@ void SpectrumMode::init() {
         channelAvgRSSI[ch] = RSSI_NO_SIGNAL;
     }
     
+    // Allocate PSRAM buffers (once)
+    if (!waterfallBuffer) waterfallBuffer = (uint8_t (*)[SPECTRUM_WIDTH])ps_calloc(WATERFALL_ROWS, SPECTRUM_WIDTH);
+    if (!mergeSsidKeys) mergeSsidKeys = (char (*)[33])ps_calloc(MAX_SPECTRUM_NETWORKS, 33);
+
     // Initialize spectrum analyzer buffers (analyzer-style rendering)
     memset(spectrumBuffer, RSSI_MIN, sizeof(spectrumBuffer));
     memset(spectrumPersist, RSSI_MIN, sizeof(spectrumPersist));
     memset(spectrumPeak, RSSI_MIN, sizeof(spectrumPeak));
-    memset(waterfallBuffer, 0, sizeof(waterfallBuffer));
+    memset(waterfallBuffer, 0, (size_t)WATERFALL_ROWS * SPECTRUM_WIDTH);
     waterfallWriteRow = 0;
     lastWaterfallUpdate = 0;
 }
@@ -1010,7 +1007,6 @@ void SpectrumMode::handleInput() {
         return;
     }
 
-#if defined(PORKCHOP_TARGET_CORE2)
     // ---- Core2: buttons + touch gestures ----
     Display::resetDimTimer();
     bool has5G = has5GHzScanData();
@@ -1214,246 +1210,9 @@ void SpectrumMode::handleInput() {
             }
         }
     }
-
-#else  // !PORKCHOP_TARGET_CORE2
-
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    Display::resetDimTimer();
-
-    auto keys = M5Cardputer.Keyboard.keysState();
-    bool has5G = has5GHzScanData();
-
-    // Pan spectrum with , (left) and / (right)
-    if (M5Cardputer.Keyboard.isKeyPressed(',')) {
-        if (viewBand == SpectrumBand::BAND_24) {
-            viewCenterMHz = fmax(MIN_CENTER_MHZ, viewCenterMHz - PAN_STEP_MHZ);
-            viewCenter24MHz = viewCenterMHz;
-        } else {
-            float half = viewWidthMHz * 0.5f;
-            float leftEdge = viewCenterMHz - half;
-            if (leftEdge <= (BAND5_MIN_MHZ + 0.01f)) {
-                // Wrap from 5GHz → 2.4GHz (seamless band scroll)
-                setViewBand(SpectrumBand::BAND_24);
-                viewCenterMHz = MAX_CENTER_MHZ;
-                viewCenter24MHz = viewCenterMHz;
-                Display::showToast("2.4GHZ");
-            } else {
-                viewCenterMHz = clampCenter5GHz(viewCenterMHz - PAN_STEP5_MHZ, viewWidthMHz);
-                viewCenter5MHz = viewCenterMHz;
-            }
-        }
-    }
-    if (M5Cardputer.Keyboard.isKeyPressed('/')) {
-        if (viewBand == SpectrumBand::BAND_24) {
-            float next = viewCenterMHz + PAN_STEP_MHZ;
-            if (next > MAX_CENTER_MHZ) {
-                if (JanusHog::isConnected()) {
-                    // Wrap from 2.4GHz → 5GHz (scan-backed)
-                    setViewBand(SpectrumBand::BAND_5);
-                    // Start at the left edge of the 5GHz band, respecting viewport width.
-                    viewCenterMHz = clampCenter5GHz(BAND5_MIN_MHZ + viewWidthMHz * 0.5f, viewWidthMHz);
-                    viewCenter5MHz = viewCenterMHz;
-                    Display::showToast("5GHZ");
-                    // Ensure we kick off a scan if none has happened yet.
-                    if (!has5G && JanusHog::getScanCount() == 0 && JanusHog::getCurrentOp() == C5Op::NONE) {
-                        JanusHog::requestScan();
-                    }
-                } else {
-                    viewCenterMHz = MAX_CENTER_MHZ;
-                    viewCenter24MHz = viewCenterMHz;
-                }
-            } else {
-                viewCenterMHz = fmin(MAX_CENTER_MHZ, next);
-                viewCenter24MHz = viewCenterMHz;
-            }
-        } else {
-            viewCenterMHz = clampCenter5GHz(viewCenterMHz + PAN_STEP5_MHZ, viewWidthMHz);
-            viewCenter5MHz = viewCenterMHz;
-        }
-    }
-
-    // F key: cycle filter mode
-    if (M5Cardputer.Keyboard.isKeyPressed('f') || M5Cardputer.Keyboard.isKeyPressed('F')) {
-        filter = static_cast<SpectrumFilter>((static_cast<int>(filter) + 1) % 4);
-        if (viewBand == SpectrumBand::BAND_24) {
-            // If selected network no longer matches filter, find first matching
-            if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-                if (!matchesFilter(networks[selectedIndex])) {
-                    selectedIndex = -1;
-                    for (size_t i = 0; i < networks.size(); i++) {
-                        if (matchesFilter(networks[i])) {
-                            selectedIndex = (int)i;
-                            viewCenterMHz = channelToFreq(networks[i].channel);
-                            viewCenter24MHz = viewCenterMHz;
-                            break;
-                        }
-                    }
-                }
-            }
-        } else {
-            // 5GHz selection: keep selection if it still matches, otherwise pick next match.
-            bool keepSelection = false;
-            if (selectedC5Valid) {
-                int idx = findC5IndexByBssid(selectedC5Bssid);
-                if (idx >= 0) {
-                    selectedC5Index = idx;
-                    keepSelection = matchesFilterRender(renderNets[idx]);
-                } else {
-                    selectedC5Valid = false;
-                    selectedC5Index = -1;
-                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
-                }
-            }
-
-            if (!keepSelection) {
-                int next = findNextC5Index(selectedC5Index, +1);
-                if (next >= 0) {
-                    selectedC5Index = next;
-                    memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
-                    selectedC5Valid = true;
-                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
-                    viewCenter5MHz = viewCenterMHz;
-                } else {
-                    selectedC5Valid = false;
-                    selectedC5Index = -1;
-                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
-                }
-            }
-        }
-    }
-
-    // Cycle through matching networks with ; and .
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
-            int startIdx = selectedIndex;
-            int count = 0;
-            do {
-                selectedIndex = (selectedIndex - 1 + (int)networks.size()) % (int)networks.size();
-                count++;
-            } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
-
-            if (!matchesFilter(networks[selectedIndex])) {
-                selectedIndex = startIdx;  // No match found, stay put
-            } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-                viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
-                viewCenter24MHz = viewCenterMHz;
-            }
-        } else if (viewBand == SpectrumBand::BAND_5) {
-            int next = findNextC5Index(selectedC5Index, -1);
-            if (next >= 0) {
-                selectedC5Index = next;
-                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
-                selectedC5Valid = true;
-                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
-                viewCenter5MHz = viewCenterMHz;
-            }
-        }
-    }
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
-            int startIdx = selectedIndex;
-            int count = 0;
-            do {
-                selectedIndex = (selectedIndex + 1) % (int)networks.size();
-                count++;
-            } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
-
-            if (!matchesFilter(networks[selectedIndex])) {
-                selectedIndex = startIdx;  // No match found, stay put
-            } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-                viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
-                viewCenter24MHz = viewCenterMHz;
-            }
-        } else if (viewBand == SpectrumBand::BAND_5) {
-            int next = findNextC5Index(selectedC5Index, +1);
-            if (next >= 0) {
-                selectedC5Index = next;
-                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
-                selectedC5Valid = true;
-                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
-                viewCenter5MHz = viewCenterMHz;
-            }
-        }
-    }
-
-    // Enter: start monitoring selected network
-    if (keys.enter) {
-        if (viewBand == SpectrumBand::BAND_24) {
-            if (!networks.empty() && selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-                enterClientMonitor();
-            }
-        } else {
-            if (!has5G) {
-                Display::showToast("NO 5G DATA");
-                return;
-            }
-
-            // Ensure we have a valid selection.
-            if (selectedC5Valid) {
-                int idx = findC5IndexByBssid(selectedC5Bssid);
-                if (idx >= 0) {
-                    selectedC5Index = idx;
-                } else {
-                    selectedC5Valid = false;
-                    selectedC5Index = -1;
-                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
-                }
-            }
-            if (!selectedC5Valid) {
-                int idx = findNextC5Index(-1, +1);
-                if (idx >= 0) {
-                    selectedC5Index = idx;
-                    memcpy(selectedC5Bssid, renderNets[idx].bssid, 6);
-                    selectedC5Valid = true;
-                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[idx].channel), viewWidthMHz);
-                    viewCenter5MHz = viewCenterMHz;
-                }
-            }
-
-            if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)renderCount) {
-                const SpectrumRenderNet& rn = renderNets[selectedC5Index];
-                memcpy(actionBssid, rn.bssid, 6);
-
-                // Pull SSID and latest metadata from recon (scan cache may not include all persisted nets).
-                DetectedNetwork dn = {};
-                if (NetworkRecon::findNetwork(rn.bssid, &dn) && dn.channel > 14) {
-                    strncpy(actionSsid, dn.ssid, 32);
-                    actionSsid[32] = 0;
-                    actionChannel = dn.channel;
-                    actionRssi = dn.rssi;
-                    actionAuthmode = dn.authmode;
-                } else {
-                    actionSsid[0] = 0;
-                    actionChannel = rn.channel;
-                    actionRssi = rn.rssi;
-                    actionAuthmode = rn.authmode;
-                }
-                actionPromptActive = true;
-            } else {
-                Display::showToast("NO 5G NETS");
-            }
-        }
-    }
-    
-    // Space: toggle dial lock when in dial mode
-    if (M5Cardputer.Keyboard.isKeyPressed(' ') && dialMode && viewBand == SpectrumBand::BAND_24) {
-        dialLocked = !dialLocked;
-        SFX::play(SFX::CLICK);
-    }
-#endif  // PORKCHOP_TARGET_CORE2
 }
 
 void SpectrumMode::handleActionPromptInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // Core2: touch buttons drawn in drawActionPrompt() for HANDSHAKE/PKT MON/BOAR BRO/STOP/X
     Display::resetDimTimer();
 
@@ -1518,78 +1277,6 @@ void SpectrumMode::handleActionPromptInput() {
             actionPromptActive = false;
         }
     }
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    Display::resetDimTimer();
-    auto keys = M5Cardputer.Keyboard.keysState();
-
-    // Backspace or Enter: close prompt
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
-        actionPromptActive = false;
-        return;
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed('h') || M5Cardputer.Keyboard.isKeyPressed('H')) {
-        actionPromptActive = false;
-        if (!JanusHog::isConnected()) {
-            Display::showToast("C5 OFFLINE");
-            return;
-        }
-        // Start handshake capture on C5.
-        if (JanusHog::requestHandshake(actionBssid)) {
-            c5HandshakePending = true;
-            c5HandshakeStartMs = millis();
-            strncpy(c5HandshakeSsid, actionSsid, 32);
-            c5HandshakeSsid[32] = 0;
-            Display::notify(NoticeKind::STATUS, "C5 HANDSHAKE", 2000, NoticeChannel::TOP_BAR);
-        } else {
-            Display::showToast("C5 BUSY");
-        }
-        return;
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed('p') || M5Cardputer.Keyboard.isKeyPressed('P')) {
-        actionPromptActive = false;
-        if (!JanusHog::isConnected()) {
-            Display::showToast("C5 OFFLINE");
-            return;
-        }
-        if (JanusHog::requestPacketMonitor(actionChannel)) {
-            Display::notify(NoticeKind::STATUS, "C5 PKT MON", 2000, NoticeChannel::TOP_BAR);
-        } else {
-            Display::showToast("C5 BUSY");
-        }
-        return;
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed('b') || M5Cardputer.Keyboard.isKeyPressed('B')) {
-        actionPromptActive = false;
-        bool ok = OinkMode::excludeNetworkByBSSID(actionBssid, actionSsid);
-        Display::showToast(ok ? "BOAR BRO" : "ALREADY BRO");
-        return;
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
-        actionPromptActive = false;
-        if (JanusHog::isConnected()) {
-            JanusHog::requestStop();
-            Display::showToast("C5 STOP");
-        } else {
-            Display::showToast("C5 OFFLINE");
-        }
-        return;
-    }
-
-    // Any other key closes prompt (avoids modal trap).
-    actionPromptActive = false;
-#endif
 }
 
 void SpectrumMode::drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
@@ -1633,19 +1320,13 @@ void SpectrumMode::drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
     snprintf(meta, sizeof(meta), "CH:%u %ddB %s", actionChannel, actionRssi, authModeToShortString(actionAuthmode));
     canvas.drawString(meta, textX, textY + lineH);
 
-#if defined(PORKCHOP_TARGET_CORE2)
     // Touch-friendly button labels
     canvas.drawString("HS | MON | BRO | STOP | X", textX, textY + (lineH * 2));
     canvas.drawString("TAP ZONE  B-HOLD:EXIT", textX, textY + (lineH * 3));
-#else
-    canvas.drawString("[H]HS  [P]MON  [B]BRO", textX, textY + (lineH * 2));
-    canvas.drawString("[S]STOP  [BK]EXIT", textX, textY + (lineH * 3));
-#endif
 }
 
 // Handle input when in client monitor overlay [P11] [P13] [P14]
 void SpectrumMode::handleClientMonitorInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     Display::resetDimTimer();
 
     // Detail popup: any button closes it
@@ -1705,98 +1386,6 @@ void SpectrumMode::handleClientMonitorInput() {
             deauthClient(selectedClientIndex);
         }
     }
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-
-    Display::resetDimTimer();
-
-    // If detail popup is active, any key closes it
-    if (clientDetailActive) {
-        clientDetailActive = false;
-        return;
-    }
-
-    // If revealing, any key exits reveal mode
-    if (revealingClients) {
-        exitRevealMode();
-        return;
-    }
-
-    // W key: enter reveal mode (broadcast deauth to discover clients)
-    if (M5Cardputer.Keyboard.isKeyPressed('w') || M5Cardputer.Keyboard.isKeyPressed('W')) {
-        enterRevealMode();
-        return;
-    }
-
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        exitClientMonitor();
-        return;
-    }
-
-    // B key: add to BOAR BROS and exit [P13]
-    if (M5Cardputer.Keyboard.isKeyPressed('b') || M5Cardputer.Keyboard.isKeyPressed('B')) {
-        if (monitoredNetworkIndex >= 0 &&
-            monitoredNetworkIndex < (int)networks.size()) {
-            // Add to BOAR BROS via OinkMode
-            OinkMode::excludeNetworkByBSSID(networks[monitoredNetworkIndex].bssid,
-                                             networks[monitoredNetworkIndex].ssid);
-            Display::showToast("EXCLUDED - RETURNING");
-            delay(500);
-            exitClientMonitor();
-        }
-        return;
-    }
-
-    // Get client count safely [P14]
-    int clientCount = 0;
-    if (monitoredNetworkIndex >= 0 &&
-        monitoredNetworkIndex < (int)networks.size()) {
-        clientCount = networks[monitoredNetworkIndex].clientCount;
-    }
-
-    // Navigation only if clients exist [P14]
-    if (clientCount > 0) {
-        if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-            selectedClientIndex = max(0, selectedClientIndex - 1);
-            // Adjust scroll if needed
-            if (selectedClientIndex < clientScrollOffset) {
-                clientScrollOffset = selectedClientIndex;
-            }
-        }
-
-        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-            selectedClientIndex = min(clientCount - 1, selectedClientIndex + 1);
-            // Adjust scroll if needed
-            if (selectedClientIndex >= clientScrollOffset + VISIBLE_CLIENTS) {
-                clientScrollOffset = selectedClientIndex - VISIBLE_CLIENTS + 1;
-            }
-        }
-
-        // D key: show client detail popup
-        if (M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) {
-            if (selectedClientIndex >= 0 && selectedClientIndex < clientCount) {
-                // Store MAC of client we're viewing - close popup if this client disappears
-                memcpy(detailClientMAC, networks[monitoredNetworkIndex].clients[selectedClientIndex].mac, 6);
-                clientDetailActive = true;
-            }
-            return;
-        }
-
-        // Enter: deauth selected client [P14]
-        if (M5Cardputer.Keyboard.keysState().enter) {
-            deauthClient(selectedClientIndex);
-        }
-    }
-#endif
 }
 
 void SpectrumMode::draw(M5Canvas& canvas) {
@@ -2706,145 +2295,8 @@ float SpectrumMode::channelToFreq(uint8_t channel) {
 // ============================================================
 
 void SpectrumMode::updateDialChannel() {
-    // Dial mode requires Cardputer ADV accelerometer; skip entirely on Core2.
-#if defined(PORKCHOP_TARGET_CORE2)
-    (void)0;  // Core2: dial mode not supported
+    // Dial mode requires Cardputer ADV accelerometer; not supported on Core2.
     return;
-#endif
-    if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return;
-    
-    // Skip if tilt-to-tune is disabled
-    if (!Config::wifi().spectrumTiltEnabled) {
-        if (dialMode) {
-            dialMode = false;
-            dialLocked = false;
-            if (NetworkRecon::isChannelLocked()) {
-                NetworkRecon::unlockChannel();
-            }
-        }
-        return;
-    }
-    
-    // Skip if in client monitor mode
-    if (monitoringNetwork) return;
-    
-    uint32_t now = millis();
-    uint32_t staleMs = Config::wifi().spectrumStaleMs;
-    if (staleMs < 1000) staleMs = 1000;
-    if (staleMs > 60000) staleMs = 60000;
-    
-    // ==[ READ IMU ]== accelerometer
-    float ax, ay, az;
-    M5.Imu.getAccel(&ax, &ay, &az);
-    
-    // ==[ AUTO FLT/UPS MODE SWITCH WITH HYSTERESIS ]==
-    // FLT (flat): normal spectrum mode, auto-hopping
-    // UPS (upright): dial mode activates, accelerometer controls channel
-    // Hysteresis prevents flickering at boundary:
-    //   Enter UPS when |az| < 0.5 (clearly upright)
-    //   Exit UPS when |az| > 0.7 (clearly flat)
-    //   Between 0.5-0.7: maintain previous state
-    float absAz = fabsf(az);
-    
-    bool deviceFlat;
-    if (dialWasUpright) {
-        // Currently upright - need strong flat signal to exit
-        deviceFlat = absAz > 0.7f;
-    } else {
-        // Currently flat - need strong upright signal to enter
-        deviceFlat = absAz > 0.5f;
-    }
-    dialWasUpright = !deviceFlat;
-    
-    if (deviceFlat) {
-        // Device flat - disable dial mode, return to normal hopping
-        // But only after 200ms debounce to prevent flicker
-        if (dialMode && (now - dialModeEntryTime >= 200)) {
-            dialMode = false;
-            // Release lock so NetworkRecon can resume hopping.
-            if (NetworkRecon::isChannelLocked()) {
-                NetworkRecon::unlockChannel();
-            }
-        }
-        return;  // No dial update when flat
-    } else {
-        // Device upright - enable dial mode
-        if (!dialMode) {
-            dialMode = true;
-            dialModeEntryTime = now;
-            lastDialUpdate = now;  // Reset timing to avoid dt jump
-            // Initialize smooth position to current channel
-            dialPositionSmooth = (float)currentChannel;
-            dialPositionTarget = dialPositionSmooth;
-            dialChannel = currentChannel;
-            NetworkRecon::lockChannel(dialChannel);
-        }
-    }
-    
-    // ==[ DIAL LOCKED ]== skip gyro reading but keep channel
-    if (dialLocked) {
-        // Keep channel locked
-        if (currentChannel != dialChannel) {
-            NetworkRecon::lockChannel(dialChannel);
-            currentChannel = dialChannel;
-        }
-        return;
-    }
-    
-    // ==[ LANDSCAPE UPRIGHT JOG CONTROL ]==
-    // JOG WHEEL behavior - tilt to scroll channels, level to stop.
-    // Ported from Sirloin for satisfying feel.
-    
-    const float DEADZONE = 0.05f;      // tiny deadzone - just noise rejection
-    const float SCROLL_SPEED = 25.0f;  // FAST: full sweep in ~0.5s at max tilt
-    
-    // Use -ax for left/right tilt in landscape upright orientation
-    // Tilt right (right edge down) → ax positive → -ax negative → BUT we want higher channels
-    // So invert: tilt right = positive scroll = higher channels
-    float tilt = -ax;
-    
-    // Apply deadzone
-    if (fabsf(tilt) < DEADZONE) {
-        tilt = 0.0f;
-    } else {
-        // Remove deadzone from value, preserve sign
-        tilt = (tilt > 0) ? (tilt - DEADZONE) : (tilt + DEADZONE);
-    }
-    
-    // Clamp to ±1 range (values beyond ±1g are extreme)
-    tilt = constrain(tilt, -1.0f, 1.0f);
-    
-    // Calculate time delta
-    float dt = (now - lastDialUpdate) / 1000.0f;
-    if (dt > 0.1f) dt = 0.1f;  // cap to avoid jumps after pause
-    if (dt < 0.001f) dt = 0.016f;  // minimum ~60fps equivalent
-    
-    // Apply scroll: tilt controls velocity (jog wheel style)
-    // Positive tilt → higher channels, Negative tilt → lower channels
-    dialPositionTarget += tilt * SCROLL_SPEED * dt;
-    dialPositionTarget = constrain(dialPositionTarget, 1.0f, 13.0f);
-    
-    // ==[ SMOOTH INTERPOLATION ]== faster lerp for responsiveness
-    dialPositionSmooth += (dialPositionTarget - dialPositionSmooth) * 0.3f;
-    
-    // ==[ CHANNEL FROM SMOOTH POSITION ]== rounded integer
-    int newChannel = (int)roundf(dialPositionSmooth);
-    newChannel = constrain(newChannel, 1, 13);  // WiFi channels 1-13 only
-    
-    // ==[ UPDATE CHANNEL IF CHANGED ]==
-    if (newChannel != dialChannel) {
-        dialChannel = newChannel;
-        NetworkRecon::lockChannel(dialChannel);
-        currentChannel = dialChannel;
-        SFX::play(SFX::CLICK);  // tick sound on channel change
-        
-        // Scroll spectrum view to keep dial channel centered
-        viewCenterMHz = channelToFreq(dialChannel);
-    }
-    // Note: Redundant channel enforcement removed - above block already ensures
-    // currentChannel == dialChannel after any change
-    
-    lastDialUpdate = now;
 }
 
 void SpectrumMode::pruneStale() {

@@ -220,11 +220,9 @@ void Display::init() {
     // Wrong order = 16-bit alloc (2 bytes/pixel) instead of 8-bit (1 byte/pixel),
     // wasting ~97KB on a 300KB device.
     // On PSRAM-capable targets (Core2), keep the large UI sprites out of internal heap.
-    #if defined(PORKCHOP_TARGET_CORE2)
     topBar.setPsram(true);
     mainCanvas.setPsram(true);
     bottomBar.setPsram(true);
-    #endif
 
     topBar.setColorDepth(PORKCHOP_COLOR_DEPTH);
     topBar.createSprite(DISPLAY_W, TOP_BAR_H);
@@ -1557,31 +1555,9 @@ void Display::flashSiren(uint8_t cycles) {
 }
 
 void Display::setLED(uint8_t r, uint8_t g, uint8_t b) {
-#if defined(PORKCHOP_TARGET_CORE2)
-    // Core2 has no Cardputer NeoPixel; keep calls safe/no-op.
+    // Core2 has no NeoPixel; keep calls safe/no-op.
     (void)r; (void)g; (void)b;
     return;
-#else
-    // Static LED glow - for ambient effects like riddle mode
-    // CRITICAL FIX: Scale LED output to prevent voltage sag at high display brightness
-    uint8_t displayBrightness = Config::personality().brightness;
-    
-    // Disable LED above 85% brightness
-    if (displayBrightness > 85) {
-        neopixelWrite(LED_PIN, 0, 0, 0);
-        return;
-    }
-    
-    // Scale RGB values based on display brightness
-    if (displayBrightness > 50) {
-        uint8_t scale = map(displayBrightness, 50, 85, 255, 128);
-        r = (r * scale) / 255;
-        g = (g * scale) / 255;
-        b = (b * scale) / 255;
-    }
-    
-    neopixelWrite(LED_PIN, r, g, b);
-#endif
 }
 
 void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {

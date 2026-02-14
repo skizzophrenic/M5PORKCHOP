@@ -27,12 +27,7 @@
 #include <esp_heap_caps.h>
 #include <esp_attr.h>
 
-// Move large static arrays to PSRAM on Core2 (frees ~10KB DRAM BSS)
-#if defined(BOARD_HAS_PSRAM) && BOARD_HAS_PSRAM
-#define PSRAM_BSS __attribute__((section(".psram_bss")))
-#else
-#define PSRAM_BSS
-#endif
+// Large buffers allocated from PSRAM via ps_calloc() in start()
 #include <atomic>  // For atomic beaconCaptured flag
 #include "../core/janus_hog.h"
 
@@ -125,7 +120,7 @@ struct PendingHandshakeFrame {
 // WARNING: Each PendingHandshakeFrame is ~3.3KB (contains 4x EAPOLFrame @ 822 bytes each)
 // Total static pool: 4 * 3.3KB = ~13KB permanently in .bss - reduces heap even when idle!
 static const uint8_t PENDING_HS_SLOTS = 4;
-static PendingHandshakeFrame pendingHsPool[PENDING_HS_SLOTS] PSRAM_BSS;  // Static pool - PSRAM on Core2
+static PendingHandshakeFrame* pendingHsPool = nullptr;  // Static pool — PSRAM
 // #region agent log
 // [DEBUG] H1: This static pool uses ~13KB of RAM - logged at compile time in .bss
 // Size info logged in init() below
@@ -383,10 +378,13 @@ static const uint32_t C5_BACKGROUND_TIMEOUT = 45000;  // 45s max per 5GHz target
 static char lastPwnedSSID[33] = "";
 
 void OinkMode::init() {
+    // Allocate PSRAM buffer for handshake pool (once)
+    if (!pendingHsPool) pendingHsPool = (PendingHandshakeFrame*)ps_calloc(PENDING_HS_SLOTS, sizeof(PendingHandshakeFrame));
+
     // #region agent log
     // [DEBUG] H1: Log static pool size to confirm ~13KB allocation
     Serial.printf("[DBG-OINK] pendingHsPool size: %u bytes (%u slots x %u each)\n",
-                  (unsigned)(sizeof(pendingHsPool)), 
+                  (unsigned)(PENDING_HS_SLOTS * sizeof(PendingHandshakeFrame)),
                   (unsigned)PENDING_HS_SLOTS,
                   (unsigned)sizeof(PendingHandshakeFrame));
     Serial.printf("[DBG-OINK] EAPOLFrame size: %u bytes\n", (unsigned)sizeof(EAPOLFrame));
@@ -3152,7 +3150,7 @@ bool OinkMode::saveHandshake22000(const CapturedHandshake& hs, const char* path)
     
     // Allocate buffer for hex-encoded EAPOL (2 chars per byte)
     // Max EAPOL is 512 bytes = 1024 hex chars + null
-    static char eapolHex[1025] PSRAM_BSS;
+    static char eapolHex[1025];
     if (eapolLen * 2 + 1 > sizeof(eapolHex)) {
         f.close();
         return false;

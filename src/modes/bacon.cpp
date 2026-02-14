@@ -1,9 +1,6 @@
 // Bacon Mode - Implementation
 
 #include "bacon.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include "../ui/display.h"
@@ -52,15 +49,9 @@ static const char* BACON_PHRASES_GENERAL[] = {
 };
 
 static const char* BACON_PHRASES_KEYS[] = {
-#if defined(PORKCHOP_TARGET_CORE2)
     "BTN A/B/C. TIER SHIFT.",
     "A B C SET TIER.",
     "TIER BTN A/B/C."
-#else
-    "KEYS 1 2 3. TIER SHIFT.",
-    "1 2 3 SET TIER.",
-    "TIER KEYS 1 2 3."
-#endif
 };
 
 void BaconMode::init() {
@@ -192,7 +183,6 @@ void BaconMode::update() {
 }
 
 void BaconMode::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     uint8_t newTier = 0;
     uint16_t newInterval = 0;
 
@@ -217,44 +207,6 @@ void BaconMode::handleInput() {
 
         SDLog::log("BACON", "Switched to tier %d (%dms)", currentTier, beaconInterval);
     }
-#else
-    M5Cardputer.update();
-
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-        Keyboard_Class::KeysState state = M5Cardputer.Keyboard.keysState();
-
-        for (auto key : state.word) {
-            uint8_t newTier = 0;
-            uint16_t newInterval = 0;
-
-            switch (key) {
-                case '1':
-                    newTier = 1;
-                    newInterval = BACON_TIER1_MS;
-                    break;
-                case '2':
-                    newTier = 2;
-                    newInterval = BACON_TIER2_MS;
-                    break;
-                case '3':
-                    newTier = 3;
-                    newInterval = BACON_TIER3_MS;
-                    break;
-            }
-
-            if (newTier > 0 && newTier != currentTier) {
-                currentTier = newTier;
-                beaconInterval = newInterval;
-
-                char toast[32];
-                snprintf(toast, sizeof(toast), "TX TIER %d: %dms", currentTier, beaconInterval);
-                Display::notify(NoticeKind::STATUS, toast, 0, NoticeChannel::TOP_BAR);
-
-                SDLog::log("BACON", "Switched to tier %d (%dms)", currentTier, beaconInterval);
-            }
-        }
-    }
-#endif
 }
 
 void BaconMode::updateStatusMessage() {

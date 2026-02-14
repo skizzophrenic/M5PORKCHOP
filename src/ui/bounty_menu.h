@@ -22,13 +22,8 @@ private:
     static bool keyWasPressed;
     
     // Layout constants (match boar_bros_menu pattern - no header)
-#if defined(PORKCHOP_TARGET_CORE2)
     static const uint8_t VISIBLE_ITEMS = 11;
     static const int LINE_H = 17;
-#else
-    static const uint8_t VISIBLE_ITEMS = 6;  // 6 items, full canvas
-    static const int LINE_H = 17;            // Line height (107px / 6 items)
-#endif
     static const int COL_LEFT = 4;           // Left margin
     
     static void handleInput();

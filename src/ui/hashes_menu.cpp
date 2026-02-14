@@ -1,9 +1,6 @@
 // Hashes Menu - View saved handshake captures
 
 #include "hashes_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <SD.h>
 #include <WiFi.h>
 #include <time.h>
@@ -43,11 +40,7 @@ uint8_t HashesMenu::hintIndex = 0;
 const char* const HashesMenu::HINTS[] = {
     "FEED YO HASHCAT.",
     "COLLECTED PAIN. COMPRESSED.",
-#if defined(PORKCHOP_TARGET_CORE2)
     "B:DET  HOLD-A:SYNC",
-#else
-    "ENT:DET  S:SYNC  D:NUKE",
-#endif
     "MALLOC SAID NAH.",
     "YOUR LOOT. YOUR PROBLEM."
 };
@@ -528,7 +521,6 @@ void HashesMenu::update() {
 }
 
 void HashesMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // --- Sync modal (takes over input) ---
     if (syncModalActive) {
         if (syncState == SyncState::ERROR || syncState == SyncState::COMPLETE) {
@@ -614,109 +606,6 @@ void HashesMenu::handleInput() {
         }
         return;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    auto keys = M5Cardputer.Keyboard.keysState();
-
-    // Handle sync modal
-    if (syncModalActive) {
-        if (syncState == SyncState::ERROR || syncState == SyncState::COMPLETE) {
-            // Enter closes the modal after completion/error
-            if (keys.enter || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-                syncModalActive = false;
-                syncState = SyncState::IDLE;
-                scanCaptures();  // Rescan captures after sync
-            }
-        } else {
-            // ESC cancels during sync
-            if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-                cancelSync();
-            }
-        }
-        return;  // Block other inputs during sync
-    }
-
-    // Handle nuke confirmation modal
-    if (nukeConfirmActive) {
-        if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
-            nukeLoot();
-            nukeConfirmActive = false;
-            Display::clearBottomOverlay();
-            scanCaptures();  // Refresh list (should be empty now)
-        } else if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') ||
-                   M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
-            nukeConfirmActive = false;  // Cancel
-            Display::clearBottomOverlay();
-        }
-        return;
-    }
-    
-    // Handle detail view modal - Enter/backspace closes
-    if (detailViewActive) {
-        if (keys.enter || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-            detailViewActive = false;
-            return;
-        }
-        return;  // Block other inputs while detail view is open
-    }
-    
-    // Navigation with ; (up) and . (down) — also rotates hints
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        hintIndex = (hintIndex + 1) % HINT_COUNT;
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
-    }
-
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        hintIndex = (hintIndex + 1) % HINT_COUNT;
-        if (!captures.empty() && selectedIndex < captures.size() - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
-        }
-    }
-    
-    // Enter shows detail view (password if cracked)
-    if (keys.enter) {
-        if (!captures.empty() && selectedIndex < captures.size()) {
-            detailViewActive = true;
-        }
-    }
-    
-    // S key triggers WPA-SEC sync
-    if (M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
-        startSync();
-    }
-    
-    // Nuke all loot with D key
-    if (M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) {
-        if (!captures.empty()) {
-            nukeConfirmActive = true;
-            Display::setBottomOverlay("PERMANENT | NO UNDO");
-        }
-    }
-    
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-    }
-#endif
 }
 
 void HashesMenu::formatTime(char* out, size_t len, time_t t) {
@@ -922,11 +811,7 @@ void HashesMenu::drawNukeConfirm(M5Canvas& canvas) {
     snprintf(cmd, sizeof(cmd), "rm -rf %s/*", scanRoot);
     canvas.drawString(cmd, centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE LOOT.", centerX, boxY + 36);
-#if defined(PORKCHOP_TARGET_CORE2)
     canvas.drawString("B=DO IT  A=ABORT", centerX, boxY + 54);
-#else
-    canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
-#endif
 }
 
 void HashesMenu::nukeLoot() {

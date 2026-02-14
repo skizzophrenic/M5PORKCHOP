@@ -1,9 +1,6 @@
 // Unlockables Menu - Secret challenges for the worthy
 
 #include "unlockables_menu.h"
-#if !defined(PORKCHOP_TARGET_CORE2)
-#include <M5Cardputer.h>
-#endif
 #include <mbedtls/sha256.h>
 #include "display.h"
 #include "input.h"
@@ -110,7 +107,6 @@ bool UnlockablesMenu::validatePhrase(const char* phrase, const char* expectedHas
 }
 
 void UnlockablesMenu::handleInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     // Touch keyboard flow
     if (textEditing) {
         SoftKeyboard::update();
@@ -180,151 +176,10 @@ void UnlockablesMenu::handleInput() {
         }
         return;
     }
-
-    return;
-#else
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    // Handle text input mode separately
-    if (textEditing) {
-        handleTextInput();
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    auto keys = M5Cardputer.Keyboard.keysState();
-    
-    // Navigation with ; (up) and . (down)
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        if (selectedIndex > 0 && TOTAL_UNLOCKABLES > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-            updateBottomOverlay();
-        }
-    }
-    
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        if (TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
-            updateBottomOverlay();
-        }
-    }
-    
-    // Enter to attempt unlock
-    if (keys.enter && TOTAL_UNLOCKABLES > 0 && selectedIndex < TOTAL_UNLOCKABLES) {
-        // Check if already unlocked
-        if (XP::hasUnlockable(UNLOCKABLES[selectedIndex].bitIndex)) {
-            Display::showToast("ALREADY YOURS");
-        } else {
-            // Enter text input mode
-            textEditing = true;
-            textBuffer[0] = '\0'; textLen = 0;
-            keyWasPressed = true;
-        }
-    }
-    
-    // Backspace - go back
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        exitRequested = true;
-        hide();
-    }
-#endif
 }
 
 void UnlockablesMenu::handleTextInput() {
-#if defined(PORKCHOP_TARGET_CORE2)
     return;
-#else
-    auto keys = M5Cardputer.Keyboard.keysState();
-    bool anyPressed = M5Cardputer.Keyboard.isPressed();
-    
-    if (!anyPressed) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    bool hasPrintableChar = !keys.word.empty();
-    bool hasActionKey = keys.enter || keys.del;
-    
-    if (!hasPrintableChar && !hasActionKey) {
-        return;
-    }
-    
-    if (keyWasPressed) return;
-    keyWasPressed = true;
-    
-    // Enter to submit
-    if (keys.enter) {
-        // Safety check
-        if (TOTAL_UNLOCKABLES == 0 || selectedIndex >= TOTAL_UNLOCKABLES) {
-            textEditing = false;
-            textBuffer[0] = '\0'; textLen = 0;
-            return;
-        }
-        
-        // Convert to lowercase for comparison
-        char phrase[33];
-        for (uint8_t i = 0; i <= textLen && i < sizeof(phrase); i++) {
-            phrase[i] = (char)tolower((unsigned char)textBuffer[i]);
-        }
-
-        // Validate against hash
-        if (validatePhrase(phrase, UNLOCKABLES[selectedIndex].hashHex)) {
-            // SUCCESS!
-            XP::setUnlockable(UNLOCKABLES[selectedIndex].bitIndex);
-            Display::showToast("UNLOCKED");
-            Display::flashSiren(3);
-            Mood::adjustHappiness(30);  // Happy pig
-        } else {
-            // WRONG
-            Display::showToast("WRONG");
-            Mood::adjustHappiness(-20);  // Sad pig
-        }
-
-        textEditing = false;
-        textBuffer[0] = '\0'; textLen = 0;
-        return;
-    }
-    
-    // Backspace to delete
-    if (keys.del) {
-        if (textLen > 0) {
-            textBuffer[--textLen] = '\0';
-        }
-        return;
-    }
-    
-    // Backtick to cancel
-    for (char c : keys.word) {
-        if (c == '`') {
-            textEditing = false;
-            textBuffer[0] = '\0'; textLen = 0;
-            return;
-        }
-    }
-    
-    // Add typed characters (max 32)
-    if (textLen < 32) {
-        for (char c : keys.word) {
-            if (c >= 32 && c <= 126 && c != '`' && textLen < 32) {
-                textBuffer[textLen++] = c;
-                textBuffer[textLen] = '\0';
-            }
-        }
-    }
-#endif
 }
 
 void UnlockablesMenu::draw(M5Canvas& canvas) {
@@ -332,11 +187,7 @@ void UnlockablesMenu::draw(M5Canvas& canvas) {
     
     // If text editing, show input overlay
     if (textEditing) {
-        #if defined(PORKCHOP_TARGET_CORE2)
         SoftKeyboard::draw(canvas);
-        #else
-        drawTextInput(canvas);
-        #endif
         return;
     }
     
