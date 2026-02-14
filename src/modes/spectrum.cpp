@@ -1494,13 +1494,35 @@ void SpectrumMode::handleClientMonitorInput() {
         return;
     }
 
-    // Tap: check for REVEAL touch button or client row tap
+    // Tap: check for REVEAL touch button, client row tap, or detail on double-tap
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         // Upper-right area = REVEAL toggle
         if (tapEv.x > (DISPLAY_W * 2 / 3) && tapEv.y < (TOP_BAR_H + 20)) {
             enterRevealMode();
             return;
+        }
+        // Client row tap: START_Y=18, LINE_HEIGHT=16
+        int canvasY = tapEv.y - TOP_BAR_H;
+        if (canvasY >= 18) {
+            int hitIdx = (canvasY - 18) / 16;
+            if (hitIdx >= 0 && hitIdx < VISIBLE_CLIENTS) {
+                int clientCount_ = 0;
+                if (monitoredNetworkIndex >= 0 && monitoredNetworkIndex < (int)networks.size()) {
+                    clientCount_ = networks[monitoredNetworkIndex].clientCount;
+                }
+                int idx = clientScrollOffset + hitIdx;
+                if (idx < clientCount_) {
+                    if (idx == selectedClientIndex) {
+                        // Double-tap opens detail
+                        memcpy(detailClientMAC, networks[monitoredNetworkIndex].clients[idx].mac, 6);
+                        clientDetailActive = true;
+                    } else {
+                        selectedClientIndex = idx;
+                        Haptic::tick();
+                    }
+                }
+            }
         }
     }
 

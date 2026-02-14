@@ -690,6 +690,12 @@ void Display::update() {
             }
         }
         mainCanvas.setTextDatum(TL_DATUM);
+
+        // Tap to dismiss toast early
+        Input::TapEvent tapDismiss;
+        if (Input::tap(tapDismiss)) {
+            toastActive = false;
+        }
     } else if (toastActive) {
         // Toast has expired, mark it as inactive
         toastActive = false;
@@ -2942,7 +2948,28 @@ void Display::drawAboutScreen(M5Canvas& canvas) {
     char quoteBuf[48];
     snprintf(quoteBuf, sizeof(quoteBuf), "\"%s\"", ABOUT_QUOTES[aboutQuoteIndex]);
     canvas.drawString(quoteBuf, DISPLAY_W / 2, 78);
-    
+
+    // Build date
+    canvas.setTextColor(COLOR_FG);
+    canvas.drawString("BUILT: " __DATE__, DISPLAY_W / 2, 96);
+
+    // Runtime stats
+    const PorkXPData& xpData = XP::getData();
+    char statBuf[48];
+    snprintf(statBuf, sizeof(statBuf), "LIFETIME: %lu NETS  %lu HS  %u SESSIONS",
+             xpData.lifetimeNetworks, xpData.lifetimeHS, xpData.sessions);
+    canvas.drawString(statBuf, DISPLAY_W / 2, 112);
+
+    snprintf(statBuf, sizeof(statBuf), "XP: %lu  DIST: %luKM  LVL: %u",
+             XP::getTotalXP(), xpData.lifetimeDistance / 1000, XP::getLevel());
+    canvas.drawString(statBuf, DISPLAY_W / 2, 126);
+
+    // Hardware info
+    snprintf(statBuf, sizeof(statBuf), "HEAP: %uK  PSRAM: %uK  FLASH: 16MB",
+             (unsigned)(ESP.getFreeHeap() / 1024),
+             (unsigned)(ESP.getFreePsram() / 1024));
+    canvas.drawString(statBuf, DISPLAY_W / 2, 144);
+
     // Easter egg hint
     canvas.setTextColor(COLOR_ACCENT);
     canvas.drawString("[ENTER] ???", DISPLAY_W / 2, MAIN_H - 12);
