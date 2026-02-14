@@ -6,7 +6,7 @@
 #include "sd_layout.h"
 #include "challenges.h"
 #include "../ui/display.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include "../audio/sfx.h"
 #include <M5Unified.h>
 #include <SD.h>
@@ -94,7 +94,7 @@ static const uint16_t XP_VALUES[] = {
     15,     // SMOKED_BACON - rare upload bonus
     // C5Lab / JanOS / JANUS HOG (v0.1.9+)
     2,      // SAE_COMMIT_SENT - SAE flood burst
-    25,     // C5_CONNECTED - MonsterC5 board detected
+    25,     // C5_CONNECTED - JanusHog board detected
     5       // C5_5GHZ_FOUND - 5GHz network via C5
 };
 
@@ -927,14 +927,14 @@ void XP::addXP(XPEvent event) {
     
     // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
     if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
-        float captureMult = SwineStats::getCaptureXPMultiplier();
+        float captureMult = FlexesScreen::getCaptureXPMultiplier();
         amount = (uint16_t)(amount * captureMult);
         if (amount < 1) amount = 1;
     }
     
     // Apply distance XP multiplier for km walked (class buff: R04D_H0G)
     if (event == XPEvent::DISTANCE_KM) {
-        float distMult = SwineStats::getDistanceXPMultiplier();
+        float distMult = FlexesScreen::getDistanceXPMultiplier();
         amount = (uint16_t)(amount * distMult);
         if (amount < 1) amount = 1;
     }
@@ -1017,7 +1017,7 @@ void XP::addXP(uint16_t amount) {
     }
     
     // Apply buff/debuff XP multiplier (SNOUT$HARP +18%, F0GSNOUT -10%)
-    float mult = SwineStats::getXPMultiplier();
+    float mult = FlexesScreen::getXPMultiplier();
     // Prevent overflow when applying multiplier
     uint32_t tempAmount = (uint32_t)amount * mult;
     uint16_t modifiedAmount = (tempAmount > UINT16_MAX) ? UINT16_MAX : (uint16_t)tempAmount;
@@ -1065,7 +1065,7 @@ void XP::addXPSilent(uint16_t amount) {
     // Used for bonus XP from challenges/achievements where celebration already shown
     
     // Apply buff/debuff XP multiplier (SNOUT$HARP +18%, F0GSNOUT -10%)
-    float mult = SwineStats::getXPMultiplier();
+    float mult = FlexesScreen::getXPMultiplier();
     // Prevent overflow when applying multiplier
     uint32_t tempAmount = (uint32_t)amount * mult;
     uint16_t modifiedAmount = (tempAmount > UINT16_MAX) ? UINT16_MAX : (uint16_t)tempAmount;

@@ -98,7 +98,7 @@ struct __attribute__((packed)) ConfigBlob {
     uint8_t  mlAutoUpdate;
     char     mlUpdateUrl[128];
 
-    // C5 (MonsterC5 coprocessor)
+    // C5 (JanusHog coprocessor)
     uint8_t  c5Enabled;
     uint32_t c5BaudRate;
     uint16_t c5ScanIntervalMs;

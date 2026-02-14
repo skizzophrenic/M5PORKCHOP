@@ -1,6 +1,6 @@
-// Captures Menu - View saved handshake captures
+// Hashes Menu - View saved handshake captures
 
-#include "captures_menu.h"
+#include "hashes_menu.h"
 #include <M5Cardputer.h>
 #include <SD.h>
 #include <WiFi.h>
@@ -16,28 +16,28 @@
 #include <esp_heap_caps.h>
 
 // Static member initialization
-std::vector<CaptureInfo> CapturesMenu::captures;
-uint8_t CapturesMenu::selectedIndex = 0;
-uint8_t CapturesMenu::scrollOffset = 0;
-bool CapturesMenu::active = false;
-bool CapturesMenu::keyWasPressed = false;
-bool CapturesMenu::nukeConfirmActive = false;
-bool CapturesMenu::detailViewActive = false;
-bool CapturesMenu::scanInProgress = false;
-bool CapturesMenu::scanDeferredHeap = false;
-unsigned long CapturesMenu::lastScanTime = 0;
-char CapturesMenu::scanBaseDir[32] = "";
-File CapturesMenu::scanDir;
-File CapturesMenu::currentFile;
-bool CapturesMenu::scanComplete = false;
-size_t CapturesMenu::scanProgress = 0;
-bool CapturesMenu::wpasecUpdateInProgress = false;
-unsigned long CapturesMenu::lastWpasecUpdateTime = 0;
-size_t CapturesMenu::wpasecUpdateProgress = 0;
+std::vector<CaptureInfo> HashesMenu::captures;
+uint8_t HashesMenu::selectedIndex = 0;
+uint8_t HashesMenu::scrollOffset = 0;
+bool HashesMenu::active = false;
+bool HashesMenu::keyWasPressed = false;
+bool HashesMenu::nukeConfirmActive = false;
+bool HashesMenu::detailViewActive = false;
+bool HashesMenu::scanInProgress = false;
+bool HashesMenu::scanDeferredHeap = false;
+unsigned long HashesMenu::lastScanTime = 0;
+char HashesMenu::scanBaseDir[32] = "";
+File HashesMenu::scanDir;
+File HashesMenu::currentFile;
+bool HashesMenu::scanComplete = false;
+size_t HashesMenu::scanProgress = 0;
+bool HashesMenu::wpasecUpdateInProgress = false;
+unsigned long HashesMenu::lastWpasecUpdateTime = 0;
+size_t HashesMenu::wpasecUpdateProgress = 0;
 
 // Hint rotation
-uint8_t CapturesMenu::hintIndex = 0;
-const char* const CapturesMenu::HINTS[] = {
+uint8_t HashesMenu::hintIndex = 0;
+const char* const HashesMenu::HINTS[] = {
     "FEED YO HASHCAT.",
     "COLLECTED PAIN. COMPRESSED.",
     "ENT:DET  S:SYNC  D:NUKE",
@@ -46,16 +46,16 @@ const char* const CapturesMenu::HINTS[] = {
 };
 
 // WPA-SEC Sync state
-bool CapturesMenu::syncModalActive = false;
-SyncState CapturesMenu::syncState = SyncState::IDLE;
-char CapturesMenu::syncStatusText[48] = "";
-uint8_t CapturesMenu::syncProgress = 0;
-uint8_t CapturesMenu::syncTotal = 0;
-unsigned long CapturesMenu::syncStartTime = 0;
-uint8_t CapturesMenu::syncUploaded = 0;
-uint8_t CapturesMenu::syncFailed = 0;
-uint16_t CapturesMenu::syncCracked = 0;
-char CapturesMenu::syncError[48] = "";
+bool HashesMenu::syncModalActive = false;
+SyncState HashesMenu::syncState = SyncState::IDLE;
+char HashesMenu::syncStatusText[48] = "";
+uint8_t HashesMenu::syncProgress = 0;
+uint8_t HashesMenu::syncTotal = 0;
+unsigned long HashesMenu::syncStartTime = 0;
+uint8_t HashesMenu::syncUploaded = 0;
+uint8_t HashesMenu::syncFailed = 0;
+uint16_t HashesMenu::syncCracked = 0;
+char HashesMenu::syncError[48] = "";
 
 namespace {
 
@@ -123,14 +123,14 @@ static const char* resolveCaptureScanDir() {
 
 } // namespace
 
-void CapturesMenu::init() {
+void HashesMenu::init() {
     captures.clear();
     selectedIndex = 0;
     scrollOffset = 0;
     scanDeferredHeap = false;
 }
 
-void CapturesMenu::show() {
+void HashesMenu::show() {
     active = true;
     selectedIndex = 0;
     scrollOffset = 0;
@@ -142,7 +142,7 @@ void CapturesMenu::show() {
     scanCaptures();
 }
 
-void CapturesMenu::hide() {
+void HashesMenu::hide() {
     active = false;
     
     // FIX: Always call emergencyCleanup first - ensures file handles closed
@@ -166,11 +166,11 @@ void CapturesMenu::hide() {
     scanBaseDir[0] = '\0';
 }
 
-void CapturesMenu::emergencyCleanup() {
+void HashesMenu::emergencyCleanup() {
     // Can be called from main loop when heap is critical
     if (!active) return;
     
-    Serial.println("[CAPTURES] Emergency cleanup triggered");
+    Serial.println("[HASHES] Emergency cleanup triggered");
     captures.clear();
     captures.shrink_to_fit();
     WPASec::freeCacheMemory();
@@ -188,7 +188,7 @@ void CapturesMenu::emergencyCleanup() {
     scanBaseDir[0] = '\0';
 }
 
-bool CapturesMenu::scanCaptures() {
+bool HashesMenu::scanCaptures() {
     // Initialize async scan
     captures.clear();
     captures.reserve(8);  // Grow naturally — reserve(100) was ~17KB contiguous, crash-prone on fragmented heap
@@ -196,7 +196,7 @@ bool CapturesMenu::scanCaptures() {
 
     // Guard: Skip if no SD card available
     if (!Config::isSDAvailable()) {
-        Serial.println("[CAPTURES] No SD card available");
+        Serial.println("[HASHES] No SD card available");
         scanComplete = true;
         scanInProgress = false;
         return false;
@@ -204,7 +204,7 @@ bool CapturesMenu::scanCaptures() {
 
     // Guard: Skip SD scan at Critical pressure — file listing only needs small FAT buffers
     if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Critical) {
-        Serial.println("[CAPTURES] Scan deferred: heap pressure");
+        Serial.println("[HASHES] Scan deferred: heap pressure");
         scanDeferredHeap = true;
         scanComplete = true;
         scanInProgress = false;
@@ -214,7 +214,7 @@ bool CapturesMenu::scanCaptures() {
     const char* preferredDir = SDLayout::handshakesDir();
     const char* handshakesDir = resolveCaptureScanDir();
     if (strcmp(handshakesDir, preferredDir) != 0) {
-        Serial.printf("[CAPTURES] Using fallback scan dir: %s (preferred %s)\n",
+        Serial.printf("[HASHES] Using fallback scan dir: %s (preferred %s)\n",
                       handshakesDir, preferredDir);
     }
     strncpy(scanBaseDir, handshakesDir, sizeof(scanBaseDir) - 1);
@@ -222,9 +222,9 @@ bool CapturesMenu::scanCaptures() {
 
     // Create directory if it doesn't exist
     if (!SD.exists(handshakesDir)) {
-        Serial.println("[CAPTURES] No handshakes directory, creating...");
+        Serial.println("[HASHES] No handshakes directory, creating...");
         if (!SD.mkdir(handshakesDir)) {
-            Serial.println("[CAPTURES] Failed to create handshakes directory");
+            Serial.println("[HASHES] Failed to create handshakes directory");
             scanComplete = true;
             scanInProgress = false;
             return false;
@@ -233,7 +233,7 @@ bool CapturesMenu::scanCaptures() {
 
     scanDir = SD.open(handshakesDir);
     if (!scanDir || !scanDir.isDirectory()) {
-        Serial.println("[CAPTURES] Failed to open handshakes directory");
+        Serial.println("[HASHES] Failed to open handshakes directory");
         scanComplete = true;
         scanInProgress = false;
         scanDir.close();
@@ -258,7 +258,7 @@ static bool isAllHex(const char* s, size_t n) {
     return true;
 }
 
-void CapturesMenu::processAsyncScan() {
+void HashesMenu::processAsyncScan() {
     if (!scanInProgress || scanComplete) {
         return;
     }
@@ -294,7 +294,7 @@ void CapturesMenu::processAsyncScan() {
                 lastWpasecUpdateTime = millis();
             }
 
-            Serial.printf("[CAPTURES] Async scan complete. Found %d captures\n", captures.size());
+            Serial.printf("[HASHES] Async scan complete. Found %d captures\n", captures.size());
             break;
         }
 
@@ -403,7 +403,7 @@ void CapturesMenu::processAsyncScan() {
                 scanInProgress = false;
                 currentFile.close();
                 scanDir.close();
-                Serial.println("[CAPTURES] Hit capture limit, stopped scan");
+                Serial.println("[HASHES] Hit capture limit, stopped scan");
                 break;
             }
         }
@@ -418,7 +418,7 @@ void CapturesMenu::processAsyncScan() {
     }
 }
 
-void CapturesMenu::updateWPASecStatus() {
+void HashesMenu::updateWPASecStatus() {
     // Load WPA-SEC cache (lazy, only loads once)
     WPASec::loadCache();
     
@@ -445,7 +445,7 @@ void CapturesMenu::updateWPASecStatus() {
     }
 }
 
-void CapturesMenu::processAsyncWPASecUpdate() {
+void HashesMenu::processAsyncWPASecUpdate() {
     if (!wpasecUpdateInProgress || captures.empty()) {
         wpasecUpdateInProgress = false;
         return;
@@ -496,11 +496,11 @@ void CapturesMenu::processAsyncWPASecUpdate() {
     // Check if we're done with all captures
     if (wpasecUpdateProgress >= captures.size()) {
         wpasecUpdateInProgress = false;
-        Serial.printf("[CAPTURES] Async WPA-SEC update complete. Updated %d captures\n", captures.size());
+        Serial.printf("[HASHES] Async WPA-SEC update complete. Updated %d captures\n", captures.size());
     }
 }
 
-void CapturesMenu::update() {
+void HashesMenu::update() {
     if (!active) return;
     
     // Process sync state machine if active
@@ -520,7 +520,7 @@ void CapturesMenu::update() {
     handleInput();
 }
 
-void CapturesMenu::handleInput() {
+void HashesMenu::handleInput() {
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -622,7 +622,7 @@ void CapturesMenu::handleInput() {
     }
 }
 
-void CapturesMenu::formatTime(char* out, size_t len, time_t t) {
+void HashesMenu::formatTime(char* out, size_t len, time_t t) {
     if (!out || len == 0) return;
     if (t == 0) {
         strncpy(out, "UNKNOWN", len - 1);
@@ -652,7 +652,7 @@ static void formatSize(char* out, size_t len, uint32_t bytes) {
     }
 }
 
-void CapturesMenu::draw(M5Canvas& canvas) {
+void HashesMenu::draw(M5Canvas& canvas) {
     if (!active) return;
 
     canvas.fillSprite(COLOR_BG);
@@ -800,7 +800,7 @@ void CapturesMenu::draw(M5Canvas& canvas) {
     }
 }
 
-void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
+void HashesMenu::drawNukeConfirm(M5Canvas& canvas) {
     // Modal box dimensions - matches PIGGYBLUES warning style
     const int boxW = 200;
     const int boxH = 70;
@@ -828,8 +828,8 @@ void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
 }
 
-void CapturesMenu::nukeLoot() {
-    Serial.println("[CAPTURES] Nuking all loot...");
+void HashesMenu::nukeLoot() {
+    Serial.println("[HASHES] Nuking all loot...");
     
     const char* handshakesDir = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
     if (!SD.exists(handshakesDir)) {
@@ -874,7 +874,7 @@ void CapturesMenu::nukeLoot() {
         yield();
     }
     
-    Serial.printf("[CAPTURES] Nuked %d files\n", deleted);
+    Serial.printf("[HASHES] Nuked %d files\n", deleted);
     
     // Reset selection
     selectedIndex = 0;
@@ -882,7 +882,7 @@ void CapturesMenu::nukeLoot() {
     captures.clear();
 }
 
-const char* CapturesMenu::getSelectedBSSID() {
+const char* HashesMenu::getSelectedBSSID() {
     return HINTS[hintIndex];
 }
 // HS detail parsing for .22000 files
@@ -955,7 +955,7 @@ static bool parseHS22000Line(const char* line, HSDetail* out) {
     return true;
 }
 
-void CapturesMenu::drawDetailView(M5Canvas& canvas) {
+void HashesMenu::drawDetailView(M5Canvas& canvas) {
     if (selectedIndex >= captures.size()) return;
 
     const CaptureInfo& cap = captures[selectedIndex];
@@ -1094,7 +1094,7 @@ void CapturesMenu::drawDetailView(M5Canvas& canvas) {
 // WPA-SEC Sync Operations
 // ============================================================================
 
-void CapturesMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t total) {
+void HashesMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t total) {
     // Update sync state for UI
     strncpy(syncStatusText, status, sizeof(syncStatusText) - 1);
     syncStatusText[sizeof(syncStatusText) - 1] = '\0';
@@ -1102,7 +1102,7 @@ void CapturesMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t 
     syncTotal = total;
 }
 
-bool CapturesMenu::connectToWiFi() {
+bool HashesMenu::connectToWiFi() {
     const char* ssid = Config::wifi().otaSSID;
     const char* password = Config::wifi().otaPassword;
     
@@ -1111,7 +1111,7 @@ bool CapturesMenu::connectToWiFi() {
         return false;
     }
     
-    Serial.printf("[CAPTURES] Connecting to WiFi: %s\n", ssid);
+    Serial.printf("[HASHES] Connecting to WiFi: %s\n", ssid);
     strncpy(syncStatusText, "CONNECTING WIFI...", sizeof(syncStatusText) - 1);
     
     WiFi.mode(WIFI_STA);
@@ -1132,18 +1132,18 @@ bool CapturesMenu::connectToWiFi() {
         return false;
     }
     
-    Serial.printf("[CAPTURES] WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[HASHES] WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
     return true;
 }
 
-void CapturesMenu::disconnectWiFi() {
+void HashesMenu::disconnectWiFi() {
     // Keep driver alive to avoid esp_wifi_init 257 on fragmented heap.
     WiFiUtils::shutdown();
-    Serial.println("[CAPTURES] WiFi disconnected");
+    Serial.println("[HASHES] WiFi disconnected");
 }
 
-void CapturesMenu::startSync() {
-    Serial.println("[CAPTURES] Starting WPA-SEC sync...");
+void HashesMenu::startSync() {
+    Serial.println("[HASHES] Starting WPA-SEC sync...");
     
     // Reset sync state
     syncModalActive = true;
@@ -1169,11 +1169,11 @@ void CapturesMenu::startSync() {
     captures.shrink_to_fit();
     WPASec::freeCacheMemory();
     
-    Serial.printf("[CAPTURES] Heap after freeing: %u\n", (unsigned int)ESP.getFreeHeap());
+    Serial.printf("[HASHES] Heap after freeing: %u\n", (unsigned int)ESP.getFreeHeap());
 }
 
-void CapturesMenu::cancelSync() {
-    Serial.println("[CAPTURES] Sync cancelled");
+void HashesMenu::cancelSync() {
+    Serial.println("[HASHES] Sync cancelled");
     
     // Clean up
     disconnectWiFi();
@@ -1184,7 +1184,7 @@ void CapturesMenu::cancelSync() {
     scanCaptures();
 }
 
-void CapturesMenu::processSyncState() {
+void HashesMenu::processSyncState() {
     if (!syncModalActive || syncState == SyncState::IDLE) {
         return;
     }
@@ -1243,7 +1243,7 @@ void CapturesMenu::processSyncState() {
     }
 }
 
-void CapturesMenu::drawSyncModal(M5Canvas& canvas) {
+void HashesMenu::drawSyncModal(M5Canvas& canvas) {
     // Modal box dimensions
     const int boxW = 200;
     const int boxH = 85;

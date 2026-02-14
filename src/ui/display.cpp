@@ -18,31 +18,31 @@
 #include "../piglet/avatar.h"
 #include "../piglet/weather.h"
 #include "../modes/oink.h"
-#include "../modes/donoham.h"
+#include "../modes/do_no_ham.h"
 #include "../modes/warhog.h"
-#include "../modes/piggyblues.h"
+#include "../modes/piggy_blues.h"
 #include "../modes/spectrum.h"
-#include "../modes/pigsync_client.h"
+#include "../modes/pigsync_mode.h"
 #include "../modes/pigsync_protocol.h"
 #include "../modes/bacon.h"
 #include "../modes/charging.h"
 #include "../gps/gps.h"
-#include "../web/fileserver.h"
+#include "../web/xfer_server.h"
 #include "menu.h"
 #include "settings_menu.h"
-#include "captures_menu.h"
-#include "crash_viewer.h"
-#include "diagnostics_menu.h"
-#include "achievements_menu.h"
-#include "swine_stats.h"
+#include "hashes_menu.h"
+#include "coredump_viewer.h"
+#include "diagdata_menu.h"
+#include "badges_menu.h"
+#include "flexes_screen.h"
 #include "boar_bros_menu.h"
 #include "../core/sd_layout.h"
-#include "wigle_menu.h"
+#include "tracks_menu.h"
 #include "unlockables_menu.h"
-#include "bounty_status_menu.h"
+#include "bounty_menu.h"
 #include "sd_format_menu.h"
 #include "../core/heap_health.h"
-#include "../core/monster_c5.h"
+#include "../core/janus_hog.h"
 
 // Theme color getters - read from config
 // Theme definitions
@@ -348,54 +348,54 @@ void Display::update() {
             SettingsMenu::draw(mainCanvas);
             break;
             
-        case PorkchopMode::CAPTURES:
-            CapturesMenu::draw(mainCanvas);
+        case PorkchopMode::HASHES:
+            HashesMenu::draw(mainCanvas);
             break;
             
-        case PorkchopMode::ACHIEVEMENTS:
-            AchievementsMenu::draw(mainCanvas);
+        case PorkchopMode::BADGES:
+            BadgesMenu::draw(mainCanvas);
             break;
             
         case PorkchopMode::ABOUT:
             drawAboutScreen(mainCanvas);
             break;
             
-        case PorkchopMode::FILE_TRANSFER:
+        case PorkchopMode::XFER:
             drawFileTransferScreen(mainCanvas);
             break;
             
-        case PorkchopMode::CRASH_VIEWER:
-            CrashViewer::draw(mainCanvas);
+        case PorkchopMode::COREDUMP:
+            CoreDumpViewer::draw(mainCanvas);
             break;
 
-        case PorkchopMode::DIAGNOSTICS:
-            DiagnosticsMenu::draw(mainCanvas);
+        case PorkchopMode::DIAGDATA:
+            DiagDataMenu::draw(mainCanvas);
             break;
             
-        case PorkchopMode::SWINE_STATS:
-            SwineStats::draw(mainCanvas);
+        case PorkchopMode::FLEXES:
+            FlexesScreen::draw(mainCanvas);
             break;
             
         case PorkchopMode::BOAR_BROS:
             BoarBrosMenu::draw(mainCanvas);
             break;
             
-        case PorkchopMode::WIGLE_MENU:
-            WigleMenu::draw(mainCanvas);
+        case PorkchopMode::TRACKS:
+            TracksMenu::draw(mainCanvas);
             break;
             
         case PorkchopMode::UNLOCKABLES:
             UnlockablesMenu::draw(mainCanvas);
             break;
             
-        case PorkchopMode::BOUNTY_STATUS:
-            BountyStatusMenu::draw(mainCanvas);
+        case PorkchopMode::BOUNTY:
+            BountyMenu::draw(mainCanvas);
             break;
             
         case PorkchopMode::BACON_MODE:
             BaconMode::draw(mainCanvas);
             break;
-        case PorkchopMode::MONSTER_C5_MODE:
+        case PorkchopMode::JANUS_HOG_MODE:
         {
             mainCanvas.fillSprite(bg);
             mainCanvas.setTextSize(1);
@@ -403,10 +403,10 @@ void Display::update() {
             mainCanvas.setTextDatum(top_left);
 
             char c5status[24];
-            MonsterC5::getStatusString(c5status, sizeof(c5status));
+            JanusHog::getStatusString(c5status, sizeof(c5status));
             mainCanvas.drawString(c5status, 4, 2);
 
-            C5State c5st = MonsterC5::getState();
+            C5State c5st = JanusHog::getState();
             int y = 14;
 
             if (c5st == C5State::OFF) {
@@ -417,7 +417,7 @@ void Display::update() {
             } else if (c5st == C5State::ERROR) {
                 mainCanvas.drawString("ERROR - Retrying...", 4, y);
             } else {
-                C5Op op = MonsterC5::getCurrentOp();
+                C5Op op = JanusHog::getCurrentOp();
                 if (c5st == C5State::SCANNING || op == C5Op::SCAN) {
                     mainCanvas.drawString("SCANNING 2.4+5GHz...", 4, y);
                     y += 10;
@@ -433,7 +433,7 @@ void Display::update() {
                       y += 10;
 
                       uint32_t done = 0, total = 0;
-                      if (MonsterC5::getTransferProgress(&done, &total) && total > 0) {
+                      if (JanusHog::getTransferProgress(&done, &total) && total > 0) {
                           char prog[40];
                           int pct = (int)((done * 100UL) / total);
                           snprintf(prog, sizeof(prog), "PROGRESS: %d%% (%lu/%lu)", pct,
@@ -455,10 +455,10 @@ void Display::update() {
                       y += 10;
                   }
 
-                uint8_t sc = MonsterC5::getScanCount();
+                uint8_t sc = JanusHog::getScanCount();
                 uint8_t cnt5 = 0;
                 for (uint8_t i = 0; i < sc; i++) {
-                    const C5ScanEntry* e = MonsterC5::getScanEntry(i);
+                    const C5ScanEntry* e = JanusHog::getScanEntry(i);
                     if (e && e->channel > 14) cnt5++;
                 }
                 char scanBuf[32];
@@ -471,7 +471,7 @@ void Display::update() {
                 y += 10;
                 uint8_t shown = 0;
                 for (uint8_t i = 0; i < sc && shown < 5; i++) {
-                    const C5ScanEntry* e = MonsterC5::getScanEntry(i);
+                    const C5ScanEntry* e = JanusHog::getScanEntry(i);
                     if (!e || e->channel <= 14) continue;
                     char line[42];
                     snprintf(line, sizeof(line), "ch%-3d %ddBm %.14s",
@@ -481,7 +481,7 @@ void Display::update() {
                     shown++;
                 }
                 if (c5st == C5State::MONITORING) {
-                    const C5ChannelCounts& cc = MonsterC5::getChannelCounts();
+                    const C5ChannelCounts& cc = JanusHog::getChannelCounts();
                     if (cc.valid) {
                         uint16_t total5 = 0;
                         for (int i = 0; i < 25; i++) total5 += cc.ch5[i];
@@ -703,26 +703,26 @@ void Display::drawTopBar() {
         case PorkchopMode::ABOUT:
             snprintf(modeBuf, sizeof(modeBuf), "ABOUTPIG");
             break;
-        case PorkchopMode::FILE_TRANSFER:
+        case PorkchopMode::XFER:
             snprintf(modeBuf, sizeof(modeBuf), "XFER");
             modeColor = fg;
             break;
-        case PorkchopMode::CRASH_VIEWER:
+        case PorkchopMode::COREDUMP:
             snprintf(modeBuf, sizeof(modeBuf), "COREDUMP");
             break;
-        case PorkchopMode::DIAGNOSTICS:
+        case PorkchopMode::DIAGDATA:
             snprintf(modeBuf, sizeof(modeBuf), "DIAGDATA");
             break;
-        case PorkchopMode::CAPTURES:
-            snprintf(modeBuf, sizeof(modeBuf), "L00T (%u)", (unsigned)CapturesMenu::getCount());
+        case PorkchopMode::HASHES:
+            snprintf(modeBuf, sizeof(modeBuf), "L00T (%u)", (unsigned)HashesMenu::getCount());
             modeColor = fg;
             break;
-        case PorkchopMode::ACHIEVEMENTS:
+        case PorkchopMode::BADGES:
             snprintf(modeBuf, sizeof(modeBuf), "PR00F (%u/%u)",
-                     (unsigned)XP::getUnlockedCount(), (unsigned)AchievementsMenu::TOTAL_ACHIEVEMENTS);
+                     (unsigned)XP::getUnlockedCount(), (unsigned)BadgesMenu::TOTAL_ACHIEVEMENTS);
             modeColor = fg;
             break;
-        case PorkchopMode::SWINE_STATS:
+        case PorkchopMode::FLEXES:
             snprintf(modeBuf, sizeof(modeBuf), "SW1N3 ST4TS");
             modeColor = fg;
             break;
@@ -730,15 +730,15 @@ void Display::drawTopBar() {
             snprintf(modeBuf, sizeof(modeBuf), "B04R BR0S (%u)", (unsigned)BoarBrosMenu::getCount());
             modeColor = fg;
             break;
-        case PorkchopMode::WIGLE_MENU:
-            snprintf(modeBuf, sizeof(modeBuf), "PORK TR4CKS (%u)", (unsigned)WigleMenu::getCount());
+        case PorkchopMode::TRACKS:
+            snprintf(modeBuf, sizeof(modeBuf), "PORK TR4CKS (%u)", (unsigned)TracksMenu::getCount());
             modeColor = fg;
             break;
         case PorkchopMode::UNLOCKABLES:
             snprintf(modeBuf, sizeof(modeBuf), "UNL0CK4BL3S");
             modeColor = fg;
             break;
-        case PorkchopMode::BOUNTY_STATUS:
+        case PorkchopMode::BOUNTY:
             snprintf(modeBuf, sizeof(modeBuf), "B0UNT13S");
             modeColor = fg;
             break;
@@ -746,10 +746,10 @@ void Display::drawTopBar() {
             snprintf(modeBuf, sizeof(modeBuf), "BACON");
             modeColor = fg;
             break;
-        case PorkchopMode::MONSTER_C5_MODE:
+        case PorkchopMode::JANUS_HOG_MODE:
         {
             char c5label[20];
-            MonsterC5::getStatusString(c5label, sizeof(c5label));
+            JanusHog::getStatusString(c5label, sizeof(c5label));
             snprintf(modeBuf, sizeof(modeBuf), "JANUS %s", c5label);
             modeColor = fg;  // All COLOR_* aliases resolve to fg
             break;
@@ -804,9 +804,9 @@ void Display::drawTopBar() {
     }
     int battLevel = lastBattLevel;
     char statusBuf[4];
-    statusBuf[0] = (gpsStatus || MonsterC5::hasC5GPSFix()) ? 'G' : '-';
+    statusBuf[0] = (gpsStatus || JanusHog::hasC5GPSFix()) ? 'G' : '-';
     statusBuf[1] = wifiStatus ? 'W' : '-';
-    statusBuf[2] = MonsterC5::isConnected() ? '5' : '-';
+    statusBuf[2] = JanusHog::isConnected() ? '5' : '-';
     statusBuf[3] = '\0';
     char rightBuf[32];
     snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);
@@ -922,8 +922,8 @@ void Display::drawBottomBar() {
         uint32_t unique = WarhogMode::getTotalNetworks();
         uint32_t saved = WarhogMode::getSavedCount();
         uint32_t distM = XP::getSession().distanceM;
-        bool gpsFix = GPS::hasFix() || MonsterC5::hasC5GPSFix();
-        GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
+        bool gpsFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
 
         char buf[64];
         if (gpsFix) {
@@ -945,12 +945,12 @@ void Display::drawBottomBar() {
         strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
         statsBuf[sizeof(statsBuf) - 1] = '\0';
         statsStr = statsBuf;
-    } else if (mode == PorkchopMode::CAPTURES) {
+    } else if (mode == PorkchopMode::HASHES) {
         // CAPTURES: show selected capture's BSSID
-        statsStr = CapturesMenu::getSelectedBSSID();
-    } else if (mode == PorkchopMode::WIGLE_MENU) {
+        statsStr = HashesMenu::getSelectedBSSID();
+    } else if (mode == PorkchopMode::TRACKS) {
         // WIGLE_MENU: show selected file info
-        WigleMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
+        TracksMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
         statsStr = statsBuf;
     } else if (mode == PorkchopMode::SETTINGS) {
         // SETTINGS: show description of selected item
@@ -958,11 +958,11 @@ void Display::drawBottomBar() {
     } else if (mode == PorkchopMode::MENU) {
         // MENU: show selected item description from Menu
         statsStr = Menu::getSelectedDescription();
-    } else if (mode == PorkchopMode::CRASH_VIEWER) {
+    } else if (mode == PorkchopMode::COREDUMP) {
         // CRASH_VIEWER: show selected crash file or status
-        CrashViewer::getStatusLine(statsBuf, sizeof(statsBuf));
+        CoreDumpViewer::getStatusLine(statsBuf, sizeof(statsBuf));
         statsStr = statsBuf;
-    } else if (mode == PorkchopMode::DIAGNOSTICS) {
+    } else if (mode == PorkchopMode::DIAGDATA) {
         // DIAGNOSTICS: show controls
         statsStr = "[ENT]SAVE [R]WIFI [H]HEAP [G]GC";
     } else if (mode == PorkchopMode::SD_FORMAT) {
@@ -1053,9 +1053,9 @@ void Display::drawBottomBar() {
     } else if (mode == PorkchopMode::BOAR_BROS) {
         // BOAR BROS: show delete hint
         statsStr = "[D] DELETE";
-    } else if (mode == PorkchopMode::BOUNTY_STATUS) {
+    } else if (mode == PorkchopMode::BOUNTY) {
         // BOUNTY STATUS: show selected info
-        BountyStatusMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
+        BountyMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
         statsStr = statsBuf;
     } else if (mode == PorkchopMode::IDLE) {
         // IDLE: show Networks only (HS shown in OINK)
@@ -1119,17 +1119,17 @@ void Display::drawBottomBar() {
         bottomBar.drawString(chBuf, DISPLAY_W - 2, 3);
     } else if (mode == PorkchopMode::MENU ||
                mode == PorkchopMode::SETTINGS ||
-               mode == PorkchopMode::CAPTURES ||
-               mode == PorkchopMode::ACHIEVEMENTS ||
+               mode == PorkchopMode::HASHES ||
+               mode == PorkchopMode::BADGES ||
                mode == PorkchopMode::ABOUT ||
-               mode == PorkchopMode::FILE_TRANSFER ||
-               mode == PorkchopMode::CRASH_VIEWER ||
-               mode == PorkchopMode::DIAGNOSTICS ||
-               mode == PorkchopMode::SWINE_STATS ||
+               mode == PorkchopMode::XFER ||
+               mode == PorkchopMode::COREDUMP ||
+               mode == PorkchopMode::DIAGDATA ||
+               mode == PorkchopMode::FLEXES ||
                mode == PorkchopMode::BOAR_BROS ||
-               mode == PorkchopMode::WIGLE_MENU ||
+               mode == PorkchopMode::TRACKS ||
                mode == PorkchopMode::UNLOCKABLES ||
-               mode == PorkchopMode::BOUNTY_STATUS ||
+               mode == PorkchopMode::BOUNTY ||
                mode == PorkchopMode::SD_FORMAT ||
                mode == PorkchopMode::OINK_MODE || 
                mode == PorkchopMode::DNH_MODE) {
@@ -2882,13 +2882,13 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
     bool hasLine2 = false;
     bool hasLine3 = false;
 
-    if (FileServer::isConnecting()) {
+    if (XferServer::isConnecting()) {
         strncpy(line1, "STATE: CONNECTING", sizeof(line1) - 1);
         snprintf(line2, sizeof(line2), "SSID: %s", Config::wifi().otaSSID);
-        snprintf(line3, sizeof(line3), "%s", FileServer::getStatus());
+        snprintf(line3, sizeof(line3), "%s", XferServer::getStatus());
         hasLine2 = true;
         hasLine3 = true;
-    } else if (FileServer::isRunning() && FileServer::isConnected()) {
+    } else if (XferServer::isRunning() && XferServer::isConnected()) {
         strncpy(line1, "STATE: CONNECTED", sizeof(line1) - 1);
         char ipBuf[32];
         IPAddress ip = WiFi.localIP();
@@ -2898,17 +2898,17 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
         strncpy(line3, "HTTP://PORKCHOP.LOCAL", sizeof(line3) - 1);
         hasLine2 = true;
         hasLine3 = true;
-    } else if (FileServer::isRunning()) {
+    } else if (XferServer::isRunning()) {
         strncpy(line1, "STATE: LINK DEAD", sizeof(line1) - 1);
         strncpy(line2, "RETRY HACK", sizeof(line2) - 1);
-        snprintf(line3, sizeof(line3), "%s", FileServer::getStatus());
+        snprintf(line3, sizeof(line3), "%s", XferServer::getStatus());
         hasLine2 = true;
         hasLine3 = true;
     } else {
         if (Config::wifi().otaSSID[0] != '\0') {
             strncpy(line1, "STATE: FAILED", sizeof(line1) - 1);
             snprintf(line2, sizeof(line2), "SSID: %s", Config::wifi().otaSSID);
-            snprintf(line3, sizeof(line3), "%s", FileServer::getStatus());
+            snprintf(line3, sizeof(line3), "%s", XferServer::getStatus());
             hasLine2 = true;
             hasLine3 = true;
         } else {
@@ -2937,10 +2937,10 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
         canvas.drawString(line3, DISPLAY_W / 2, 52);
     }
 
-    uint64_t rxBytes = FileServer::getSessionRxBytes();
-    uint64_t txBytes = FileServer::getSessionTxBytes();
-    uint32_t uploadCount = FileServer::getSessionUploadCount();
-    uint32_t downloadCount = FileServer::getSessionDownloadCount();
+    uint64_t rxBytes = XferServer::getSessionRxBytes();
+    uint64_t txBytes = XferServer::getSessionTxBytes();
+    uint32_t uploadCount = XferServer::getSessionUploadCount();
+    uint32_t downloadCount = XferServer::getSessionDownloadCount();
 
     char rxValue[16];
     char txValue[16];
@@ -2983,7 +2983,7 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
         tickPending = true;
     }
 
-    if (tickPending && FileServer::isRunning() && FileServer::isConnected()) {
+    if (tickPending && XferServer::isRunning() && XferServer::isConnected()) {
         uint32_t now = millis();
         if (now - lastTickAt >= 250) {
             if (!SFX::isPlaying()) {

@@ -2,7 +2,7 @@
 
 #include "oink.h"
 #include "oink_capture_filters.h"
-#include "donoham.h"
+#include "do_no_ham.h"
 #include "warhog.h"
 #include "../core/porkchop.h"
 #include "../core/config.h"
@@ -17,7 +17,7 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <NimBLEDevice.h>  // For BLE coexistence check
@@ -26,7 +26,7 @@
 #include <cstdarg>  // For va_list in deferred logging
 #include <esp_heap_caps.h>
 #include <atomic>  // For atomic beaconCaptured flag
-#include "../core/monster_c5.h"
+#include "../core/janus_hog.h"
 
 // NOTE: Vector mutex moved to NetworkRecon - use NetworkRecon::enterCritical()/exitCritical()
 // This ensures all modes (OINK, DoNoHam, Spectrum) use the SAME mutex for the shared networks vector
@@ -317,7 +317,7 @@ static AutoState autoState = AutoState::SCANNING;
 static uint32_t stateStartTime = 0;
 static uint32_t attackStartTime = 0;
 static const uint32_t SCAN_TIME = 5000;         // 5 sec initial scan
-// LOCK_TIME now uses SwineStats::getLockTime() for class buff support
+// LOCK_TIME now uses FlexesScreen::getLockTime() for class buff support
 static const uint32_t ATTACK_TIMEOUT = 15000;   // 15 sec per target
 static const uint32_t WAIT_TIME = 4500;         // 4.5 sec between targets (allows late EAPOL M3/M4)
 static const uint32_t BORED_RETRY_TIME = 30000; // 30 sec between retry scans when bored
@@ -565,8 +565,8 @@ void OinkMode::stop() {
     
     // Cancel any in-progress C5 5GHz background attack
     if (c5BackgroundActive) {
-        MonsterC5::requestStop();
-        MonsterC5::clearHandshakeResult();
+        JanusHog::requestStop();
+        JanusHog::clearHandshakeResult();
         c5BackgroundActive = false;
     }
     clearTarget();
@@ -938,9 +938,9 @@ void OinkMode::update() {
     };
 
     if (c5BackgroundActive) {
-        HandshakeResult hr = MonsterC5::getHandshakeResult();
+        HandshakeResult hr = JanusHog::getHandshakeResult();
         if (hr == HandshakeResult::CAPTURED) {
-            MonsterC5::clearHandshakeResult();
+            JanusHog::clearHandshakeResult();
             Serial.println("[OINK] 5GHz handshake captured via C5 (background)");
             NetworkRecon::enterCritical();
             for (auto& net : networks()) {
@@ -958,17 +958,17 @@ void OinkMode::update() {
             Display::showLoot(lastPwnedSSID);
             c5BackgroundActive = false;
         } else if (hr == HandshakeResult::FAILED) {
-            MonsterC5::clearHandshakeResult();
+            JanusHog::clearHandshakeResult();
             Serial.println("[OINK] 5GHz C5 attack failed (background)");
             Mood::setStatusMessage(c5FailPhrases[random(0, 4)]);
             c5BackgroundActive = false;
-        } else if (!MonsterC5::isConnected()) {
-            MonsterC5::clearHandshakeResult();
+        } else if (!JanusHog::isConnected()) {
+            JanusHog::clearHandshakeResult();
             Serial.println("[OINK] C5 disconnected during background attack");
             c5BackgroundActive = false;
         } else if (now - c5BackgroundStartTime > C5_BACKGROUND_TIMEOUT) {
-            MonsterC5::requestStop();
-            MonsterC5::clearHandshakeResult();
+            JanusHog::requestStop();
+            JanusHog::clearHandshakeResult();
             Serial.println("[OINK] 5GHz C5 background attack timeout");
             Mood::setStatusMessage(c5TimeoutPhrases[random(0, 3)]);
             c5BackgroundActive = false;
@@ -983,7 +983,7 @@ void OinkMode::update() {
                 // 250ms ≈ 2.5 beacon intervals, 67% more capture probability than default 150ms
                 NetworkRecon::setHopIntervalOverride(250);
 
-                uint16_t hopInterval = SwineStats::getChannelHopInterval();
+                uint16_t hopInterval = FlexesScreen::getChannelHopInterval();
                 
                 // Channel hopping during scan (buff-modified interval)
                 if (now - lastHopTime > hopInterval) {
@@ -1176,7 +1176,7 @@ void OinkMode::update() {
                      }
                      NetworkRecon::exitCritical();
 
-                     if (MonsterC5::isReady() && MonsterC5::requestHandshake(c5BackgroundBssid)) {
+                     if (JanusHog::isReady() && JanusHog::requestHandshake(c5BackgroundBssid)) {
                          // Only count an "attempt" if the dispatch actually started.
                          // (C5 can be connected but busy with scan/import, in which case requestHandshake won't run.)
                          NetworkRecon::enterCritical();
@@ -1307,7 +1307,7 @@ void OinkMode::update() {
                     break;
                 }
 
-                if (lockElapsed > SwineStats::getLockTime()) {
+                if (lockElapsed > FlexesScreen::getLockTime()) {
                     autoState = AutoState::ATTACKING;
                     attackStartTime = now;
                     deauthCount = 0;
@@ -1419,7 +1419,7 @@ void OinkMode::update() {
                             // AP -> Client
                             sendDeauthFrame(deauthBurst.targetBssid, deauthBurst.clientMacs[ci], 7);
                             deauthBurst.direction = 1;
-                            uint8_t jitterMax = SwineStats::getDeauthJitterMax();
+                            uint8_t jitterMax = FlexesScreen::getDeauthJitterMax();
                             deauthBurst.nextSendTime = now + random(1, jitterMax + 1);
                         } else {
                             // Client -> AP (reverse)
@@ -3272,7 +3272,7 @@ void OinkMode::sendDeauthBurst(const uint8_t* bssid, const uint8_t* station, uin
     // Random jitter between frames makes it harder for WIDS to detect pattern
     // Jitter is modified by buffs/debuffs (base 5ms, debuffed 7ms)
     uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    uint8_t jitterMax = SwineStats::getDeauthJitterMax();
+    uint8_t jitterMax = FlexesScreen::getDeauthJitterMax();
     
     // Mark session as having deauthed (for Silent Witness achievement tracking)
     SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
@@ -3759,7 +3759,7 @@ static inline bool isEligibleTarget(const DetectedNetwork& net, uint32_t now) {
      if (net.authmode == WIFI_AUTH_OPEN) return false;
      if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
      // 5GHz networks require C5 to be ready (connected + idle) and not already attacking
-     if (net.is5GHz() && !MonsterC5::isReady()) return false;
+     if (net.is5GHz() && !JanusHog::isReady()) return false;
      if (net.is5GHz() && c5BackgroundActive) return false;
      int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
      if (rssi < Config::wifi().attackMinRssi) return false;

@@ -127,7 +127,7 @@ struct PersonalityConfig {
     BootMode bootMode = BootMode::IDLE;
 };
 
-// MonsterC5 coprocessor settings (JANUS HOG)
+// JanusHog coprocessor settings (JANUS HOG)
 struct C5Config {
     bool enabled = false;           // Opt-in: disabled by default
     uint32_t baudRate = 115200;     // UART baud rate

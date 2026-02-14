@@ -256,7 +256,7 @@ void shutdown() {
 
 // Cooldown guard for manual conditionHeapForTLS() callers.
 // The auto-brew path (maybeAutoConditionHeap) has its own 5-layer protection,
-// but manual callers (WiGLE, WPA-SEC, FileServer) bypass those layers.
+// but manual callers (WiGLE, WPA-SEC, XferServer) bypass those layers.
 // This timestamp prevents any caller from brewing more often than the
 // policy minimum, protecting against accidental loop patterns.
 static uint32_t lastManualConditionMs = 0;

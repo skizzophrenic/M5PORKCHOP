@@ -10,7 +10,7 @@
 #include "../core/network_recon.h"
 #include "../gps/gps.h"
 #include "../ui/display.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include "../modes/oink.h"
 #include "../audio/sfx.h"
 #include <Preferences.h>
@@ -2178,7 +2178,7 @@ bool Mood::pickBuffPhraseIfDue(uint32_t now) {
     if (now - lastBuffCheckMs < 10000) return false;
     lastBuffCheckMs = now;
 
-    BuffState bs = SwineStats::calculateBuffs();
+    BuffState bs = FlexesScreen::calculateBuffs();
 
     bool triggered = false;
 
@@ -2589,7 +2589,7 @@ void Mood::updateAvatarState() {
             }
             break;
             
-        case PorkchopMode::FILE_TRANSFER:
+        case PorkchopMode::XFER:
             // File transfer: stay happy unless very sad
             if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);

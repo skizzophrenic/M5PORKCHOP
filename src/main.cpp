@@ -22,7 +22,7 @@
 #include "piglet/mood.h"
 #include "modes/oink.h"
 #include "modes/warhog.h"
-#include "core/monster_c5.h"
+#include "core/janus_hog.h"
 #include "audio/sfx.h"
 
 Porkchop porkchop;
@@ -165,8 +165,8 @@ void setup() {
         }
     }
 
-    // Initialize MonsterC5 coprocessor (JANUS HOG) — before modes, after GPS
-    MonsterC5::init();
+    // Initialize JanusHog coprocessor (JANUS HOG) — before modes, after GPS
+    JanusHog::init();
 
     // Initialize modes
     OinkMode::init();
@@ -251,8 +251,8 @@ void loop() {
         GPS::update();
     }
 
-    // Update MonsterC5 coprocessor (non-blocking UART drain + state machine)
-    MonsterC5::update();
+    // Update JanusHog coprocessor (non-blocking UART drain + state machine)
+    JanusHog::update();
 
     // Update mood system
     Mood::update();

@@ -1,4 +1,4 @@
-// Test C5 UART marker detection for MonsterC5 handshake lifecycle.
+// Test C5 UART marker detection for JanusHog handshake lifecycle.
 // Keeps host parsing aligned with external/projectZero firmware output.
 
 #include <unity.h>

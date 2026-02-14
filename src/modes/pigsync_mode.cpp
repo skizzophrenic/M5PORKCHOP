@@ -4,7 +4,7 @@
  * SON OF A PIG - Reliable sync with Sirloin devices
  */
 
-#include "pigsync_client.h"
+#include "pigsync_mode.h"
 #include "pigsync_protocol.h"
 #include <esp_now.h>
 #include <esp_wifi.h>

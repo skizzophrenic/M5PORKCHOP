@@ -1,9 +1,9 @@
-// MonsterC5 - ESP32-C5 Coprocessor Service (JANUS HOG)
-// UART bridge to JanOS/projectZero running on MonsterC5 board.
+// JanusHog - ESP32-C5 Coprocessor Service (JANUS HOG)
+// UART bridge to JanOS/projectZero running on the Janus Hog (JanusHog) board.
 // Non-blocking, zero dynamic allocations, UART drained in bounded chunks
 // (idle small; transfer mode larger to avoid RX overflow).
 
-#include "monster_c5.h"
+#include "janus_hog.h"
 #include "c5_uart_markers.h"
 #include "config.h"
 #include "sd_layout.h"
@@ -200,7 +200,7 @@ static int8_t ch5ToIndex(uint8_t channel) {
 // Lifecycle
 // ============================================================================
 
-void MonsterC5::init() {
+void JanusHog::init() {
     state = C5State::OFF;
     currentOp = C5Op::NONE;
     seqStep = SeqStep::IDLE;
@@ -298,7 +298,7 @@ void MonsterC5::init() {
                rxPin, txPin, Config::c5().baudRate);
 }
 
-void MonsterC5::update() {
+void JanusHog::update() {
     if (state == C5State::OFF) return;
 
     uint32_t now = millis();
@@ -529,7 +529,7 @@ void MonsterC5::update() {
     }
 }
 
-void MonsterC5::shutdown() {
+void JanusHog::shutdown() {
     if (state == C5State::OFF) return;
 
     sendCommand("stop");
@@ -564,7 +564,7 @@ void MonsterC5::shutdown() {
     C5_LOGF("Shutdown");
 }
 
-void MonsterC5::reinit() {
+void JanusHog::reinit() {
     shutdown();
     delay(50);
     init();
@@ -574,11 +574,11 @@ void MonsterC5::reinit() {
 // State Queries
 // ============================================================================
 
-C5State MonsterC5::getState() { return state; }
-C5Op MonsterC5::getCurrentOp() { return currentOp; }
-bool MonsterC5::isEnabled() { return Config::c5().enabled; }
+C5State JanusHog::getState() { return state; }
+C5Op JanusHog::getCurrentOp() { return currentOp; }
+bool JanusHog::isEnabled() { return Config::c5().enabled; }
 
-bool MonsterC5::isConnected() {
+bool JanusHog::isConnected() {
     return state == C5State::CONNECTED ||
            state == C5State::SCANNING ||
            state == C5State::ATTACKING ||
@@ -586,7 +586,7 @@ bool MonsterC5::isConnected() {
            state == C5State::TRANSFERRING;
 }
 
-bool MonsterC5::isBusy() {
+bool JanusHog::isBusy() {
     return (currentOp != C5Op::NONE) ||
            (state == C5State::SCANNING) ||
            (state == C5State::ATTACKING) ||
@@ -594,15 +594,15 @@ bool MonsterC5::isBusy() {
            (state == C5State::TRANSFERRING);
 }
 
-bool MonsterC5::isReady() {
+bool JanusHog::isReady() {
     return (state == C5State::CONNECTED) && (currentOp == C5Op::NONE);
 }
 
-const C5Capabilities& MonsterC5::getCapabilities() {
+const C5Capabilities& JanusHog::getCapabilities() {
     return caps;
 }
 
-bool MonsterC5::getTransferProgress(uint32_t* outBytes, uint32_t* outTotal) {
+bool JanusHog::getTransferProgress(uint32_t* outBytes, uint32_t* outTotal) {
     if (!outBytes || !outTotal) return false;
     if (!xferActive && !xferAwaitingStart) return false;
     *outBytes = xferWrittenBytes;
@@ -614,7 +614,7 @@ bool MonsterC5::getTransferProgress(uint32_t* outBytes, uint32_t* outTotal) {
 // Active Commands
 // ============================================================================
 
-bool MonsterC5::requestScan() {
+bool JanusHog::requestScan() {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -637,7 +637,7 @@ bool MonsterC5::requestScan() {
     return true;
 }
 
-bool MonsterC5::requestHandshake(const uint8_t* bssid) {
+bool JanusHog::requestHandshake(const uint8_t* bssid) {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -667,7 +667,7 @@ bool MonsterC5::requestHandshake(const uint8_t* bssid) {
     return true;
 }
 
-bool MonsterC5::requestSaeOverflow(const uint8_t* bssid) {
+bool JanusHog::requestSaeOverflow(const uint8_t* bssid) {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -691,7 +691,7 @@ bool MonsterC5::requestSaeOverflow(const uint8_t* bssid) {
     return true;
 }
 
-bool MonsterC5::requestChannelView() {
+bool JanusHog::requestChannelView() {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -713,7 +713,7 @@ bool MonsterC5::requestChannelView() {
     return true;
 }
 
-bool MonsterC5::requestPacketMonitor(uint8_t channel) {
+bool JanusHog::requestPacketMonitor(uint8_t channel) {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -736,7 +736,7 @@ bool MonsterC5::requestPacketMonitor(uint8_t channel) {
     return true;
 }
 
-bool MonsterC5::requestImportNewestHandshake() {
+bool JanusHog::requestImportNewestHandshake() {
     if (!isConnected()) return false;
     if (currentOp == C5Op::IMPORT_HANDSHAKES) return false;
 
@@ -788,7 +788,7 @@ bool MonsterC5::requestImportNewestHandshake() {
     return true;
 }
 
-void MonsterC5::requestStop() {
+void JanusHog::requestStop() {
     if (state == C5State::OFF || state == C5State::DISCONNECTED) return;
     sendCommand("stop");
     if (currentOp == C5Op::IMPORT_HANDSHAKES) {
@@ -806,13 +806,13 @@ void MonsterC5::requestStop() {
 // Result Polling
 // ============================================================================
 
-HandshakeResult MonsterC5::getHandshakeResult() { return hsResult; }
-void MonsterC5::clearHandshakeResult() { hsResult = HandshakeResult::IDLE; }
-const C5ChannelCounts& MonsterC5::getChannelCounts() { return channelCounts; }
-uint32_t MonsterC5::getPacketsPerSecond() { return pktPerSecond; }
-uint8_t MonsterC5::getScanCount() { return scanCountActive; }
+HandshakeResult JanusHog::getHandshakeResult() { return hsResult; }
+void JanusHog::clearHandshakeResult() { hsResult = HandshakeResult::IDLE; }
+const C5ChannelCounts& JanusHog::getChannelCounts() { return channelCounts; }
+uint32_t JanusHog::getPacketsPerSecond() { return pktPerSecond; }
+uint8_t JanusHog::getScanCount() { return scanCountActive; }
 
-const C5ScanEntry* MonsterC5::getScanEntry(uint8_t index) {
+const C5ScanEntry* JanusHog::getScanEntry(uint8_t index) {
     if (index >= scanCountActive) return nullptr;
     return &scanCacheActive[index];
 }
@@ -821,7 +821,7 @@ const C5ScanEntry* MonsterC5::getScanEntry(uint8_t index) {
 // Status String
 // ============================================================================
 
-void MonsterC5::getStatusString(char* buf, uint8_t len) {
+void JanusHog::getStatusString(char* buf, uint8_t len) {
     const char* stateStr = "OFF";
     switch (state) {
         case C5State::OFF:          stateStr = "OFF"; break;
@@ -2007,15 +2007,15 @@ static void updateC5GpsData() {
     }
 }
 
-bool MonsterC5::hasC5GPSFix() {
+bool JanusHog::hasC5GPSFix() {
     return c5GpsForwarding && c5GpsData.fix &&
            (millis() - c5GpsLastFixMs < 10000);
 }
 
-GPSData MonsterC5::getC5GPSData() {
+GPSData JanusHog::getC5GPSData() {
     return c5GpsData;
 }
 
-bool MonsterC5::isGPSForwarding() {
+bool JanusHog::isGPSForwarding() {
     return c5GpsForwarding || c5GpsAwaitingStart;
 }

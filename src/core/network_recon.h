@@ -50,7 +50,7 @@ void stop();
 
 /**
  * @brief Release the networks vector memory entirely
- * Call after stop() when entering modes that don't use recon data (FILE_TRANSFER).
+ * Call after stop() when entering modes that don't use recon data (XFER).
  * start() will re-reserve and rescan on mode exit.
  */
 void freeNetworks();
@@ -223,11 +223,11 @@ using NewNetworkCallback = void(*)(wifi_auth_mode_t authmode, bool isHidden,
 void setNewNetworkCallback(NewNetworkCallback callback);
 
 // ============================================================================
-// External Network Injection (MonsterC5 / JANUS HOG)
+// External Network Injection (JanusHog / JANUS HOG)
 // ============================================================================
 
 /**
- * @brief Inject a network from an external source (e.g. MonsterC5 5GHz scan)
+ * @brief Inject a network from an external source (e.g. JanusHog 5GHz scan)
  * Deduplicates by BSSID — updates existing entry if found, adds new if not.
  * Thread-safe: acquires internal mutex.
  * @param bssid 6-byte BSSID

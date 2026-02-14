@@ -17,11 +17,11 @@ namespace HeapPolicy {
 
     // Heap stabilization / recovery thresholds
     static constexpr size_t kHeapStableThreshold = 50000;
-    static constexpr size_t kFileServerMinHeap = 40000;
-    static constexpr size_t kFileServerMinLargest = 30000;
-    static constexpr size_t kFileServerLogThreshold = 60000;
-    static constexpr size_t kFileServerUiMinFree = 12000;
-    static constexpr size_t kFileServerUiMinLargest = 8000;
+    static constexpr size_t kXferServerMinHeap = 40000;
+    static constexpr size_t kXferServerMinLargest = 30000;
+    static constexpr size_t kXferServerLogThreshold = 60000;
+    static constexpr size_t kXferServerUiMinFree = 12000;
+    static constexpr size_t kXferServerUiMinLargest = 8000;
 
     // Allocation slack (allocator overhead / fragmentation cushion)
     static constexpr size_t kReserveSlackSmall = 256;

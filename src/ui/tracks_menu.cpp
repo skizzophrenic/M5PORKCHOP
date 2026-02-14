@@ -1,6 +1,6 @@
-// WiGLE Menu - View wardriving files with sync support
+// Tracks Menu - View wardriving files with sync support
 
-#include "wigle_menu.h"
+#include "tracks_menu.h"
 #include <M5Cardputer.h>
 #include <SD.h>
 #include <WiFi.h>
@@ -14,34 +14,34 @@
 #include <esp_heap_caps.h>
 
 // Static member initialization
-std::vector<WigleFileInfo> WigleMenu::files;
-uint8_t WigleMenu::selectedIndex = 0;
-uint8_t WigleMenu::scrollOffset = 0;
-bool WigleMenu::active = false;
-bool WigleMenu::keyWasPressed = false;
-bool WigleMenu::detailViewActive = false;
-bool WigleMenu::nukeConfirmActive = false;
-bool WigleMenu::scanInProgress = false;
-bool WigleMenu::scanDeferredHeap = false;
-unsigned long WigleMenu::lastScanTime = 0;
-char WigleMenu::scanBaseDir[32] = "";
-File WigleMenu::scanDir;
-File WigleMenu::currentFile;
-bool WigleMenu::scanComplete = false;
-size_t WigleMenu::scanProgress = 0;
+std::vector<WigleFileInfo> TracksMenu::files;
+uint8_t TracksMenu::selectedIndex = 0;
+uint8_t TracksMenu::scrollOffset = 0;
+bool TracksMenu::active = false;
+bool TracksMenu::keyWasPressed = false;
+bool TracksMenu::detailViewActive = false;
+bool TracksMenu::nukeConfirmActive = false;
+bool TracksMenu::scanInProgress = false;
+bool TracksMenu::scanDeferredHeap = false;
+unsigned long TracksMenu::lastScanTime = 0;
+char TracksMenu::scanBaseDir[32] = "";
+File TracksMenu::scanDir;
+File TracksMenu::currentFile;
+bool TracksMenu::scanComplete = false;
+size_t TracksMenu::scanProgress = 0;
 
 // Sync state
-bool WigleMenu::syncModalActive = false;
-WigleSyncState WigleMenu::syncState = WigleSyncState::IDLE;
-char WigleMenu::syncStatusText[48] = "";
-uint8_t WigleMenu::syncProgress = 0;
-uint8_t WigleMenu::syncTotal = 0;
-unsigned long WigleMenu::syncStartTime = 0;
-uint8_t WigleMenu::syncUploaded = 0;
-uint8_t WigleMenu::syncFailed = 0;
-uint8_t WigleMenu::syncSkipped = 0;
-bool WigleMenu::syncStatsFetched = false;
-char WigleMenu::syncError[48] = "";
+bool TracksMenu::syncModalActive = false;
+WigleSyncState TracksMenu::syncState = WigleSyncState::IDLE;
+char TracksMenu::syncStatusText[48] = "";
+uint8_t TracksMenu::syncProgress = 0;
+uint8_t TracksMenu::syncTotal = 0;
+unsigned long TracksMenu::syncStartTime = 0;
+uint8_t TracksMenu::syncUploaded = 0;
+uint8_t TracksMenu::syncFailed = 0;
+uint8_t TracksMenu::syncSkipped = 0;
+bool TracksMenu::syncStatsFetched = false;
+char TracksMenu::syncError[48] = "";
 
 namespace {
 
@@ -152,14 +152,14 @@ static void formatDisplayName(const char* filename, char* out, size_t len, size_
     }
 }
 
-void WigleMenu::init() {
+void TracksMenu::init() {
     files.clear();
     selectedIndex = 0;
     scrollOffset = 0;
     scanDeferredHeap = false;
 }
 
-void WigleMenu::show() {
+void TracksMenu::show() {
     active = true;
     selectedIndex = 0;
     scrollOffset = 0;
@@ -171,7 +171,7 @@ void WigleMenu::show() {
     scanFiles();
 }
 
-void WigleMenu::hide() {
+void TracksMenu::hide() {
     active = false;
     detailViewActive = false;
     syncModalActive = false;
@@ -182,14 +182,14 @@ void WigleMenu::hide() {
     scanBaseDir[0] = '\0';
 }
 
-void WigleMenu::scanFiles() {
+void TracksMenu::scanFiles() {
     // Initialize async scan
     files.clear();
     files.reserve(8);  // Grow naturally — reserve(50) was 6.8KB contiguous
     scanDeferredHeap = false;
     
     if (!Config::isSDAvailable()) {
-        Serial.println("[WIGLE_MENU] SD card not available");
+        Serial.println("[TRACKS] SD card not available");
         scanComplete = true;
         scanInProgress = false;
         return;
@@ -197,7 +197,7 @@ void WigleMenu::scanFiles() {
 
     // Guard: Skip SD scan at Critical pressure — file listing only needs small FAT buffers
     if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Critical) {
-        Serial.println("[WIGLE_MENU] Scan deferred: heap pressure");
+        Serial.println("[TRACKS] Scan deferred: heap pressure");
         scanDeferredHeap = true;
         scanComplete = true;
         scanInProgress = false;
@@ -207,7 +207,7 @@ void WigleMenu::scanFiles() {
     const char* preferredDir = SDLayout::wardrivingDir();
     const char* wigleDir = resolveWigleScanDir();
     if (strcmp(wigleDir, preferredDir) != 0) {
-        Serial.printf("[WIGLE_MENU] Using fallback scan dir: %s (preferred %s)\n",
+        Serial.printf("[TRACKS] Using fallback scan dir: %s (preferred %s)\n",
                       wigleDir, preferredDir);
     }
     strncpy(scanBaseDir, wigleDir, sizeof(scanBaseDir) - 1);
@@ -215,7 +215,7 @@ void WigleMenu::scanFiles() {
 
     scanDir = SD.open(wigleDir);
     if (!scanDir || !scanDir.isDirectory()) {
-        Serial.println("[WIGLE_MENU] Wardriving directory not found");
+        Serial.println("[TRACKS] Wardriving directory not found");
         scanComplete = true;
         scanInProgress = false;
         scanDir.close();
@@ -228,7 +228,7 @@ void WigleMenu::scanFiles() {
     lastScanTime = millis();
 }
 
-void WigleMenu::processAsyncScan() {
+void TracksMenu::processAsyncScan() {
     if (!scanInProgress || scanComplete) {
         return;
     }
@@ -257,7 +257,7 @@ void WigleMenu::processAsyncScan() {
                 return strcmp(a.filename, b.filename) > 0;
             });
             
-            Serial.printf("[WIGLE_MENU] Async scan complete. Found %d WiGLE files\n", files.size());
+            Serial.printf("[TRACKS] Async scan complete. Found %d WiGLE files\n", files.size());
             break;
         }
         
@@ -305,7 +305,7 @@ void WigleMenu::processAsyncScan() {
     }
 }
 
-void WigleMenu::handleInput() {
+void TracksMenu::handleInput() {
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -403,7 +403,7 @@ void WigleMenu::handleInput() {
     }
 }
 
-void WigleMenu::formatSize(char* out, size_t len, uint32_t bytes) {
+void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
     if (!out || len == 0) return;
     if (bytes < 1024) {
         snprintf(out, len, "%uB", (unsigned)bytes);
@@ -414,12 +414,12 @@ void WigleMenu::formatSize(char* out, size_t len, uint32_t bytes) {
     }
 }
 
-void WigleMenu::getSelectedInfo(char* out, size_t len) {
+void TracksMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
     snprintf(out, len, "ENT=DET S=SYNC D=NUKE");
 }
 
-void WigleMenu::update() {
+void TracksMenu::update() {
     if (!active) return;
     
     // Process sync state machine if active
@@ -436,7 +436,7 @@ void WigleMenu::update() {
     handleInput();
 }
 
-void WigleMenu::draw(M5Canvas& canvas) {
+void TracksMenu::draw(M5Canvas& canvas) {
     if (!active) return;
     
     canvas.fillSprite(COLOR_BG);
@@ -570,7 +570,7 @@ void WigleMenu::draw(M5Canvas& canvas) {
     }
 }
 
-void WigleMenu::drawDetailView(M5Canvas& canvas) {
+void TracksMenu::drawDetailView(M5Canvas& canvas) {
     if (files.empty() || selectedIndex >= files.size()) return;
 
     const WigleFileInfo& file = files[selectedIndex];
@@ -611,7 +611,7 @@ void WigleMenu::drawDetailView(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
 }
 
-void WigleMenu::drawNukeConfirm(M5Canvas& canvas) {
+void TracksMenu::drawNukeConfirm(M5Canvas& canvas) {
     if (files.empty() || selectedIndex >= files.size()) return;
     
     const WigleFileInfo& file = files[selectedIndex];
@@ -644,7 +644,7 @@ void WigleMenu::drawNukeConfirm(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
 }
 
-void WigleMenu::nukeTrack() {
+void TracksMenu::nukeTrack() {
     if (files.empty() || selectedIndex >= files.size()) return;
     
     const WigleFileInfo& file = files[selectedIndex];
@@ -654,7 +654,7 @@ void WigleMenu::nukeTrack() {
     char fullPath[80];
     snprintf(fullPath, sizeof(fullPath), "%s/%s", scanRoot, file.filename);
 
-    Serial.printf("[WIGLE_MENU] Nuking track: %s\n", fullPath);
+    Serial.printf("[TRACKS] Nuking track: %s\n", fullPath);
 
     // Delete the .wigle.csv file
     bool deleted = SD.remove(fullPath);
@@ -670,7 +670,7 @@ void WigleMenu::nukeTrack() {
         strncat(internalPath, ".csv", sizeof(internalPath) - strlen(internalPath) - 1);
         if (SD.exists(internalPath)) {
             SD.remove(internalPath);
-            Serial.printf("[WIGLE_MENU] Also nuked: %s\n", internalPath);
+            Serial.printf("[TRACKS] Also nuked: %s\n", internalPath);
         }
     }
 
@@ -702,7 +702,7 @@ void WigleMenu::nukeTrack() {
 // WiGLE Sync Operations
 // ============================================================================
 
-void WigleMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t total) {
+void TracksMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t total) {
     // Update sync state for UI
     strncpy(syncStatusText, status, sizeof(syncStatusText) - 1);
     syncStatusText[sizeof(syncStatusText) - 1] = '\0';
@@ -710,7 +710,7 @@ void WigleMenu::onSyncProgress(const char* status, uint8_t progress, uint8_t tot
     syncTotal = total;
 }
 
-bool WigleMenu::connectToWiFi() {
+bool TracksMenu::connectToWiFi() {
     const char* ssid = Config::wifi().otaSSID;
     const char* password = Config::wifi().otaPassword;
     
@@ -719,7 +719,7 @@ bool WigleMenu::connectToWiFi() {
         return false;
     }
     
-    Serial.printf("[WIGLE_MENU] Connecting to WiFi: %s\n", ssid);
+    Serial.printf("[TRACKS] Connecting to WiFi: %s\n", ssid);
     strncpy(syncStatusText, "CONNECTING WIFI...", sizeof(syncStatusText) - 1);
     
     WiFi.mode(WIFI_STA);
@@ -740,18 +740,18 @@ bool WigleMenu::connectToWiFi() {
         return false;
     }
     
-    Serial.printf("[WIGLE_MENU] WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[TRACKS] WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
     return true;
 }
 
-void WigleMenu::disconnectWiFi() {
+void TracksMenu::disconnectWiFi() {
     // Keep driver alive to avoid esp_wifi_init 257 on fragmented heap.
     WiFiUtils::shutdown();
-    Serial.println("[WIGLE_MENU] WiFi disconnected");
+    Serial.println("[TRACKS] WiFi disconnected");
 }
 
-void WigleMenu::startSync() {
-    Serial.println("[WIGLE_MENU] Starting WiGLE sync...");
+void TracksMenu::startSync() {
+    Serial.println("[TRACKS] Starting WiGLE sync...");
     
     // Reset sync state
     syncModalActive = true;
@@ -778,11 +778,11 @@ void WigleMenu::startSync() {
     files.shrink_to_fit();
     WiGLE::freeUploadedListMemory();
     
-    Serial.printf("[WIGLE_MENU] Heap after freeing: %u\n", (unsigned int)ESP.getFreeHeap());
+    Serial.printf("[TRACKS] Heap after freeing: %u\n", (unsigned int)ESP.getFreeHeap());
 }
 
-void WigleMenu::cancelSync() {
-    Serial.println("[WIGLE_MENU] Sync cancelled");
+void TracksMenu::cancelSync() {
+    Serial.println("[TRACKS] Sync cancelled");
     
     // Clean up
     disconnectWiFi();
@@ -793,7 +793,7 @@ void WigleMenu::cancelSync() {
     scanFiles();
 }
 
-void WigleMenu::processSyncState() {
+void TracksMenu::processSyncState() {
     if (!syncModalActive || syncState == WigleSyncState::IDLE) {
         return;
     }
@@ -853,7 +853,7 @@ void WigleMenu::processSyncState() {
     }
 }
 
-void WigleMenu::drawSyncModal(M5Canvas& canvas) {
+void TracksMenu::drawSyncModal(M5Canvas& canvas) {
     // Modal box dimensions
     const int boxW = 200;
     const int boxH = 85;

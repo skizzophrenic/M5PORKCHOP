@@ -14,7 +14,7 @@
 #include "../core/heap_policy.h"
 #include "../core/heap_health.h"
 #include "../core/network_recon.h"
-#include "../core/monster_c5.h"
+#include "../core/janus_hog.h"
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
 #include "../core/sd_layout.h"
@@ -250,8 +250,8 @@ void WarhogMode::start() {
     scanStartTime = 0;
 
     // Ensure GPS is in continuous mode — unless C5 is using the same pins
-    // (GPS was intentionally slept by MonsterC5::init() to avoid UART conflict)
-    if (GPS::isActive() || !MonsterC5::isConnected()) {
+    // (GPS was intentionally slept by JanusHog::init() to avoid UART conflict)
+    if (GPS::isActive() || !JanusHog::isConnected()) {
         GPS::ensureContinuousMode();
     }
     
@@ -260,7 +260,7 @@ void WarhogMode::start() {
     
     // Set grass speed for wardriving - animation controlled by GPS lock in update()
     Avatar::setGrassSpeed(200);  // Slower than OINK (~5 FPS)
-    Avatar::setGrassMoving(GPS::hasFix() || MonsterC5::hasC5GPSFix());
+    Avatar::setGrassMoving(GPS::hasFix() || JanusHog::hasC5GPSFix());
     
     Display::setWiFiStatus(true);
     Mood::onWarhogUpdate();  // Show WARHOG phrase on start
@@ -384,7 +384,7 @@ void WarhogMode::update() {
     }
 
     // Update grass animation based on GPS fix status (local or C5)
-    bool hasGPSFix = GPS::hasFix() || MonsterC5::hasC5GPSFix();
+    bool hasGPSFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
     if (hasGPSFix != lastGPSState) {
         Avatar::setGrassMoving(hasGPSFix);
         lastGPSState = hasGPSFix;
@@ -392,7 +392,7 @@ void WarhogMode::update() {
 
     // Distance tracking for XP (every 5 seconds when GPS is available)
     if (hasGPSFix && now - lastDistanceCheck >= 5000) {
-        GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
         if (lastGPSLat != 0 && lastGPSLon != 0) {
             double distance = haversineMeters(lastGPSLat, lastGPSLon, gps.latitude, gps.longitude);
             // Filter out GPS jitter (<5m) and teleportation (>1km)
@@ -438,9 +438,9 @@ void WarhogMode::update() {
     // Start new scan if interval elapsed and not already scanning
     if (now - lastScanTime >= scanInterval) {
         // Best-effort: keep C5 scan data fresh for dual-band logging.
-        if (MonsterC5::isConnected() && MonsterC5::isReady()) {
+        if (JanusHog::isConnected() && JanusHog::isReady()) {
             if (lastC5ScanReqMs == 0 || (now - lastC5ScanReqMs) >= 30000) {
-                (void)MonsterC5::requestScan();
+                (void)JanusHog::requestScan();
                 lastC5ScanReqMs = now;
             }
         }
@@ -642,7 +642,7 @@ void WarhogMode::appendWigleEntry(const uint8_t* bssid, const char* ssid,
     f.print(",");
     
     // FirstSeen (timestamp) - use GPS time if available, else millis
-    GPSData gps = GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
+    GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
     if (gps.date > 0 && gps.time > 0) {
         // date format: DDMMYY, time format: HHMMSSCC
         uint8_t day = gps.date / 10000;
@@ -690,8 +690,8 @@ void WarhogMode::processScanResults() {
     // Get current GPS data - check for valid fix, fall back to C5 GPS if local unavailable
     GPSData gpsData = GPS::getData();
     bool hasGPS = GPS::hasFix();
-    if (!hasGPS && MonsterC5::hasC5GPSFix()) {
-        gpsData = MonsterC5::getC5GPSData();
+    if (!hasGPS && JanusHog::hasC5GPSFix()) {
+        gpsData = JanusHog::getC5GPSData();
         hasGPS = true;
     }
     
@@ -786,8 +786,8 @@ void WarhogMode::processScanResults() {
         }
     }
 
-    // --- Dual-band add-on: 5GHz networks from MonsterC5 (injected into recon) ---
-    if (MonsterC5::isConnected()) {
+    // --- Dual-band add-on: 5GHz networks from JanusHog (injected into recon) ---
+    if (JanusHog::isConnected()) {
         struct C5Net {
             uint8_t bssid[6];
             char ssid[33];
@@ -888,11 +888,11 @@ void WarhogMode::processScanResults() {
 }
 
 bool WarhogMode::hasGPSFix() {
-    return GPS::hasFix() || MonsterC5::hasC5GPSFix();
+    return GPS::hasFix() || JanusHog::hasC5GPSFix();
 }
 
 GPSData WarhogMode::getGPSData() {
-    return GPS::hasFix() ? GPS::getData() : MonsterC5::getC5GPSData();
+    return GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
 }
 
 // Export functions - data is already on disk, these are for format conversion

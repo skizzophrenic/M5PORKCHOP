@@ -128,7 +128,7 @@ private:
     static float viewWidth24MHz;     // Stored width for 2.4GHz view
     static float viewCenter5MHz;     // Stored center for 5GHz view
     static float viewWidth5MHz;      // Stored width for 5GHz view
-    static int selectedC5Index;      // Selected entry index in MonsterC5 scan cache (5GHz view)
+    static int selectedC5Index;      // Selected entry index in JanusHog scan cache (5GHz view)
     static uint8_t selectedC5Bssid[6];  // Selection stability across rescan swaps
     static bool selectedC5Valid;
     static uint32_t lastUpdateTime;

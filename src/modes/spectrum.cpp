@@ -24,7 +24,7 @@
 #include <cmath>
 #include <ctype.h>
 #include <string.h>
-#include "../core/monster_c5.h"
+#include "../core/janus_hog.h"
 
 // Layout constants - spectrum + waterfall + channel labels + status bar
 const int SPECTRUM_LEFT = 20;       // Space for dB labels
@@ -50,7 +50,7 @@ const float MIN_CENTER_MHZ = 2412.0f;      // Channel 1 (2.4GHz)
 const float MAX_CENTER_MHZ = 2472.0f;      // Channel 13 (2.4GHz)
 const float BAND_MIN_MHZ = 2400.0f;        // 2.4GHz band edge (approx)
 const float BAND_MAX_MHZ = 2483.5f;        // 2.4GHz band edge (approx)
-// 5GHz view (rendered from MonsterC5 scan cache)
+// 5GHz view (rendered from JanusHog scan cache)
 const float DEFAULT_CENTER5_MHZ = 5500.0f; // Mid-band (seamless overview)
 const float DEFAULT_WIDTH5_MHZ  = 240.0f;  // Scrollable viewport (similar density to 2.4GHz view)
 const float MIN_CENTER5_MHZ = 5180.0f;     // Ch36
@@ -397,10 +397,10 @@ void SpectrumMode::start() {
     startTime = millis();
 
     // Request 5GHz data from C5 if available
-    if (MonsterC5::isConnected()) {
+    if (JanusHog::isConnected()) {
         // Trigger scan if no C5 data yet (auto-scan may not have fired)
-        if (MonsterC5::getScanCount() == 0 && MonsterC5::getCurrentOp() == C5Op::NONE) {
-            MonsterC5::requestScan();
+        if (JanusHog::getScanCount() == 0 && JanusHog::getCurrentOp() == C5Op::NONE) {
+            JanusHog::requestScan();
         }
     }
 
@@ -432,12 +432,12 @@ void SpectrumMode::stop() {
     
     // Stop any continuous C5 monitors or in-progress handshake attacks.
     if (c5HandshakePending) {
-        MonsterC5::requestStop();
-        MonsterC5::clearHandshakeResult();
+        JanusHog::requestStop();
+        JanusHog::clearHandshakeResult();
         c5HandshakePending = false;
-    } else if (MonsterC5::getCurrentOp() == C5Op::CHANNEL_VIEW ||
-               MonsterC5::getCurrentOp() == C5Op::PACKET_MONITOR) {
-        MonsterC5::requestStop();
+    } else if (JanusHog::getCurrentOp() == C5Op::CHANNEL_VIEW ||
+               JanusHog::getCurrentOp() == C5Op::PACKET_MONITOR) {
+        JanusHog::requestStop();
     }
     actionPromptActive = false;
 
@@ -632,7 +632,7 @@ void SpectrumMode::update() {
 
     // If user is viewing 5GHz but C5 link is gone, drop back to 2.4GHz view.
     // Note: lack of scan data is normal before the first scan completes.
-    if (viewBand == SpectrumBand::BAND_5 && !MonsterC5::isConnected()) {
+    if (viewBand == SpectrumBand::BAND_5 && !JanusHog::isConnected()) {
         setViewBand(SpectrumBand::BAND_24);
         Display::showToast("C5 5G LOST");
     }
@@ -649,24 +649,24 @@ void SpectrumMode::update() {
     // Handle C5 handshake result if started from Spectrum action prompt.
     if (c5HandshakePending) {
         if (millis() - c5HandshakeStartMs > 90000) {
-            MonsterC5::requestStop();
-            MonsterC5::clearHandshakeResult();
+            JanusHog::requestStop();
+            JanusHog::clearHandshakeResult();
             c5HandshakePending = false;
             Display::showToast("HANDSHAKE TIMEOUT");
-        } else if (!MonsterC5::isConnected()) {
+        } else if (!JanusHog::isConnected()) {
             Display::showToast("C5 LINK LOST");
-            MonsterC5::clearHandshakeResult();
+            JanusHog::clearHandshakeResult();
             c5HandshakePending = false;
         } else {
-            HandshakeResult r = MonsterC5::getHandshakeResult();
+            HandshakeResult r = JanusHog::getHandshakeResult();
             if (r == HandshakeResult::CAPTURED) {
                 Mood::onHandshakeCaptured(c5HandshakeSsid[0] ? c5HandshakeSsid : "5G");
                 Display::showLoot(c5HandshakeSsid[0] ? c5HandshakeSsid : "5G");
-                MonsterC5::clearHandshakeResult();
+                JanusHog::clearHandshakeResult();
                 c5HandshakePending = false;
             } else if (r == HandshakeResult::FAILED) {
                 Display::showToast("HANDSHAKE FAILED");
-                MonsterC5::clearHandshakeResult();
+                JanusHog::clearHandshakeResult();
                 c5HandshakePending = false;
             }
         }
@@ -694,7 +694,7 @@ void SpectrumMode::updateRenderSnapshot() {
         size_t count = 0;
         {
             // Copy out a snapshot while holding the recon vector lock. This makes 5GHz display
-            // stable across scans and avoids depending on MonsterC5's "last scan only" cache.
+            // stable across scans and avoids depending on JanusHog's "last scan only" cache.
             NetworkRecon::CriticalSection lock;
             const auto& recon = NetworkRecon::getNetworks();
             for (size_t i = 0; i < recon.size(); i++) {
@@ -914,7 +914,7 @@ void SpectrumMode::updateRenderSnapshot() {
 }
 
 bool SpectrumMode::has5GHzScanData() {
-    if (!MonsterC5::isConnected()) return false;
+    if (!JanusHog::isConnected()) return false;
     NetworkRecon::CriticalSection lock;
     const auto& recon = NetworkRecon::getNetworks();
     for (size_t i = 0; i < recon.size(); i++) {
@@ -1039,7 +1039,7 @@ void SpectrumMode::handleInput() {
         if (viewBand == SpectrumBand::BAND_24) {
             float next = viewCenterMHz + PAN_STEP_MHZ;
             if (next > MAX_CENTER_MHZ) {
-                if (MonsterC5::isConnected()) {
+                if (JanusHog::isConnected()) {
                     // Wrap from 2.4GHz → 5GHz (scan-backed)
                     setViewBand(SpectrumBand::BAND_5);
                     // Start at the left edge of the 5GHz band, respecting viewport width.
@@ -1047,8 +1047,8 @@ void SpectrumMode::handleInput() {
                     viewCenter5MHz = viewCenterMHz;
                     Display::showToast("5GHZ");
                     // Ensure we kick off a scan if none has happened yet.
-                    if (!has5G && MonsterC5::getScanCount() == 0 && MonsterC5::getCurrentOp() == C5Op::NONE) {
-                        MonsterC5::requestScan();
+                    if (!has5G && JanusHog::getScanCount() == 0 && JanusHog::getCurrentOp() == C5Op::NONE) {
+                        JanusHog::requestScan();
                     }
                 } else {
                     viewCenterMHz = MAX_CENTER_MHZ;
@@ -1254,12 +1254,12 @@ void SpectrumMode::handleActionPromptInput() {
 
     if (M5Cardputer.Keyboard.isKeyPressed('h') || M5Cardputer.Keyboard.isKeyPressed('H')) {
         actionPromptActive = false;
-        if (!MonsterC5::isConnected()) {
+        if (!JanusHog::isConnected()) {
             Display::showToast("C5 OFFLINE");
             return;
         }
         // Start handshake capture on C5.
-        if (MonsterC5::requestHandshake(actionBssid)) {
+        if (JanusHog::requestHandshake(actionBssid)) {
             c5HandshakePending = true;
             c5HandshakeStartMs = millis();
             strncpy(c5HandshakeSsid, actionSsid, 32);
@@ -1273,11 +1273,11 @@ void SpectrumMode::handleActionPromptInput() {
 
     if (M5Cardputer.Keyboard.isKeyPressed('p') || M5Cardputer.Keyboard.isKeyPressed('P')) {
         actionPromptActive = false;
-        if (!MonsterC5::isConnected()) {
+        if (!JanusHog::isConnected()) {
             Display::showToast("C5 OFFLINE");
             return;
         }
-        if (MonsterC5::requestPacketMonitor(actionChannel)) {
+        if (JanusHog::requestPacketMonitor(actionChannel)) {
             Display::notify(NoticeKind::STATUS, "C5 PKT MON", 2000, NoticeChannel::TOP_BAR);
         } else {
             Display::showToast("C5 BUSY");
@@ -1294,8 +1294,8 @@ void SpectrumMode::handleActionPromptInput() {
 
     if (M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
         actionPromptActive = false;
-        if (MonsterC5::isConnected()) {
-            MonsterC5::requestStop();
+        if (JanusHog::isConnected()) {
+            JanusHog::requestStop();
             Display::showToast("C5 STOP");
         } else {
             Display::showToast("C5 OFFLINE");
@@ -1744,8 +1744,8 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas, uint16_t fg) {
     // Format pps
     char ppsStr[8];
     uint32_t pps = displayPps;
-    if (viewBand == SpectrumBand::BAND_5 && MonsterC5::getCurrentOp() == C5Op::PACKET_MONITOR) {
-        pps = MonsterC5::getPacketsPerSecond();
+    if (viewBand == SpectrumBand::BAND_5 && JanusHog::getCurrentOp() == C5Op::PACKET_MONITOR) {
+        pps = JanusHog::getPacketsPerSecond();
     }
     if (pps >= 1000) {
         snprintf(ppsStr, sizeof(ppsStr), "%.1fk", pps / 1000.0f);

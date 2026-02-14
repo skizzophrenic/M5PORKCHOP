@@ -58,7 +58,7 @@ enum class XPEvent : uint8_t {
     SMOKED_BACON,           // +15 XP - rare upload bonus
     // C5Lab / JanOS / JANUS HOG (v0.1.9+)
     SAE_COMMIT_SENT,        // +2 XP - SAE flood burst sent
-    C5_CONNECTED,           // +25 XP - MonsterC5 board detected
+    C5_CONNECTED,           // +25 XP - JanusHog board detected
     C5_5GHZ_FOUND           // +5 XP - 5GHz network found via C5
 };
 

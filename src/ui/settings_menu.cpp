@@ -4,7 +4,7 @@
 #include "settings_menu.h"
 #include "display.h"
 #include "../core/config.h"
-#include "../core/monster_c5.h"
+#include "../core/janus_hog.h"
 #include "../core/xp.h"
 #include "../core/sd_layout.h"
 #include "../core/sdlog.h"
@@ -1012,12 +1012,12 @@ void SettingsMenu::saveIfDirty(bool showToast) {
             origC5RxPin = Config::c5().uartRxPin;
             origC5Baud = Config::c5().baudRate;
             if (Config::c5().enabled) {
-                MonsterC5::reinit();
+                JanusHog::reinit();
                 if (showToast) {
                     Display::notify(NoticeKind::STATUS, "C5 REINIT");
                 }
             } else {
-                MonsterC5::shutdown();
+                JanusHog::shutdown();
                 if (showToast) {
                     Display::notify(NoticeKind::STATUS, "C5 DISABLED");
                 }
