@@ -1172,7 +1172,7 @@ void XP::updateSessionTime() {
                 if (elapsed >= 172800) {  // 48 hours in seconds
                     uint16_t bonus = 25 + (data.cachedLevel * 2);
                     addXPSilent(bonus);
-                    Display::showToast("PIG MISSED YOU!");
+                    Display::showToast("PIG MISSED YOU.");
                     SFX::play(SFX::ACHIEVEMENT);
                     Serial.printf("[XP] Return bonus: +%d XP (absent %lu hours)\n",
                                   bonus, (unsigned long)(elapsed / 3600));
