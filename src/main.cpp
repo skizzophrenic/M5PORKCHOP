@@ -127,7 +127,13 @@ void setup() {
     // Reservation fence: push WiFi driver allocations high in heap, then free
     // the fence to leave large contiguous space at the bottom.
     // Replaces the old 5-phase boot conditioning with a deterministic layout.
+    // NOTE: Skipped on Core2 — PSRAM handles sprites/large buffers, leaving
+    // plenty of internal DRAM for WiFi DMA without fencing.
+    #if !defined(PORKCHOP_TARGET_CORE2)
     setupHeapLayout();
+    #else
+    preInitWiFiDriverEarly();
+    #endif
 
     // Load configuration from SD
     if (!Config::init()) {
