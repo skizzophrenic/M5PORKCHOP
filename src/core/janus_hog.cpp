@@ -222,10 +222,20 @@ void JanusHog::init() {
     c5GpsConfigSent = false;
     c5GpsConfigSentMs = 0;
     pktPerSecond = 0;
+
+    // Core2 has no C5 coprocessor — skip PSRAM allocations and UART init
+    Serial.println("[C5] Core2: no C5 coprocessor, skipping"); Serial.flush();
+    return;
+
+    // --- Everything below is dead code on Core2 ---
+
+    Serial.println("[C5] ps_calloc..."); Serial.flush();
     if (!scanCacheA) scanCacheA = (C5ScanEntry*)ps_calloc(SCAN_CACHE_MAX, sizeof(C5ScanEntry));
     if (!scanCacheB) scanCacheB = (C5ScanEntry*)ps_calloc(SCAN_CACHE_MAX, sizeof(C5ScanEntry));
-    memset(scanCacheA, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
-    memset(scanCacheB, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
+    Serial.printf("[C5] scanCacheA=%p scanCacheB=%p\n", scanCacheA, scanCacheB); Serial.flush();
+    if (scanCacheA) memset(scanCacheA, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
+    if (scanCacheB) memset(scanCacheB, 0, SCAN_CACHE_MAX * sizeof(C5ScanEntry));
+    Serial.println("[C5] memset OK"); Serial.flush();
     scanCacheActive = scanCacheA;
     scanCacheWork = scanCacheB;
     memset(&channelCounts, 0, sizeof(channelCounts));
@@ -268,32 +278,34 @@ void JanusHog::init() {
     xferExpectedOffset = 0;
     reconPausedForImport = false;
 
-    if (!Config::c5().enabled) {
-        return;
-    }
-
     // Heap gate check
+    Serial.println("[C5] HeapGates check..."); Serial.flush();
     auto gate = HeapGates::checkGate(20000, 15000);
     if (!HeapGates::canMeet(gate, nullptr, 0)) {
         C5_LOGF("Heap too low for C5 init");
         return;
     }
+    Serial.println("[C5] HeapGates OK"); Serial.flush();
 
     // Handle GPS pin conflict — check any overlap, not just Grove defaults
     GPSConfig gpsCfg = Config::gps();
     uint8_t txPin = Config::c5().uartTxPin;
     uint8_t rxPin = Config::c5().uartRxPin;
+    Serial.printf("[C5] pins TX=%d RX=%d baud=%lu\n", txPin, rxPin, Config::c5().baudRate); Serial.flush();
 
     if (gpsCfg.enabled &&
         (txPin == gpsCfg.txPin || txPin == gpsCfg.rxPin ||
          rxPin == gpsCfg.txPin || rxPin == gpsCfg.rxPin)) {
+        Serial.println("[C5] GPS pin conflict, sleeping GPS..."); Serial.flush();
         GPS::sleep();
         gpsPaused = true;
         C5_LOGF("GPS sleeping - C5 pins overlap GPS (TX%d/RX%d vs G%d/G%d)",
                    txPin, rxPin, gpsCfg.txPin, gpsCfg.rxPin);
     }
 
+    Serial.println("[C5] Serial1.begin..."); Serial.flush();
     Serial1.begin(Config::c5().baudRate, SERIAL_8N1, rxPin, txPin);
+    Serial.println("[C5] Serial1 OK"); Serial.flush();
 
     setState(C5State::DISCONNECTED);
     lastPingMs = millis();

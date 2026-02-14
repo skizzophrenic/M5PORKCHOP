@@ -905,7 +905,7 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
             // Heap display
             char heapText[32];
             snprintf(heapText, sizeof(heapText), "HEAP: %uKB",
-                     (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024));
+                     (unsigned)(ESP.getFreeHeap() / 1024));
             canvas.drawString(heapText, centerX, boxY + 42);
         }
         

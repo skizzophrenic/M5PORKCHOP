@@ -222,12 +222,14 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     gps.powerSave      = b.gpsPowerSave != 0;
     gps.timezoneOffset = b.gpsTimezoneOffset;
 
-    // Auto-set pins based on source (same as JSON loader)
-    if (gps.source == GPSSource::CAP_LORA) {
-        gps.rxPin = 15; gps.txPin = 13;
-    } else if (gps.source == GPSSource::GROVE) {
-        gps.rxPin = 13; gps.txPin = 14;  // Core2 PORT.C (UART2)
-    }
+    // Core2: force GROVE source with PORT.C pins regardless of stale config.
+    // CAP_LORA is Cardputer-only hardware that doesn't exist on Core2.
+    gps.source = GPSSource::GROVE;
+    gps.rxPin = 13;   // PORT.C RXD2
+    gps.txPin = 14;   // PORT.C TXD2
+
+    // Core2: force C5 disabled — JanusHog coprocessor is Cardputer-only.
+    c5.enabled = false;
 
     wifi.channelHopInterval   = b.channelHopInterval;
     wifi.spectrumHopInterval  = b.spectrumHopInterval;
@@ -421,31 +423,7 @@ int Config::sdCsPin() {
 }
 
 void Config::prepareCapLoraGpio() {
-    // GPIO 13 is ESP32-S3 default FSPIQ (MISO) via IOMUX. Even though SD remaps
-    // FSPI MISO to G39, the default IOMUX linkage on G13 can disrupt the FSPI
-    // peripheral when Serial2 reconfigures G13 as UART TX output.
-    // gpio_reset_pin() clears IOMUX function, disconnects peripheral signals,
-    // and returns the pin to plain GPIO mode.
-    gpio_reset_pin(static_cast<gpio_num_t>(CapLoraPins::GPS_TX));   // G13
-
-    // Reset SX1262 LoRa chip to known state. The CapLoRa868 LoRa SPI shares
-    // MOSI(G14)/MISO(G39)/SCK(G40) with SD card. After reset the SX1262
-    // enters STANDBY_RC with all IOs high-impedance, preventing bus contention.
-    pinMode(CapLoraPins::LORA_RESET, OUTPUT);
-    digitalWrite(CapLoraPins::LORA_RESET, LOW);   // Assert NRESET (active low)
-    delay(10);                                      // SX1262 datasheet: >100us
-    digitalWrite(CapLoraPins::LORA_RESET, HIGH);   // Release reset
-    delay(10);                                      // Wait for standby entry
-
-    // Deassert LoRa chip select (HIGH = not selected, MISO tri-stated)
-    pinMode(CapLoraPins::LORA_CS, OUTPUT);
-    digitalWrite(CapLoraPins::LORA_CS, HIGH);
-
-    // Configure control pins as inputs (don't drive)
-    pinMode(CapLoraPins::LORA_BUSY, INPUT);
-    pinMode(CapLoraPins::LORA_DIO1, INPUT);
-
-    Serial.println("[CONFIG] CapLoRa868: SX1262 reset, CS deasserted, G13 IOMUX cleared");
+    // No-op on Core2 — CapLoRa868 is Cardputer-only hardware.
 }
 
 bool Config::reinitSD() {
@@ -544,18 +522,11 @@ bool Config::applyJson(const JsonDocument& doc) {
         gpsConfig.enabled = doc["gps"]["enabled"] | true;
         gpsConfig.source = static_cast<GPSSource>(doc["gps"]["gpsSource"] | 0);
 
-        // Auto-set pins based on source, or load custom pins
-        if (gpsConfig.source == GPSSource::CAP_LORA) {
-            gpsConfig.rxPin = 15;  // Cap LoRa868 GPS RX
-            gpsConfig.txPin = 13;  // Cap LoRa868 GPS TX
-        } else if (gpsConfig.source == GPSSource::GROVE) {
-            gpsConfig.rxPin = 13;  // Core2 PORT.C RXD2
-            gpsConfig.txPin = 14;  // Core2 PORT.C TXD2
-        } else {
-            // CUSTOM: load pins from config
-            gpsConfig.rxPin = doc["gps"]["rxPin"] | 13;
-            gpsConfig.txPin = doc["gps"]["txPin"] | 14;
-        }
+        // Core2: force GROVE source with PORT.C pins.
+        // CAP_LORA is Cardputer-only hardware.
+        gpsConfig.source = GPSSource::GROVE;
+        gpsConfig.rxPin = 13;  // Core2 PORT.C RXD2
+        gpsConfig.txPin = 14;  // Core2 PORT.C TXD2
 
         gpsConfig.baudRate = doc["gps"]["baudRate"] | 115200;
         gpsConfig.updateInterval = doc["gps"]["updateInterval"] | 5;

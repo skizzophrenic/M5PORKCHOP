@@ -788,9 +788,9 @@ void start() {
     }
 
     Serial.printf("[RECON] Starting background scan... free=%u largest=%u\n",
-                  ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  ESP.getFreeHeap(), ESP.getFreeHeap());
     
-    heapLargestAtStart = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    heapLargestAtStart = ESP.getFreeHeap();
     heapStabilized = false;
     startTime = millis();
     pendingNetWrite = 0;
@@ -822,7 +822,7 @@ void start() {
         delay(50);
 
         Serial.printf("[RECON] After BLE deinit: free=%u largest=%u\n",
-                      ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                      ESP.getFreeHeap(), ESP.getFreeHeap());
     }
 
     // Initialize WiFi
@@ -960,7 +960,7 @@ void update() {
     
     // Check heap stabilization
     if (!heapStabilized) {
-        size_t currentLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t currentLargest = ESP.getFreeHeap();
         if (currentLargest > HeapPolicy::kHeapStableThreshold) {
             heapStabilized = true;
             Serial.printf("[RECON] Heap stabilized in %ums: largest=%u (was %u)\n",

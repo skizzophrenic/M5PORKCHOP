@@ -149,7 +149,7 @@ void DiagDataMenu::saveSnapshot() {
     // Memory Status
     file.printf("MEMORY STATUS:\n");
     file.printf("  Free Heap: %u bytes\n", (unsigned int)ESP.getFreeHeap());
-    file.printf("  Largest Block: %u bytes\n", (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    file.printf("  Largest Block: %u bytes\n", (unsigned int)ESP.getFreeHeap());
     file.printf("  Min Free Heap: %u bytes\n", (unsigned int)ESP.getMinFreeHeap());
     if (psramFound()) {
         file.printf("  PSRAM Size: %u bytes\n", (unsigned int)ESP.getPsramSize());
@@ -206,7 +206,7 @@ void DiagDataMenu::logHeapSnapshot() {
              t ? t->tm_min : 0,
              t ? t->tm_sec : 0,
              (unsigned int)ESP.getFreeHeap(),
-             (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+             (unsigned int)ESP.getFreeHeap(),
              (unsigned int)ESP.getMinFreeHeap(),
              (unsigned int)HeapHealth::getMinLargest(),
              (unsigned int)HeapHealth::getMinFree());
@@ -250,7 +250,7 @@ void DiagDataMenu::draw(M5Canvas& canvas) {
     canvas.drawString(heapBuf, 80, y);
     y += lineH;
     canvas.drawString("LARGEST:", 4, y);
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreeHeap());
     canvas.drawString(heapBuf, 80, y);
     y += lineH;
     canvas.drawString("MIN FREE:", 4, y);

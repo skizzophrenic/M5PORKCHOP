@@ -32,19 +32,25 @@ void setup() {
     Serial.begin(115200);
     delay(100);
     Serial.println("\n=== PORKCHOP STARTING ===");
+    Serial.flush();
 
     Serial.printf("[BOOT] PSRAM: size=%u free=%u\n",
                   (unsigned)ESP.getPsramSize(),
                   (unsigned)ESP.getFreePsram());
+    Serial.flush();
 
     // Init hardware
     auto cfg = M5.config();
+    Serial.println("[BOOT] M5.begin..."); Serial.flush();
     M5.begin(cfg);
+    Serial.println("[BOOT] M5.begin OK"); Serial.flush();
 
     // Load configuration from SD
+    Serial.println("[BOOT] Config::init..."); Serial.flush();
     if (!Config::init()) {
         Serial.println("[MAIN] Config init failed, using defaults");
     }
+    Serial.println("[BOOT] Config OK"); Serial.flush();
 
     // Init SD logging (will be enabled via settings if user wants)
     SDLog::init();
@@ -55,7 +61,9 @@ void setup() {
     // TLS reserve disabled: browser handles TLS, keep heap for UI/file transfer.
 
     // Init display system
+    Serial.println("[BOOT] Display::init..."); Serial.flush();
     Display::init();
+    Serial.println("[BOOT] Display OK"); Serial.flush();
     Input::init();
 
     // Init audio early so boot sound plays
@@ -77,21 +85,25 @@ void setup() {
     }
 
     // Initialize JanusHog coprocessor (JANUS HOG) — before modes, after GPS
+    Serial.println("[BOOT] JanusHog::init..."); Serial.flush();
     JanusHog::init();
+    Serial.println("[BOOT] JanusHog OK"); Serial.flush();
 
     // Initialize modes
+    Serial.println("[BOOT] Modes init..."); Serial.flush();
     OinkMode::init();
     WarhogMode::init();
     porkchop.init();
 
-    Serial.println("=== PORKCHOP READY ===");
+    Serial.println("=== PORKCHOP READY ==="); Serial.flush();
     Serial.printf("Piglet: %s\n", Config::personality().name);
+    Serial.flush();
     
     // #region agent log
     // [DEBUG] H1: Log heap after init to check static pool impact (~13KB expected reduction)
     Serial.printf("[DBG-HEAP] After init: free=%u largest=%u\n", 
                   (unsigned)ESP.getFreeHeap(), 
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  (unsigned)ESP.getFreeHeap());
     // #endregion
     
     // Start background network reconnaissance service
@@ -106,6 +118,11 @@ void setup() {
 }
 
 void loop() {
+    static bool loopOnce = false;
+    if (!loopOnce) {
+        Serial.println("[LOOP] First loop iteration"); Serial.flush();
+        loopOnce = true;
+    }
     M5.update();
     Input::update();
     
@@ -116,7 +133,7 @@ void loop() {
         lastHeapLog = millis();
         Serial.printf("[DBG-HEAP-LOOP] free=%u largest=%u minFree=%u\n",
                       (unsigned)ESP.getFreeHeap(),
-                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                      (unsigned)ESP.getFreeHeap(),
                       (unsigned)ESP.getMinFreeHeap());
     }
     // #endregion

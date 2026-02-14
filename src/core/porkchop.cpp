@@ -321,7 +321,7 @@ void Porkchop::setMode(PorkchopMode mode) {
     Serial.printf("[MODE] EXIT %s free=%u largest=%u\n",
         modeToString(oldMode),
         (unsigned)esp_get_free_heap_size(),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        (unsigned)ESP.getFreeHeap());
     
     // Save "real" modes as previous (not modal menus)
     // Exception: HASHES and TRACKS are saved as previousMode so OINK recovery returns to them
@@ -350,7 +350,7 @@ void Porkchop::setMode(PorkchopMode mode) {
     Serial.printf("[MODE] ENTER %s free=%u largest=%u\n",
         modeToString(currentMode),
         (unsigned)esp_get_free_heap_size(),
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        (unsigned)ESP.getFreeHeap());
     
     // Cleanup the mode we're actually leaving (oldMode), not previousMode
     switch (oldMode) {

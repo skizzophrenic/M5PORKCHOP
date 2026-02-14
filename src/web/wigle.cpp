@@ -847,7 +847,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     
     Serial.printf("[WIGLE] Heap before stats: %u largest=%u\n", 
                   (unsigned int)ESP.getFreeHeap(),
-                  (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  (unsigned int)ESP.getFreeHeap());
     
     // Attempt stats fetch if heap sufficient - no reconditioning, graceful skip if low
     HeapGates::GateStatus statsGate = HeapGates::checkGate(0, HeapPolicy::kMinContigForTls);

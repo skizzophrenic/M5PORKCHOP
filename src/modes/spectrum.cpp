@@ -17,7 +17,7 @@
 #include "../ui/input.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <esp_heap_caps.h>  // For heap_caps_get_largest_free_block
+#include <esp_heap_caps.h>
 #include <esp_attr.h>
 
 // Large buffers allocated from PSRAM via ps_calloc() in start()

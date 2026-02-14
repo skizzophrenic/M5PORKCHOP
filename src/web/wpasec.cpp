@@ -475,7 +475,7 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
         }
         Serial.printf("[WPASEC] Upload error: %s (heap=%u largest=%u)\n",
                       lastError, (unsigned)ESP.getFreeHeap(),
-                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                      (unsigned)ESP.getFreeHeap());
     }
     
     return success;
@@ -853,7 +853,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     
     Serial.printf("[WPASEC] Heap before potfile: %u largest=%u\n", 
                   (unsigned int)ESP.getFreeHeap(),
-                  (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  (unsigned int)ESP.getFreeHeap());
     
     uint16_t newCracks = 0;
     bool potfileOk = false;

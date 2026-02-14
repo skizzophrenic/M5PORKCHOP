@@ -115,21 +115,21 @@ static void logRequest(WebServer* srv, const char* label) {
 static void logHeapStatus(const char* label) {
     // Log current free heap and largest free block for debugging memory usage
     size_t freeHeap = ESP.getFreeHeap();
-    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t largest = ESP.getFreeHeap();
     FS_LOGF("[FILESERVER] %s heap free=%u largest=%u\n", label ? label : "heap", (unsigned int)freeHeap, (unsigned int)largest);
 }
 
 static void logHeapStatusIfLow(const char* label) {
     size_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < HeapPolicy::kXferServerLogThreshold) {
-        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t largest = ESP.getFreeHeap();
         FS_LOGF("[FILESERVER] %s low heap free=%u largest=%u\n", label ? label : "low heap", (unsigned int)freeHeap, (unsigned int)largest);
     }
 }
 
 static bool isUiHeapLow(size_t* outFree, size_t* outLargest) {
     size_t freeHeap = ESP.getFreeHeap();
-    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t largest = ESP.getFreeHeap();
     if (outFree) *outFree = freeHeap;
     if (outLargest) *outLargest = largest;
     return (freeHeap < HeapPolicy::kXferServerUiMinFree) || (largest < HeapPolicy::kXferServerUiMinLargest);
@@ -3612,13 +3612,13 @@ void XferServer::stop() {
     // Wait for async LWIP cleanup after WiFi disconnect.
     // WiFi.disconnect() frees TCP/IP buffers asynchronously on core 0.
     {
-        size_t prevLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t prevLargest = ESP.getFreeHeap();
         size_t prevFree = ESP.getFreeHeap();
         uint32_t waitStart = millis();
 
         while ((millis() - waitStart) < HeapPolicy::kLwipCleanupWaitMaxMs) {
             delay(HeapPolicy::kLwipCleanupPollMs);
-            size_t curLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+            size_t curLargest = ESP.getFreeHeap();
             size_t curFree = ESP.getFreeHeap();
             if (curFree == prevFree && curLargest == prevLargest) break;
             prevFree = curFree;
@@ -3627,7 +3627,7 @@ void XferServer::stop() {
 
         FS_LOGF("[FILESERVER] LWIP cleanup: free=%u largest=%u (waited %ums)\n",
                 (unsigned)ESP.getFreeHeap(),
-                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                (unsigned)ESP.getFreeHeap(),
                 (unsigned)(millis() - waitStart));
     }
     

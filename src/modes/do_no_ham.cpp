@@ -196,15 +196,15 @@ void DoNoHamMode::start() {
     incompleteHandshakes.shrink_to_fit();
 
     // Reserve memory for captures
-    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t largest = ESP.getFreeHeap();
     if (largest >= (sizeof(CapturedPMKID) * 8 + HeapPolicy::kReserveSlackSmall)) {
         pmkids.reserve(8);
     }
-    largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    largest = ESP.getFreeHeap();
     if (largest >= (sizeof(CapturedHandshake) * 4 + HeapPolicy::kReserveSlackLarge)) {
         handshakes.reserve(4);
     }
-    largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    largest = ESP.getFreeHeap();
     if (largest >= (sizeof(IncompleteHS) * 8 + HeapPolicy::kReserveSlackSmall)) {
         incompleteHandshakes.reserve(8);
     }
@@ -1276,7 +1276,7 @@ int DoNoHamMode::findOrCreatePMKID(const uint8_t* bssid) {
     // Create new
     if (pmkids.size() < DNH_MAX_PMKIDS) {
         if (pmkids.size() >= pmkids.capacity()) {
-            size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+            size_t largest = ESP.getFreeHeap();
             if (largest < DNH_PMKID_ALLOC_MIN_BLOCK) {
                 Serial.printf("[DNH] PMKID add blocked: fragmented heap (largest=%u)\n", largest);
                 return -1;
@@ -1326,7 +1326,7 @@ int DoNoHamMode::findOrCreateHandshake(const uint8_t* bssid, const uint8_t* stat
         
         // Check largest contiguous block if vector needs to grow
         if (handshakes.size() >= handshakes.capacity()) {
-            size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+            size_t largest = ESP.getFreeHeap();
             if (largest < DNH_HANDSHAKE_ALLOC_MIN_BLOCK) {
                 Serial.printf("[DNH] Handshake add blocked: fragmented heap (largest=%u)\n", largest);
                 return -1;

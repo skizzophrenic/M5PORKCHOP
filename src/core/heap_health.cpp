@@ -103,7 +103,7 @@ void update() {
     lastSampleMs = now;
 
     size_t freeHeap = ESP.getFreeHeap();
-    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t largestBlock = ESP.getFreeHeap();
     if (peakFree == 0 || peakLargest == 0) {
         peakFree = freeHeap;
         peakLargest = largestBlock;
@@ -129,15 +129,9 @@ void update() {
 
     float fragRatio = freeHeap > 0 ? (float)largestBlock / (float)freeHeap : 0.0f;
 
-    // --- Knuth's Rule metric (Fifty Percent Rule) ---
-    // Only computed when diagnostics is active (saves ~50us/sec heap enumeration)
-    if (knuthEnabled) {
-        multi_heap_info_t info;
-        heap_caps_get_info(&info, MALLOC_CAP_8BIT);
-        if (info.allocated_blocks > 0) {
-            knuthRatio = (float)info.free_blocks / (float)info.allocated_blocks;
-        }
-    }
+    // Knuth's Rule metric disabled on Core2 — heap_caps_get_info() walks
+    // all pools including 4MB PSRAM via SPI and can hang.
+    // knuthRatio stays at 0.0f (set in setKnuthEnabled).
 
     // --- Graduated pressure level with hysteresis ---
     HeapPressureLevel newLevel = computePressureLevel(freeHeap, fragRatio);
@@ -230,7 +224,7 @@ float getKnuthRatio() {
 
 void resetPeaks(bool suppressToast) {
     peakFree = ESP.getFreeHeap();
-    peakLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    peakLargest = ESP.getFreeHeap();
     // NOTE: Do NOT reset minFree/minLargest here. Session watermarks must track
     // the true session-worst values. Resetting them mid-brew would corrupt them
     // with transient values (WiFi buffers eat 35KB during conditioning).

@@ -390,7 +390,7 @@ void OinkMode::init() {
     Serial.printf("[DBG-OINK] EAPOLFrame size: %u bytes\n", (unsigned)sizeof(EAPOLFrame));
     Serial.printf("[DBG-OINK] Heap before init: free=%u largest=%u\n",
                   (unsigned)ESP.getFreeHeap(),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  (unsigned)ESP.getFreeHeap());
     // #endregion
     
     // Reset busy flag in case of abnormal stop
@@ -485,7 +485,7 @@ void OinkMode::start() {
     if (running) return;
     
     Serial.printf("[OINK] Starting... free=%u largest=%u\n",
-                  ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+                  ESP.getFreeHeap(), ESP.getFreeHeap());
     
     // Ensure NetworkRecon is running (handles WiFi promiscuous mode)
     if (!NetworkRecon::isRunning()) {
@@ -625,7 +625,7 @@ void OinkMode::update() {
     static uint32_t lastHeapLog = 0;
     static size_t lastLargest = 0;
     if (now - lastHeapLog > 500) {
-        size_t currentLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t currentLargest = ESP.getFreeHeap();
         size_t currentFree = ESP.getFreeHeap();
         
         // Log if this is first call or if heap changed significantly (>5KB)
@@ -2616,7 +2616,7 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
 
     // Only query heap metrics when we'd allocate/grow (keeps hot path allocation-free when capacity is available).
     const size_t freeHeap = needGrow ? ESP.getFreeHeap() : 0;
-    const size_t largestBlock = needGrow ? heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) : 0;
+    const size_t largestBlock = needGrow ? ESP.getFreeHeap() : 0;
 
     const OinkCaptureFilters::HandshakeCreateGateResult gate =
         OinkCaptureFilters::evaluateHandshakeCreateGate(sizeNow, capNow, MAX_HANDSHAKES,
@@ -2662,7 +2662,7 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
     if (gate.allowBeaconCopy && beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
         const uint8_t* beaconBssid = beaconFrame + 16;
         if (memcmp(beaconBssid, bssid, 6) == 0) {
-            size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+            size_t largest = ESP.getFreeHeap();
             if (largest >= beaconFrameLen) {
                 hs.beaconData = (uint8_t*)malloc(beaconFrameLen);
                 if (hs.beaconData) {
@@ -2715,7 +2715,7 @@ int OinkMode::findOrCreatePMKIDSafe(const uint8_t* bssid, const uint8_t* station
         return -1;
     }
     if (pmkids.size() >= pmkids.capacity()) {
-        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t largest = ESP.getFreeHeap();
         if (largest < PMKID_ALLOC_MIN_BLOCK) {
             NetworkRecon::exitCritical();
             return -1;
