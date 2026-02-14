@@ -696,11 +696,6 @@ void XP::startSession() {
     Challenges::generate();
 }
 
-void XP::endSession() {
-    save();
-    Serial.printf("[XP] Session ended - +%lu XP this session\n", session.xp);
-}
-
 void XP::addXP(XPEvent event) {
     uint8_t eventIdx = static_cast<uint8_t>(event);
     // Bounds check to prevent array access violation

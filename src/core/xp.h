@@ -274,7 +274,6 @@ public:
     
     // Session management
     static void startSession();
-    static void endSession();
     static void updateSessionTime();  // Check time-based bonuses
     
     // Distance tracking (call from WARHOG)

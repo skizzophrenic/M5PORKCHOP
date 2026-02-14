@@ -730,7 +730,17 @@ bool Config::loadPersonality() {
     File file = SPIFFS.open(PERSONALITY_FILE, FILE_READ);
     if (!file) {
         Serial.println("[CONFIG] Personality file not found in SPIFFS");
-        return false;
+        // Fallback: try SD card backup
+        if (sdAvailable) {
+            file = SD.open(SDLayout::personalityPathSD(), FILE_READ);
+            if (file) {
+                Serial.println("[CONFIG] Restoring personality from SD backup");
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 
     JsonDocument doc;
@@ -806,6 +816,15 @@ void Config::savePersonalityToSPIFFS() {
                       personalityConfig.soundEnabled ? "ON" : "OFF");
     } else {
         Serial.println("[CONFIG] Failed to save personality to SPIFFS");
+    }
+
+    // Mirror to SD card for backup (survives SPIFFS format)
+    if (sdAvailable) {
+        File sdFile = SD.open(SDLayout::personalityPathSD(), FILE_WRITE);
+        if (sdFile) {
+            serializeJsonPretty(doc, sdFile);
+            sdFile.close();
+        }
     }
 }
 
