@@ -99,9 +99,6 @@ void setup() {
     Serial.printf("[BOOT] PSRAM: size=%u free=%u\n",
                   (unsigned)ESP.getPsramSize(),
                   (unsigned)ESP.getFreePsram());
-    // Zero PSRAM BSS section (PSRAM is undefined at power-up)
-    extern uint8_t _psram_bss_start, _psram_bss_end;
-    memset(&_psram_bss_start, 0, &_psram_bss_end - &_psram_bss_start);
     #endif
 
     // Deassert CapLoRa SX1262 CS BEFORE SD init. The SX1262 shares
