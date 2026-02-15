@@ -686,14 +686,13 @@ void Menu::drawRoot(M5Canvas& canvas) {
         canvas.drawString("v", DISPLAY_W - 12, yOffset + (VISIBLE_ITEMS - 1) * lineHeight);
     }
 
-    // Narrative engine in right column (x=170, 3 lines stacked vertically)
+    // Narrative engine below menu stack (3 lines, full width)
     NarrativeEngine::update((uint8_t)PorkchopMode::MENU);
     if (NarrativeEngine::hasContent()) {
         canvas.setTextSize(1);
         canvas.setTextDatum(TL_DATUM);
         bool flash = NarrativeEngine::isFlashing();
-        int nx = 170;
-        int ny = 60;
+        int ny = 155;  // Below 6 root items (y=28 + 6*20 = 148) + gap
         const char* lines[3] = {
             NarrativeEngine::getLine3(),  // Oldest
             NarrativeEngine::getLine2(),
@@ -703,12 +702,12 @@ void Menu::drawRoot(M5Canvas& canvas) {
             if (lines[i][0] == '\0') continue;
             bool inv = (flash && i == 2);  // Flash newest line only
             if (inv) {
-                canvas.fillRect(nx - 2, ny + i * 12, DISPLAY_W - nx, 10, fg);
+                canvas.fillRect(0, ny + i * 14, DISPLAY_W, 12, fg);
                 canvas.setTextColor(bg);
             } else {
                 canvas.setTextColor(fg);
             }
-            canvas.drawString(lines[i], nx, ny + i * 12);
+            canvas.drawString(lines[i], 4, ny + i * 14);
         }
         canvas.setTextColor(fg);  // Restore
     }

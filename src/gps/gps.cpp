@@ -369,6 +369,18 @@ void GPS::maybeSyncSystemTime(uint32_t gpsDate, uint32_t gpsTime) {
     settimeofday(&tv, nullptr);
     gpsTimeSynced = true;
 
-    Serial.printf("[GPS] System time synced: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+    // Persist to battery-backed RTC (BM8563)
+    if (M5.Rtc.isEnabled()) {
+        auto rtcDt = M5.Rtc.getDateTime();
+        rtcDt.date.year = year;
+        rtcDt.date.month = month;
+        rtcDt.date.date = day;
+        rtcDt.time.hours = hour;
+        rtcDt.time.minutes = minute;
+        rtcDt.time.seconds = second;
+        M5.Rtc.setDateTime(rtcDt);
+    }
+
+    Serial.printf("[GPS] System time + RTC synced: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
                   year, month, day, hour, minute, second);
 }

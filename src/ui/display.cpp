@@ -463,10 +463,11 @@ static void drawInfoPanel(M5Canvas& canvas) {
                 canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
                 canvas.setTextColor(bg);
             } else if (!ch.failed && ch.target > 0 && ch.progress > 0) {
-                // Progress bar: 2px line at bottom of row (visible, doesn't hide text)
-                int progW = (DISPLAY_W * ch.progress) / ch.target;
-                if (progW > DISPLAY_W) progW = DISPLAY_W;
-                if (progW > 0) canvas.fillRect(0, y + ROW_H - 2, progW, 2, fg);
+                // Progress bar: 3px line at bottom of row, aligned with text margins
+                int barMaxW = DISPLAY_W - 8;
+                int progW = (barMaxW * ch.progress) / ch.target;
+                if (progW > barMaxW) progW = barMaxW;
+                if (progW > 0) canvas.fillRect(4, y + ROW_H - 3, progW, 3, fg);
             }
 
             canvas.drawString(chalLine, 4, y);
@@ -947,7 +948,7 @@ void Display::drawTopBar() {
         moodFillW = ((moodVal + 100) * DISPLAY_W) / 200;
         if (moodFillW < 0) moodFillW = 0;
         if (moodFillW > DISPLAY_W) moodFillW = DISPLAY_W;
-        if (moodFillW > 0) topBar.fillRect(0, 0, moodFillW, TOP_BAR_H, fg);
+        if (moodFillW > 0) topBar.fillRect(0, TOP_BAR_H - 3, moodFillW, 3, fg);
     }
     char modeBuf[40];
     modeBuf[0] = '\0';
@@ -1080,11 +1081,8 @@ void Display::drawTopBar() {
     char rightBuf[32];
     snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);
 
-    // Draw status info at right edge (smart inversion for mood fill)
     int rightBufW = topBar.textWidth(rightBuf);
-    int rightMidX = DISPLAY_W - 3 - rightBufW / 2;
-    uint16_t rightColor = (moodFillW > rightMidX) ? bg : fg;
-    topBar.setTextColor(rightColor);
+    topBar.setTextColor(fg);
     topBar.setTextDatum(TR_DATUM);
     topBar.drawString(rightBuf, DISPLAY_W - 3, 2);
     int rightWidth = rightBufW + 6;
@@ -1100,10 +1098,7 @@ void Display::drawTopBar() {
         finalModeBuf[leftLen - 1] = '.';
     }
 
-    // Smart inversion: check if mode label midpoint is within mood fill
-    int leftMidX = 2 + topBar.textWidth(finalModeBuf) / 2;
-    uint16_t leftColor = (moodFillW > leftMidX) ? bg : modeColor;
-    topBar.setTextColor(leftColor);
+    topBar.setTextColor(modeColor);
     topBar.setTextDatum(TL_DATUM);
     topBar.drawString(finalModeBuf, 2, 2);
 }

@@ -433,6 +433,11 @@ static void updateBatteryBias(uint32_t now) {
         newTier = updateBatteryTierHyst(percent, batteryTier);
     }
 
+    // Trigger low battery event when dropping to tier 0 (<=10%)
+    if (newTier == 0 && batteryTier > 0 && batteryTierInitialized) {
+        Mood::onLowBattery();
+    }
+
     batteryTier = newTier;
     batteryBias = getBatteryBiasForTier(batteryTier);
 }
@@ -1826,7 +1831,8 @@ void Mood::onGPSFix() {
     happiness = min(happiness + 5, 100);  // Small permanent boost
     applyMomentumBoost(15);  // Happy about GPS lock!
     lastActivityTime = millis();
-    
+    NarrativeEngine::pushEvent(EVT_GPS_LOCK);
+
     // Award XP for GPS lock (handled by session flag in XP to avoid duplicates)
     const SessionStats& sess = XP::getSession();
     if (!sess.gpsLockAwarded) {
@@ -1847,6 +1853,7 @@ void Mood::onGPSLost() {
 void Mood::onLowBattery() {
     SET_PHRASE(currentPhrase, "piggy needs juice");
     lastPhraseChange = millis();
+    NarrativeEngine::pushEvent(EVT_LOW_BATTERY);
 }
 
 // === SITUATIONAL AWARENESS IMPLEMENTATIONS ===

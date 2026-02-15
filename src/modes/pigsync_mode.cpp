@@ -1323,8 +1323,23 @@ void PigSyncMode::update() {
             tv.tv_sec = adjustedTime;
             tv.tv_usec = 0;
             settimeofday(&tv, nullptr);
-            
-            PIGSYNC_LOGF("[PIGSYNC-CLI] Time synced from Sirloin: %lu (RTT=%lums)\n", adjustedTime, rtt);
+
+            // Persist to battery-backed RTC (BM8563)
+            if (M5.Rtc.isEnabled()) {
+                time_t syncTime = (time_t)adjustedTime;
+                struct tm ti;
+                gmtime_r(&syncTime, &ti);
+                auto rtcDt = M5.Rtc.getDateTime();
+                rtcDt.date.year = ti.tm_year + 1900;
+                rtcDt.date.month = ti.tm_mon + 1;
+                rtcDt.date.date = ti.tm_mday;
+                rtcDt.time.hours = ti.tm_hour;
+                rtcDt.time.minutes = ti.tm_min;
+                rtcDt.time.seconds = ti.tm_sec;
+                M5.Rtc.setDateTime(rtcDt);
+            }
+
+            PIGSYNC_LOGF("[PIGSYNC-CLI] Time synced from Sirloin + RTC: %lu (RTT=%lums)\n", adjustedTime, rtt);
         } else {
             PIGSYNC_LOGLN("[PIGSYNC-CLI] Sirloin RTC not valid, skipping time sync");
         }

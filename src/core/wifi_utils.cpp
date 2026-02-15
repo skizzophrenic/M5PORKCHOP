@@ -1,4 +1,5 @@
 #include "wifi_utils.h"
+#include <M5Unified.h>
 #include <Arduino.h>
 #include <esp_wifi.h>
 #include <nvs_flash.h>
@@ -173,6 +174,20 @@ bool ensureTimeSynced(uint32_t timeoutMs, bool force) {
     while (millis() - start < timeoutMs) {
         if (isTimeValid()) {
             lastTimeSyncMs = millis();
+            // Persist NTP time to battery-backed RTC (BM8563)
+            if (M5.Rtc.isEnabled()) {
+                time_t ntpNow = time(nullptr);
+                struct tm ti;
+                gmtime_r(&ntpNow, &ti);
+                auto rtcDt = M5.Rtc.getDateTime();
+                rtcDt.date.year = ti.tm_year + 1900;
+                rtcDt.date.month = ti.tm_mon + 1;
+                rtcDt.date.date = ti.tm_mday;
+                rtcDt.time.hours = ti.tm_hour;
+                rtcDt.time.minutes = ti.tm_min;
+                rtcDt.time.seconds = ti.tm_sec;
+                M5.Rtc.setDateTime(rtcDt);
+            }
             xSemaphoreGive(timeSyncMutex);
             return true;
         }

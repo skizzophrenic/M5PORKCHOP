@@ -45,6 +45,19 @@ void setup() {
     M5.begin(cfg);
     Serial.println("[BOOT] M5.begin OK"); Serial.flush();
 
+    // Seed system clock from battery-backed RTC (BM8563)
+    if (M5.Rtc.isEnabled()) {
+        auto dt = M5.Rtc.getDateTime();
+        if (dt.date.year >= 2024 && dt.date.year <= 2035) {
+            M5.Rtc.setSystemTimeFromRtc(nullptr);
+            Serial.printf("[BOOT] RTC -> system clock: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                          dt.date.year, dt.date.month, dt.date.date,
+                          dt.time.hours, dt.time.minutes, dt.time.seconds);
+        } else {
+            Serial.printf("[BOOT] RTC time invalid (year=%d), waiting for GPS/NTP\n", dt.date.year);
+        }
+    }
+
     // Load configuration from SD
     Serial.println("[BOOT] Config::init..."); Serial.flush();
     if (!Config::init()) {
@@ -98,13 +111,6 @@ void setup() {
     Serial.println("=== PORKCHOP READY ==="); Serial.flush();
     Serial.printf("Piglet: %s\n", Config::personality().name);
     Serial.flush();
-    
-    // #region agent log
-    // [DEBUG] H1: Log heap after init to check static pool impact (~13KB expected reduction)
-    Serial.printf("[DBG-HEAP] After init: free=%u largest=%u\n", 
-                  (unsigned)ESP.getFreeHeap(), 
-                  (unsigned)ESP.getFreeHeap());
-    // #endregion
     
     // Start background network reconnaissance service
     // This stabilizes heap by running WiFi promiscuous mode early

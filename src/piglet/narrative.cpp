@@ -473,10 +473,10 @@ void NarrativeEngine::pushD20Roll(uint8_t roll, uint16_t xp) {
     if (sPendingRollCount == 0) {
         sFirstRollMs = millis();
     }
-    sPendingRollCount++;
+    if (sPendingRollCount < 250) sPendingRollCount++;
     sLastRoll = roll;
     if (roll > sBestRoll) sBestRoll = roll;
-    sTotalRollXP += xp;
+    if (sTotalRollXP <= 60000) sTotalRollXP += xp;
 }
 
 // ============================================================
