@@ -100,67 +100,6 @@ static void getSystemTimeString(char* out, size_t len) {
 
 static portMUX_TYPE displayMux = portMUX_INITIALIZER_UNLOCKED;
 
-static void drawHeartIcon(M5Canvas& canvas, int x, int y, uint16_t color) {
-    // Upright heart built from two circles + triangle
-    canvas.fillCircle(x + 2, y + 2, 2, color);
-    canvas.fillCircle(x + 6, y + 2, 2, color);
-    canvas.fillTriangle(x, y + 3, x + 8, y + 3, x + 4, y + 6, color);
-}
-
-static void drawTopBarHeapHealth(M5Canvas& topBar, uint16_t fg, uint16_t bg) {
-    topBar.fillSprite(fg);
-    topBar.setTextColor(bg);
-    topBar.setTextSize(1);
-    topBar.setTextDatum(top_left);
-
-    // Level and title (same as XP)
-    char levelStr[8];
-    snprintf(levelStr, sizeof(levelStr), "L%d", XP::getLevel());
-    const char* title = XP::getTitle();
-
-    const char* status = HeapHealth::isToastImproved() ? "HEALTH IMPROVED" : "HEALTH DROPPED";
-    char msgBuf[48];
-    snprintf(msgBuf, sizeof(msgBuf), "%s %c%u%%", status,
-             HeapHealth::isToastImproved() ? '+' : '-', HeapHealth::getToastDelta());
-
-    int levelW = topBar.textWidth(levelStr);
-    int titleX = 2 + levelW + 4;
-
-    const int heartW = 9;
-    const int heartGap = 4;
-    int heartX = DISPLAY_W - 2 - heartW;
-    int msgRightX = heartX - heartGap;
-
-    int maxTitleW = msgRightX - titleX - 6;
-    if (maxTitleW < 0) maxTitleW = 0;
-
-    int titleW = topBar.textWidth(title);
-    if (titleW <= maxTitleW) {
-        topBar.drawString(title, titleX, 2);
-    } else {
-        char titleBuf[24];
-        size_t titleLen = strlen(title);
-        if (titleLen > sizeof(titleBuf) - 3) titleLen = sizeof(titleBuf) - 3;
-        size_t len = titleLen;
-        while (len > 3) {
-            memcpy(titleBuf, title, len);
-            titleBuf[len] = '\0';
-            if (topBar.textWidth(titleBuf) + topBar.textWidth("..") <= maxTitleW) {
-                break;
-            }
-            len--;
-        }
-        if (len < titleLen) {
-            strcpy(titleBuf + len, "..");
-        }
-        topBar.drawString(titleBuf, titleX, 2);
-    }
-
-    topBar.drawString(levelStr, 2, 2);
-    topBar.setTextDatum(top_right);
-    topBar.drawString(msgBuf, msgRightX, 2);
-    drawHeartIcon(topBar, heartX, 2, bg);
-}
 
 // Static member initialization
 M5Canvas Display::topBar(&M5.Display);
@@ -442,7 +381,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     }
 
     // --- P1G D3MANDS: challenge rows (3 × 11px) ---
-    y += ROW_H + 2;  // 4px gap between stats and challenges
+    y += ROW_H + 1;  // 4px gap between stats and challenges
     uint8_t chalTotal = Challenges::getActiveCount();
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -779,7 +718,24 @@ void Display::update() {
         }
 
         int lineH = 12;
-        int boxW = 200;
+
+        // Measure longest line to size box dynamically
+        char measBuf[160];
+        strncpy(measBuf, toastMessage, sizeof(measBuf) - 1);
+        measBuf[sizeof(measBuf) - 1] = '\0';
+        mainCanvas.setTextSize(1);
+        mainCanvas.setFont(&fonts::Font0);
+        int maxLineW = 0;
+        char* mLine = strtok(measBuf, "\n");
+        while (mLine) {
+            int lw = mainCanvas.textWidth(mLine);
+            if (lw > maxLineW) maxLineW = lw;
+            mLine = strtok(nullptr, "\n");
+        }
+
+        int boxW = maxLineW + 16;
+        if (boxW < 200) boxW = 200;
+        if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
         int boxH = 12 + lineCount * lineH;
         int boxX = (DISPLAY_W - boxW) / 2;
         int boxY = (MAIN_H - boxH) / 2;
@@ -790,24 +746,19 @@ void Display::update() {
 
         // Black text on pink background
         mainCanvas.setTextColor(bg, fg);
-        mainCanvas.setTextSize(1);
-        mainCanvas.setFont(&fonts::Font0);
         mainCanvas.setTextDatum(TC_DATUM);
 
         // Draw each line centered
-        char buf[128];
-        // SAFETY: Reserve space for strtok modifications
-        if (sizeof(buf) > strlen(toastMessage)) {
-            strncpy(buf, toastMessage, sizeof(buf) - 1);
-            buf[sizeof(buf) - 1] = '\0';
+        char buf[160];
+        strncpy(buf, toastMessage, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
 
-            int y = boxY + 2;
-            char* line = strtok(buf, "\n");
-            while (line) {
-                mainCanvas.drawString(line, DISPLAY_W / 2, y);
-                y += lineH;
-                line = strtok(nullptr, "\n");
-            }
+        int y = boxY + 2;
+        char* line = strtok(buf, "\n");
+        while (line) {
+            mainCanvas.drawString(line, DISPLAY_W / 2, y);
+            y += lineH;
+            line = strtok(nullptr, "\n");
         }
         mainCanvas.setTextDatum(TL_DATUM);
 
@@ -894,8 +845,6 @@ void Display::drawTopBar() {
         return;
     }
 
-    // Heap health toast disabled — not used on Core2 for now
-    // HeapHealth::shouldShowToast() still tracks internally if re-enabled later
 
     // Check for upload progress, show during upload operations
     if (shouldShowUploadProgress()) {
@@ -1047,8 +996,8 @@ void Display::drawTopBar() {
             break;
     }
 
-    // Build mode string (PWNED banner if applicable)
-    char finalModeBuf[80];
+    // Build mode string (PWNED banner if applicable) + inline buffs/debuffs
+    char finalModeBuf[128];
     if (mode == PorkchopMode::OINK_MODE && lootSSID[0] != '\0') {
         char upperLoot[20];
         strncpy(upperLoot, lootSSID, sizeof(upperLoot) - 1);
@@ -1058,6 +1007,25 @@ void Display::drawTopBar() {
     } else {
         strncpy(finalModeBuf, modeBuf, sizeof(finalModeBuf) - 1);
         finalModeBuf[sizeof(finalModeBuf) - 1] = '\0';
+    }
+
+    // Append active buffs/debuffs to mode string for avatar modes
+    if (isAvatarMode) {
+        int pos = strlen(finalModeBuf);
+        BuffState buffs = FlexesScreen::calculateBuffs();
+        const PorkBuff buffList[] = { PorkBuff::R4G3, PorkBuff::SNOUT_SHARP, PorkBuff::H0TSTR3AK, PorkBuff::C4FF31N4T3D, PorkBuff::CL34R_SKY };
+        for (int i = 0; i < 5 && pos < (int)sizeof(finalModeBuf) - 14; i++) {
+            if (buffs.hasBuff(buffList[i])) {
+                pos += snprintf(finalModeBuf + pos, sizeof(finalModeBuf) - pos, " [*]%s", FlexesScreen::getBuffName(buffList[i]));
+            }
+        }
+        const PorkDebuff debuffList[] = { PorkDebuff::SLOP_SLUG, PorkDebuff::F0GSNOUT, PorkDebuff::TR0UGHDR41N, PorkDebuff::HAM_STR1NG, PorkDebuff::TH0ND3R_SLAB };
+        for (int i = 0; i < 5 && pos < (int)sizeof(finalModeBuf) - 14; i++) {
+            if (buffs.hasDebuff(debuffList[i])) {
+                pos += snprintf(finalModeBuf + pos, sizeof(finalModeBuf) - pos, " [-]%s", FlexesScreen::getDebuffName(debuffList[i]));
+            }
+        }
+        finalModeBuf[pos] = '\0';
     }
 
     // Right side: battery + status + clock
@@ -1104,22 +1072,19 @@ void Display::drawTopBar() {
     topBar.setTextDatum(TL_DATUM);
     topBar.drawString(finalModeBuf, 2, 2);
 
-    // Mood stage label — right of fill edge, below text row, above bar
+    // Second row (y=11): mood stage label right of fill edge
     if (isAvatarMode && moodFillW > 0) {
-        const char* moodLabel;
         int moodVal2 = Mood::getEffectiveHappiness();
+        const char* moodLabel;
         if (moodVal2 <= -50)      moodLabel = "S4D";
         else if (moodVal2 <= -10) moodLabel = "M3H";
         else if (moodVal2 <= 30)  moodLabel = "0K";
         else if (moodVal2 <= 70)  moodLabel = "GUD";
         else                      moodLabel = "HYP3";
-
+        int labelX = moodFillW + 2;
         int labelW = topBar.textWidth(moodLabel);
-        int labelX = moodFillW + 2;  // Right of fill edge
-        int maxX = DISPLAY_W - rightWidth - labelW;  // Don't overlap right text
-        if (labelX > maxX) labelX = maxX;
-        int minX = (int)topBar.textWidth(finalModeBuf) + 6;  // Don't overlap mode text
-        if (labelX < minX) labelX = minX;
+        if (labelX + labelW > DISPLAY_W - 2) labelX = DISPLAY_W - 2 - labelW;
+        if (labelX < 2) labelX = 2;
         topBar.setTextColor(fg);
         topBar.setTextDatum(TL_DATUM);
         topBar.drawString(moodLabel, labelX, 11);
@@ -1544,43 +1509,16 @@ void Display::showBootSplash() {
 
     bootSplashDelay(1200);
 
-    // Screen 4 (optional): Absurd micro-story when callsign is set
+    // Screen 4 (optional): Welcome back with callsign
     const char* cs = Config::personality().callsign;
     if (cs[0] != '\0') {
-        static const char* const BOOT_NOUNS[] = {
-            "PIG", "HEAP", "BARN", "DEV", "JTAG", "FIRMWARE", "BUG",
-            "SNAKE", "HORSE", "WATCHDOG", "STACK", "MALLOC", "WIFI", "TROUGH"
-        };
-        static constexpr uint8_t NOUN_COUNT = 14;
-
-        // Fisher-Yates partial shuffle: pick 8 unique nouns
-        uint8_t idx[NOUN_COUNT];
-        for (uint8_t i = 0; i < NOUN_COUNT; i++) idx[i] = i;
-        for (uint8_t i = 0; i < 8; i++) {
-            uint8_t j = i + (esp_random() % (NOUN_COUNT - i));
-            uint8_t tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
-        }
-
-        char line[4][54];
-        snprintf(line[0], sizeof(line[0]), "THEY HAD NO %s. BOUGHT A %s.",
-                 BOOT_NOUNS[idx[0]], BOOT_NOUNS[idx[1]]);
-        snprintf(line[1], sizeof(line[1]), "7 %sS LATER IT ESCAPED THE %s.",
-                 BOOT_NOUNS[idx[2]], BOOT_NOUNS[idx[3]]);
-        snprintf(line[2], sizeof(line[2]), "%s GRABBED THE %s AND KILLED %s.",
-                 BOOT_NOUNS[idx[4]], BOOT_NOUNS[idx[5]], BOOT_NOUNS[idx[6]]);
-        snprintf(line[3], sizeof(line[3]), "INSIDE: SLEEPING %s.",
-                 BOOT_NOUNS[idx[7]]);
-
         M5.Display.fillScreen(COLOR_BG);
         M5.Display.setTextDatum(middle_center);
-        M5.Display.setTextSize(1);
-        M5.Display.drawString(line[0], DISPLAY_W / 2, 70);
-        M5.Display.drawString(line[1], DISPLAY_W / 2, 82);
-        M5.Display.drawString(line[2], DISPLAY_W / 2, 94);
-        M5.Display.drawString(line[3], DISPLAY_W / 2, 106);
+        M5.Display.setTextSize(2);
+        M5.Display.drawString("WELCOME BACK", DISPLAY_W / 2, DISPLAY_H / 2 - 15);
         M5.Display.setTextSize(3);
-        M5.Display.drawString(cs, DISPLAY_W / 2, 135);
-        bootSplashDelay(1500);
+        M5.Display.drawString(cs, DISPLAY_W / 2, DISPLAY_H / 2 + 20);
+        bootSplashDelay(1200);
     }
 
     // Reset display state for main UI compatibility

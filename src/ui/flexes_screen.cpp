@@ -782,60 +782,56 @@ void FlexesScreen::drawStats(M5Canvas& canvas) {
     
     int y = 44;  // Start after XP bar and XP text
     int lineH = 10;
-    int col1 = 5;
-    int col2 = 75;
-    int col3 = 125;
-    int col4 = 195;
-    
-    // Row 1: Networks, Handshakes
-    canvas.drawString("N3TW0RKS:", col1, y);
+    int col1 = 4;    // Left labels
+    int col3 = 164;  // Right labels
+
+    // Helper: draw a stat row with label left-aligned and value right-aligned
+    auto drawRow = [&](const char* label, const char* value, int lx, int rx, int ry) {
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(label, lx, ry);
+        canvas.setTextDatum(TR_DATUM);
+        canvas.drawString(value, rx, ry);
+    };
+
     char buf[16];
+
+    // Row 1: Networks, Handshakes
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeNetworks);
-    canvas.drawString(buf, col2, y);
-    
-    canvas.drawString("H4NDSH4K3S:", col3, y);
+    drawRow("N3TW0RKS:", buf, col1, 158, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeHS);
-    canvas.drawString(buf, col4, y);
-    
+    drawRow("H4NDSH4K3S:", buf, col3, DISPLAY_W - 4, y);
+
     y += lineH;
-    
+
     // Row 2: PMKIDs, Deauths
-    canvas.drawString("PMK1DS:", col1, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimePMKID);
-    canvas.drawString(buf, col2, y);
-    
-    canvas.drawString("D34UTHS:", col3, y);
+    drawRow("PMK1DS:", buf, col1, 158, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeDeauths);
-    canvas.drawString(buf, col4, y);
-    
+    drawRow("D34UTHS:", buf, col3, DISPLAY_W - 4, y);
+
     y += lineH;
-    
+
     // Row 3: Distance, BLE
-    canvas.drawString("D1ST4NC3:", col1, y);
     snprintf(buf, sizeof(buf), "%.1fkm", data.lifetimeDistance / 1000.0f);
-    canvas.drawString(buf, col2, y);
-    
-    canvas.drawString("BL3 BL4STS:", col3, y);
+    drawRow("D1ST4NC3:", buf, col1, 158, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeBLE);
-    canvas.drawString(buf, col4, y);
-    
+    drawRow("BL3 BL4STS:", buf, col3, DISPLAY_W - 4, y);
+
     y += lineH;
-    
+
     // Row 4: Sessions, Hidden
-    canvas.drawString("S3SS10NS:", col1, y);
     snprintf(buf, sizeof(buf), "%u", data.sessions);
-    canvas.drawString(buf, col2, y);
-    
-    canvas.drawString("GH0STS:", col3, y);
+    drawRow("S3SS10NS:", buf, col1, 158, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.hiddenNetworks);
-    canvas.drawString(buf, col4, y);
+    drawRow("GH0STS:", buf, col3, DISPLAY_W - 4, y);
 
     y += lineH;
 
     // Row 5: Roulette (PiggyBlues no-reboot)
-    canvas.drawString("JST R0UL3T:", col1, y);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.rouletteWins);
-    canvas.drawString(buf, col2, y);
+    drawRow("JST R0UL3T:", buf, col1, 158, y);
+
+    canvas.setTextDatum(TL_DATUM);
 }
 
 // Draw the WiGLE statistics tab. This function reads the cached
