@@ -380,53 +380,99 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.setTextDatum(TL_DATUM);
     }
 
-    // --- P1G D3MANDS: challenge rows (3 × 11px) ---
-    y += ROW_H + 1;  // 4px gap between stats and challenges
+    // --- P1G D3MANDS: 2-column layout ---
+    // Left: challenges + XP (column-aligned)  Right: active buffs/debuffs
+    y += ROW_H + 1;  // gap between stats and challenges
+    const int BUFF_COL_X = 210;  // Right column for buffs/debuffs
+
+    // Pre-build challenge data for XP column alignment
     uint8_t chalTotal = Challenges::getActiveCount();
+    ActiveChallenge chalData[3];
+    char chalLines[3][36];
+    char xpBufs[3][10];
+    uint8_t chalCount = 0;
+    int maxChalW = 0;
+
+    for (uint8_t i = 0; i < 3; i++) {
+        if (!Challenges::getSnapshot(i, chalData[i])) {
+            chalLines[i][0] = '\0';
+            xpBufs[i][0] = '\0';
+            continue;
+        }
+        ActiveChallenge& ch = chalData[i];
+        char status = ch.completed ? '*' : (ch.failed ? '!' : '.');
+        if (ch.completed) {
+            snprintf(chalLines[i], sizeof(chalLines[i]), "[%c] %s DONE", status, ch.name);
+        } else if (ch.failed) {
+            snprintf(chalLines[i], sizeof(chalLines[i]), "[%c] %s FAIL", status, ch.name);
+        } else {
+            snprintf(chalLines[i], sizeof(chalLines[i]), "[%c] %s %u/%u", status, ch.name, ch.progress, ch.target);
+        }
+        snprintf(xpBufs[i], sizeof(xpBufs[i]), "+%uXP", ch.xpReward);
+        int w = canvas.textWidth(chalLines[i]);
+        if (w > maxChalW) maxChalW = w;
+        chalCount++;
+    }
+
+    // XP column: right after longest challenge text, capped for buff column
+    int xpColX = maxChalW + 4;
+    if (xpColX > BUFF_COL_X - 40) xpColX = BUFF_COL_X - 40;
+
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
-            ActiveChallenge ch;
-            if (!Challenges::getSnapshot(i, ch)) continue;
-            char status = ch.completed ? '*' : (ch.failed ? '!' : '.');
-            char chalLine[48];
-            if (ch.completed) {
-                snprintf(chalLine, sizeof(chalLine), "[%c] %s DONE", status, ch.name);
-            } else if (ch.failed) {
-                snprintf(chalLine, sizeof(chalLine), "[%c] %s FAIL", status, ch.name);
-            } else {
-                snprintf(chalLine, sizeof(chalLine), "[%c] %s %u/%u", status, ch.name, ch.progress, ch.target);
-            }
-
-            int textY = y + (ROW_H - 8) / 2;  // Center 8px text in ROW_H
+            if (chalLines[i][0] == '\0') continue;
+            ActiveChallenge& ch = chalData[i];
+            int textY = y + (ROW_H - 8) / 2;
 
             if (ch.completed) {
-                // Full inverted bar for completed challenges
-                canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
+                canvas.fillRect(0, y, BUFF_COL_X - 4, ROW_H, fg);
                 canvas.setTextColor(bg);
             } else if (!ch.failed && ch.target > 0 && ch.progress > 0) {
-                // Progress bar: 3px line at bottom of row, aligned with text margins
-                int barMaxW = DISPLAY_W - 8;
+                int barMaxW = BUFF_COL_X - 12;
                 int progW = (barMaxW * ch.progress) / ch.target;
                 if (progW > barMaxW) progW = barMaxW;
                 if (progW > 0) canvas.fillRect(4, y + ROW_H - 3, progW, 3, fg);
             }
 
-            canvas.drawString(chalLine, 4, textY);
-            char xpBuf[10];
-            snprintf(xpBuf, sizeof(xpBuf), "+%uXP", ch.xpReward);
-            canvas.setTextDatum(TR_DATUM);
-            canvas.drawString(xpBuf, DISPLAY_W - 4, textY);
-            canvas.setTextDatum(TL_DATUM);
+            canvas.drawString(chalLines[i], 4, textY);
+            canvas.drawString(xpBufs[i], xpColX, textY);
 
-            if (ch.completed) {
-                canvas.setTextColor(fg);
-            }
-
+            if (ch.completed) canvas.setTextColor(fg);
             y += ROW_H;
         }
     } else {
         canvas.drawString("P1G SLEEPS...", 4, y);
         y += ROW_H;
+    }
+
+    // Right column: active buffs/debuffs
+    {
+        BuffState buffs = FlexesScreen::calculateBuffs();
+        int buffY = y - (chalCount > 0 ? chalCount * ROW_H : ROW_H);  // Align with first challenge row
+        int buffTextY = buffY + (ROW_H - 8) / 2;
+        canvas.setTextColor(fg);
+        canvas.setTextDatum(TL_DATUM);
+
+        const PorkBuff buffList[] = { PorkBuff::R4G3, PorkBuff::SNOUT_SHARP, PorkBuff::H0TSTR3AK, PorkBuff::C4FF31N4T3D, PorkBuff::CL34R_SKY };
+        for (int i = 0; i < 5; i++) {
+            if (buffs.hasBuff(buffList[i])) {
+                char buf[20];
+                snprintf(buf, sizeof(buf), "[*]%s", FlexesScreen::getBuffName(buffList[i]));
+                canvas.drawString(buf, BUFF_COL_X, buffTextY);
+                buffTextY += ROW_H;
+                if (buffTextY > 188) break;
+            }
+        }
+        const PorkDebuff debuffList[] = { PorkDebuff::SLOP_SLUG, PorkDebuff::F0GSNOUT, PorkDebuff::TR0UGHDR41N, PorkDebuff::HAM_STR1NG, PorkDebuff::TH0ND3R_SLAB };
+        for (int i = 0; i < 5; i++) {
+            if (buffs.hasDebuff(debuffList[i])) {
+                char buf[20];
+                snprintf(buf, sizeof(buf), "[-]%s", FlexesScreen::getDebuffName(debuffList[i]));
+                canvas.drawString(buf, BUFF_COL_X, buffTextY);
+                buffTextY += ROW_H;
+                if (buffTextY > 188) break;
+            }
+        }
     }
 
     // 3rd narrative line (oldest) drawn at bottom of mainCanvas, just above bottomBar
@@ -996,8 +1042,8 @@ void Display::drawTopBar() {
             break;
     }
 
-    // Build mode string (PWNED banner if applicable) + inline buffs/debuffs
-    char finalModeBuf[128];
+    // Build mode string (PWNED banner if applicable)
+    char finalModeBuf[80];
     if (mode == PorkchopMode::OINK_MODE && lootSSID[0] != '\0') {
         char upperLoot[20];
         strncpy(upperLoot, lootSSID, sizeof(upperLoot) - 1);
@@ -1007,25 +1053,6 @@ void Display::drawTopBar() {
     } else {
         strncpy(finalModeBuf, modeBuf, sizeof(finalModeBuf) - 1);
         finalModeBuf[sizeof(finalModeBuf) - 1] = '\0';
-    }
-
-    // Append active buffs/debuffs to mode string for avatar modes
-    if (isAvatarMode) {
-        int pos = strlen(finalModeBuf);
-        BuffState buffs = FlexesScreen::calculateBuffs();
-        const PorkBuff buffList[] = { PorkBuff::R4G3, PorkBuff::SNOUT_SHARP, PorkBuff::H0TSTR3AK, PorkBuff::C4FF31N4T3D, PorkBuff::CL34R_SKY };
-        for (int i = 0; i < 5 && pos < (int)sizeof(finalModeBuf) - 14; i++) {
-            if (buffs.hasBuff(buffList[i])) {
-                pos += snprintf(finalModeBuf + pos, sizeof(finalModeBuf) - pos, " [*]%s", FlexesScreen::getBuffName(buffList[i]));
-            }
-        }
-        const PorkDebuff debuffList[] = { PorkDebuff::SLOP_SLUG, PorkDebuff::F0GSNOUT, PorkDebuff::TR0UGHDR41N, PorkDebuff::HAM_STR1NG, PorkDebuff::TH0ND3R_SLAB };
-        for (int i = 0; i < 5 && pos < (int)sizeof(finalModeBuf) - 14; i++) {
-            if (buffs.hasDebuff(debuffList[i])) {
-                pos += snprintf(finalModeBuf + pos, sizeof(finalModeBuf) - pos, " [-]%s", FlexesScreen::getDebuffName(debuffList[i]));
-            }
-        }
-        finalModeBuf[pos] = '\0';
     }
 
     // Right side: battery + status + clock
@@ -1158,9 +1185,9 @@ void Display::drawBottomBar() {
         return;
     }
 
-    // Spectrum mode: hide bottom bar
+    // Spectrum mode: draw 6th network list row in bottom bar
     if (mode == PorkchopMode::SPECTRUM_MODE) {
-        bottomBar.fillSprite(bg);
+        SpectrumMode::drawBottomBarRow(bottomBar, fg, bg);
         return;
     }
 

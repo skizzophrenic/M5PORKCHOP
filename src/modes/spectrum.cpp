@@ -40,7 +40,11 @@ const int WATERFALL_TOP = 66;       // Waterfall starts here
 const int WATERFALL_ROWS = 22;      // Number of history rows
 const int WATERFALL_BOTTOM = 88;    // WATERFALL_TOP + WATERFALL_ROWS
 const int CHANNEL_LABEL_Y = 90;     // Channel number row
-const int XP_BAR_Y = 100;           // Filter/status bar (vertically centered)
+const int XP_BAR_Y = 100;           // Filter/status bar
+const int BTN_H = 18;               // Filter button height (was 14)
+const int LIST_Y = 120;             // Network list top (compact gap from filter bar)
+const int LIST_ROW_H = 12;          // Network list row height
+const uint8_t TOTAL_VISIBLE = 6;    // Total visible rows: 5 in mainCanvas + 1 in bottom bar
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
@@ -1137,8 +1141,8 @@ void SpectrumMode::handleInput() {
     if (Input::tap(tapEv)) {
         int canvasY = tapEv.y - TOP_BAR_H;
 
-        // Filter bar buttons at Y=XP_BAR_Y, 14px tall
-        if (canvasY >= XP_BAR_Y && canvasY < XP_BAR_Y + 14) {
+        // Filter bar buttons at Y=XP_BAR_Y, BTN_H tall
+        if (canvasY >= XP_BAR_Y && canvasY < XP_BAR_Y + BTN_H) {
             static const SpectrumFilter btnFilters[] = {
                 SpectrumFilter::ALL, SpectrumFilter::VULN,
                 SpectrumFilter::SOFT, SpectrumFilter::HIDDEN
@@ -1198,10 +1202,16 @@ void SpectrumMode::handleInput() {
                 }
             }
         }
-        // Network list tap: header at listY=129 (12px), data rows start at 141
-        else if (canvasY >= 141 && renderCount > 0) {
-            int hitIdx = (canvasY - 141) / 12;
-            if (hitIdx >= 0 && hitIdx < LIST_VISIBLE) {
+        // Network list tap: rows 0-4 in mainCanvas, row 5 in bottom bar
+        else if (renderCount > 0 && canvasY >= LIST_Y + LIST_ROW_H) {
+            int hitIdx;
+            if (tapEv.y >= (DISPLAY_H - BOTTOM_BAR_H)) {
+                // Tap in bottom bar area → 6th row
+                hitIdx = LIST_VISIBLE;
+            } else {
+                hitIdx = (canvasY - (LIST_Y + LIST_ROW_H)) / LIST_ROW_H;
+            }
+            if (hitIdx >= 0 && hitIdx < (int)TOTAL_VISIBLE) {
                 uint8_t idx = listScrollOffset + hitIdx;
                 if (idx < renderCount) {
                     listSelectedIdx = idx;
@@ -1237,7 +1247,7 @@ void SpectrumMode::handleInput() {
     if (Input::swipeUp() && renderCount > 0) {
         if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
             int count = 0;
-            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
+            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
                 int startIdx = selectedIndex;
                 int c = 0;
                 do {
@@ -1252,7 +1262,7 @@ void SpectrumMode::handleInput() {
                 viewCenter24MHz = viewCenterMHz;
             }
         } else if (viewBand == SpectrumBand::BAND_5) {
-            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
+            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
                 int next = findNextC5Index(selectedC5Index, -1);
                 if (next < 0) break;
                 selectedC5Index = next;
@@ -1268,7 +1278,7 @@ void SpectrumMode::handleInput() {
     if (Input::swipeDown() && renderCount > 0) {
         if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
             int count = 0;
-            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
+            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
                 int startIdx = selectedIndex;
                 int c = 0;
                 do {
@@ -1283,7 +1293,7 @@ void SpectrumMode::handleInput() {
                 viewCenter24MHz = viewCenterMHz;
             }
         } else if (viewBand == SpectrumBand::BAND_5) {
-            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
+            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
                 int next = findNextC5Index(selectedC5Index, +1);
                 if (next < 0) break;
                 selectedC5Index = next;
@@ -1783,20 +1793,21 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         SpectrumFilter::ALL, SpectrumFilter::VULN,
         SpectrumFilter::SOFT, SpectrumFilter::HIDDEN
     };
-    const int btnW = 48, btnGap = 3, btnX0 = 2, btnH = 14;
+    const int btnW = 48, btnGap = 3, btnX0 = 2;
+    const int textYOff = (BTN_H - 8) / 2;  // Center 8px font in button
 
     for (int b = 0; b < 4; b++) {
         int bx = btnX0 + b * (btnW + btnGap);
         bool active = (filter == btnFilters[b]);
         if (active) {
-            canvas.fillRect(bx, XP_BAR_Y, btnW, btnH, fg);
+            canvas.fillRect(bx, XP_BAR_Y, btnW, BTN_H, fg);
             canvas.setTextColor(COLOR_BG);
         } else {
-            canvas.drawRect(bx, XP_BAR_Y, btnW, btnH, fg);
+            canvas.drawRect(bx, XP_BAR_Y, btnW, BTN_H, fg);
             canvas.setTextColor(fg);
         }
         canvas.setTextDatum(top_center);
-        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + 2);
+        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + textYOff);
     }
     canvas.setTextDatum(top_left);
 
@@ -1804,14 +1815,14 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
     char countBuf[16];
     snprintf(countBuf, sizeof(countBuf), "%d/%d", matchInView, matchTotal);
     canvas.setTextColor(fg);
-    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y + 2);
+    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y + textYOff);
 
     // Stress test or 5GHz indicator (right side)
     if (StressTest::isActive()) {
         char stressBuf[24];
         snprintf(stressBuf, sizeof(stressBuf), "[T] STRESS %lu/s", StressTest::getRate());
         canvas.setTextDatum(top_right);
-        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y + 2);
+        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y + textYOff);
         canvas.setTextDatum(top_left);
     } else if (has5GHzScanData()) {
         uint16_t cnt5 = 0;
@@ -1830,7 +1841,7 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         }
         canvas.setTextDatum(top_right);
         canvas.setTextColor(fg);
-        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y + 2);
+        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y + textYOff);
         canvas.setTextDatum(top_left);
     }
 }
@@ -2225,116 +2236,132 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
     canvas.setTextDatum(top_left);
 }
 
+// Column positions shared by list + bottom bar row
+static const int COL_SSID = 10, COL_CH = 160, COL_DB = 180;
+static const int COL_SEC = 208, COL_P = 240, COL_C = 254, COL_PPS = 270;
+
+// Draw a single network list row at y in canvas
+void SpectrumMode::drawListRow(M5Canvas& canvas, int y, uint8_t netIdx,
+                               bool selected, uint16_t fg, uint16_t bg) {
+    const SpectrumRenderNet& net = renderNets[netIdx];
+
+    if (selected) {
+        canvas.fillRect(0, y, 320, LIST_ROW_H, fg);
+        canvas.setTextColor(bg);
+        canvas.drawString(">", 2, y + 2);
+    } else {
+        canvas.setTextColor(fg);
+    }
+
+    // SSID (truncate to 24 chars)
+    char ssidBuf[26];
+    if (net.isHidden || net.ssid[0] == '\0') {
+        strncpy(ssidBuf, "[HIDDEN]", sizeof(ssidBuf));
+    } else {
+        strncpy(ssidBuf, net.ssid, 24);
+        ssidBuf[24] = '\0';
+        if (strlen(net.ssid) > 24) {
+            ssidBuf[22] = '.';
+            ssidBuf[23] = '.';
+        }
+    }
+    canvas.drawString(ssidBuf, COL_SSID, y + 2);
+
+    char chBuf[4];
+    snprintf(chBuf, sizeof(chBuf), "%2d", net.channel);
+    canvas.drawString(chBuf, COL_CH, y + 2);
+
+    char rssiBuf[5];
+    snprintf(rssiBuf, sizeof(rssiBuf), "%3d", net.rssi);
+    canvas.drawString(rssiBuf, COL_DB, y + 2);
+
+    canvas.drawString(authModeToShortString(net.authmode), COL_SEC, y + 2);
+
+    if (net.hasPMF) {
+        canvas.drawString("P", COL_P, y + 2);
+    }
+
+    if (net.clientCount > 0) {
+        char cBuf[4];
+        snprintf(cBuf, sizeof(cBuf), "%d", net.clientCount);
+        canvas.drawString(cBuf, COL_C, y + 2);
+    }
+
+    if (selected && displayPps > 0) {
+        char ppsBuf[6];
+        if (displayPps >= 1000) {
+            snprintf(ppsBuf, sizeof(ppsBuf), "%.0fk", displayPps / 1000.0f);
+        } else {
+            snprintf(ppsBuf, sizeof(ppsBuf), "%lu", displayPps);
+        }
+        canvas.drawString(ppsBuf, COL_PPS, y + 2);
+    }
+
+    canvas.setTextColor(fg);
+}
+
 void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     if (renderCount == 0) return;
 
-    // Column positions:  >  SSID  CH  dB  SEC  P  C  PPS
-    const int COL_SSID = 10, COL_CH = 160, COL_DB = 180;
-    const int COL_SEC = 208, COL_P = 240, COL_C = 254, COL_PPS = 270;
-    const int listY = 129;  // Below filter bar with breathing room
-    const int rowH = 12;
-
-    // Header row (inverted, tight)
-    canvas.fillRect(0, listY, 320, rowH, fg);
+    // Header row (inverted)
+    canvas.fillRect(0, LIST_Y, 320, LIST_ROW_H, fg);
     canvas.setTextSize(1);
     canvas.setTextColor(bg);
     canvas.setTextDatum(TL_DATUM);
-    canvas.drawString("SSID", COL_SSID, listY + 2);
-    canvas.drawString("CH", COL_CH, listY + 2);
-    canvas.drawString("dB", COL_DB, listY + 2);
-    canvas.drawString("SEC", COL_SEC, listY + 2);
-    canvas.drawString("P", COL_P, listY + 2);
-    canvas.drawString("C", COL_C, listY + 2);
-    canvas.drawString("PPS", COL_PPS, listY + 2);
+    canvas.drawString("SSID", COL_SSID, LIST_Y + 2);
+    canvas.drawString("CH", COL_CH, LIST_Y + 2);
+    canvas.drawString("dB", COL_DB, LIST_Y + 2);
+    canvas.drawString("SEC", COL_SEC, LIST_Y + 2);
+    canvas.drawString("P", COL_P, LIST_Y + 2);
+    canvas.drawString("C", COL_C, LIST_Y + 2);
+    canvas.drawString("PPS", COL_PPS, LIST_Y + 2);
     canvas.setTextColor(fg);
 
-    // 1px separator between header and first data row (inverted color)
-    canvas.drawFastHLine(0, listY + rowH, 320, bg);
+    // 1px separator
+    canvas.drawFastHLine(0, LIST_Y + LIST_ROW_H, 320, bg);
 
-    // Clamp scroll/selection
+    // Clamp scroll/selection using total visible (mainCanvas + bottom bar)
     uint16_t total = renderCount;
     if (listSelectedIdx >= total) listSelectedIdx = total - 1;
     if (listScrollOffset > listSelectedIdx) listScrollOffset = listSelectedIdx;
-    if (listSelectedIdx >= listScrollOffset + LIST_VISIBLE) {
-        listScrollOffset = listSelectedIdx - LIST_VISIBLE + 1;
+    if (listSelectedIdx >= listScrollOffset + TOTAL_VISIBLE) {
+        listScrollOffset = listSelectedIdx - TOTAL_VISIBLE + 1;
     }
 
-    // Draw rows
-    int y = listY + rowH;
-    uint8_t visible = (total - listScrollOffset) < LIST_VISIBLE ? (total - listScrollOffset) : LIST_VISIBLE;
-    for (uint8_t i = 0; i < visible; i++) {
+    // Draw rows 0-4 in mainCanvas (5 rows)
+    int y = LIST_Y + LIST_ROW_H;
+    uint8_t mainVisible = (total - listScrollOffset) < LIST_VISIBLE ? (total - listScrollOffset) : LIST_VISIBLE;
+    for (uint8_t i = 0; i < mainVisible; i++) {
         uint8_t idx = listScrollOffset + i;
-        const SpectrumRenderNet& net = renderNets[idx];
-        bool selected = (idx == listSelectedIdx);
-
-        if (selected) {
-            canvas.fillRect(0, y, 320, rowH, fg);
-            canvas.setTextColor(bg);
-        } else {
-            canvas.setTextColor(fg);
-        }
-
-        if (selected) {
-            canvas.drawString(">", 2, y + 2);
-        }
-
-        // SSID (truncate to 24 chars to fill space before CH column)
-        char ssidBuf[26];
-        if (net.isHidden || net.ssid[0] == '\0') {
-            strncpy(ssidBuf, "[HIDDEN]", sizeof(ssidBuf));
-        } else {
-            strncpy(ssidBuf, net.ssid, 24);
-            ssidBuf[24] = '\0';
-            if (strlen(net.ssid) > 24) {
-                ssidBuf[22] = '.';
-                ssidBuf[23] = '.';
-            }
-        }
-        canvas.drawString(ssidBuf, COL_SSID, y + 2);
-
-        char chBuf[4];
-        snprintf(chBuf, sizeof(chBuf), "%2d", net.channel);
-        canvas.drawString(chBuf, COL_CH, y + 2);
-
-        char rssiBuf[5];
-        snprintf(rssiBuf, sizeof(rssiBuf), "%3d", net.rssi);
-        canvas.drawString(rssiBuf, COL_DB, y + 2);
-
-        const char* sec = authModeToShortString(net.authmode);
-        canvas.drawString(sec, COL_SEC, y + 2);
-
-        if (net.hasPMF) {
-            canvas.drawString("P", COL_P, y + 2);
-        }
-
-        // Client count
-        if (net.clientCount > 0) {
-            char cBuf[4];
-            snprintf(cBuf, sizeof(cBuf), "%d", net.clientCount);
-            canvas.drawString(cBuf, COL_C, y + 2);
-        }
-
-        // PPS (show global displayPps for selected row only)
-        if (selected && displayPps > 0) {
-            char ppsBuf[6];
-            if (displayPps >= 1000) {
-                snprintf(ppsBuf, sizeof(ppsBuf), "%.0fk", displayPps / 1000.0f);
-            } else {
-                snprintf(ppsBuf, sizeof(ppsBuf), "%lu", displayPps);
-            }
-            canvas.drawString(ppsBuf, COL_PPS, y + 2);
-        }
-
-        canvas.setTextColor(fg);
-        y += rowH;
+        drawListRow(canvas, y, idx, idx == listSelectedIdx, fg, bg);
+        y += LIST_ROW_H;
     }
 
     // Scroll indicators
     if (listScrollOffset > 0) {
-        canvas.drawString("^", 310, listY + rowH + 2);
+        canvas.drawString("^", 310, LIST_Y + LIST_ROW_H + 2);
     }
-    if (listScrollOffset + LIST_VISIBLE < total) {
-        canvas.drawString("v", 310, listY + (LIST_VISIBLE * rowH) + 2);
+    if (listScrollOffset + TOTAL_VISIBLE < total) {
+        canvas.drawString("v", 310, LIST_Y + (LIST_VISIBLE * LIST_ROW_H) + LIST_ROW_H + 2);
+    }
+}
+
+// Draw 6th list row in the bottom bar canvas (20px tall, row at y=4)
+void SpectrumMode::drawBottomBarRow(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
+    if (renderCount == 0 || monitoringNetwork || actionPromptActive) {
+        canvas.fillSprite(bg);
+        return;
+    }
+
+    canvas.fillSprite(bg);
+    canvas.setTextSize(1);
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextDatum(TL_DATUM);
+
+    // Row 5 (6th visible) — index = listScrollOffset + 5
+    uint8_t idx6 = listScrollOffset + LIST_VISIBLE;
+    if (idx6 < renderCount) {
+        drawListRow(canvas, 4, idx6, idx6 == listSelectedIdx, fg, bg);
     }
 }
 

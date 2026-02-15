@@ -105,7 +105,8 @@ public:
     // For promiscuous callback - updates network RSSI
     static void onBeacon(const uint8_t* bssid, uint8_t channel, bool channelTrusted, int8_t rssi, const char* ssid, wifi_auth_mode_t authmode, bool hasPMF, bool isProbeResponse);
     
-    // Bottom bar info
+    // Bottom bar: 6th list row + selected info
+    static void drawBottomBarRow(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void getSelectedInfo(char* out, size_t len);
     
     // Client monitoring accessors [P3]
@@ -209,6 +210,7 @@ private:
     static void handleClientMonitorInput();  // Input when monitoring
     static void drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawListRow(M5Canvas& canvas, int y, uint8_t netIdx, bool selected, uint16_t fg, uint16_t bg);
     static void drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg);
     static void drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg);
