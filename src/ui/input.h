@@ -22,6 +22,8 @@ bool select();
 // Special actions (edge-triggered).
 bool back();        // BtnB hold
 bool screenshot();  // BtnC hold
+bool doubleClick(); // BtnB double-click
+bool powerShort();  // Power button short press
 
 // Touch gestures (edge-triggered; consume-on-read).
 bool swipeLeft();

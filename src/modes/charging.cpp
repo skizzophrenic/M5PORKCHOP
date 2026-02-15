@@ -10,6 +10,7 @@
 #include "../ui/input.h"
 #include <esp_wifi.h>
 #include <WiFi.h>
+#include <M5Unified.h>
 #include <NimBLEDevice.h>
 
 // Static member initialization
@@ -60,11 +61,9 @@ static const float kChargeVoltages[] = {3.50f, 3.70f, 3.85f, 3.95f, 4.05f, 4.10f
 static const uint8_t kChargePercents[] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 
 static bool isUsbConnected() {
-#if ARDUINO_USB_MODE
-    return static_cast<bool>(Serial);
-#else
-    return false;
-#endif
+    // Core2 uses UART-over-USB (CP2104), not native USB.
+    // Detect USB power via VBUS voltage from AXP192.
+    return M5.Power.getVBUSVoltage() >= 4000;
 }
 
 void ChargingMode::start() {

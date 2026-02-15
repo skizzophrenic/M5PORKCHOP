@@ -9,7 +9,6 @@
 #include "../ui/hashes_menu.h"
 #include "../ui/badges_menu.h"
 #include "../ui/bounty_menu.h"
-#include "../ui/coredump_viewer.h"
 #include "../ui/diagdata_menu.h"
 #include "../ui/flexes_screen.h"
 #include "../ui/boar_bros_menu.h"
@@ -57,7 +56,6 @@ static const char* modeToString(PorkchopMode mode) {
         case PorkchopMode::HASHES: return "HASHES";
         case PorkchopMode::BADGES: return "BADGES";
         case PorkchopMode::XFER: return "XFER";
-        case PorkchopMode::COREDUMP: return "COREDUMP";
         case PorkchopMode::DIAGDATA: return "DIAGDATA";
         case PorkchopMode::FLEXES: return "FLEXES";
         case PorkchopMode::BOAR_BROS: return "BOAR_BROS";
@@ -122,7 +120,6 @@ static bool isAutoConditionSafe(PorkchopMode mode) {
         case PorkchopMode::SETTINGS:
         case PorkchopMode::ABOUT:
         case PorkchopMode::BADGES:
-        case PorkchopMode::COREDUMP:
         case PorkchopMode::DIAGDATA:
         case PorkchopMode::FLEXES:
         case PorkchopMode::BOAR_BROS:
@@ -216,7 +213,6 @@ void Porkchop::init() {
             case 4: setMode(PorkchopMode::HASHES); break;
             case 5: setMode(PorkchopMode::SETTINGS); break;
             case 6: setMode(PorkchopMode::ABOUT); break;
-            case 7: setMode(PorkchopMode::COREDUMP); break;
             case 8: setMode(PorkchopMode::PIGGYBLUES_MODE); break;
             case 9: setMode(PorkchopMode::BADGES); break;
             case 10: setMode(PorkchopMode::SPECTRUM_MODE); break;
@@ -232,6 +228,7 @@ void Porkchop::init() {
             case 20: setMode(PorkchopMode::SD_FORMAT); break;
             case 21: setMode(PorkchopMode::CHARGING); break;
             case 22: setMode(PorkchopMode::JANUS_HOG_MODE); break;
+            case 23: Display::showWiFiQR(); break;
         }
     });
 
@@ -331,7 +328,6 @@ void Porkchop::setMode(PorkchopMode mode) {
         currentMode != PorkchopMode::BADGES &&
         currentMode != PorkchopMode::MENU &&
         currentMode != PorkchopMode::XFER &&
-        currentMode != PorkchopMode::COREDUMP &&
         currentMode != PorkchopMode::DIAGDATA &&
         currentMode != PorkchopMode::FLEXES &&
         currentMode != PorkchopMode::BOAR_BROS &&
@@ -386,9 +382,6 @@ void Porkchop::setMode(PorkchopMode mode) {
             XferServer::stop();
             // Restart NetworkRecon after XFER to resume background scanning
             NetworkRecon::start();
-            break;
-        case PorkchopMode::COREDUMP:
-            CoreDumpViewer::hide();
             break;
         case PorkchopMode::DIAGDATA:
             DiagDataMenu::hide();
@@ -498,9 +491,6 @@ void Porkchop::setMode(PorkchopMode mode) {
             NetworkRecon::freeNetworks();
             Avatar::setState(AvatarState::HAPPY);
             XferServer::start(Config::wifi().otaSSID, Config::wifi().otaPassword);
-            break;
-        case PorkchopMode::COREDUMP:
-            CoreDumpViewer::show();
             break;
         case PorkchopMode::DIAGDATA:
             DiagDataMenu::show();
@@ -623,6 +613,17 @@ void Porkchop::processEvents() {
 }
 
 void Porkchop::handleInput() {
+    // Global: power button short press toggles sound mute
+    if (Input::powerShort()) {
+        Display::resetDimTimer();
+        bool& snd = Config::personality().soundEnabled;
+        snd = !snd;
+        if (!snd) M5.Speaker.stop();
+        Display::showToast(snd ? "SOUND ON" : "SOUND OFF", 1000);
+        Config::save();
+        return;
+    }
+
     // Global: screenshot (BtnC hold)
     if (Input::screenshot()) {
         Display::resetDimTimer();
@@ -684,7 +685,6 @@ void Porkchop::handleInput() {
     switch (currentMode) {
         case PorkchopMode::HASHES:
         case PorkchopMode::BADGES:
-        case PorkchopMode::COREDUMP:
         case PorkchopMode::DIAGDATA:
         case PorkchopMode::FLEXES:
         case PorkchopMode::BOAR_BROS:
@@ -750,8 +750,13 @@ void Porkchop::handleInput() {
         return;
     }
 
-    // IDLE: BtnB click opens menu, tap avatar to pet.
+    // IDLE: BtnB double-click opens spectrum, BtnB click opens menu.
     if (currentMode == PorkchopMode::IDLE) {
+        if (Input::doubleClick()) {
+            Display::resetDimTimer();
+            setMode(PorkchopMode::SPECTRUM_MODE);
+            return;
+        }
         if (Input::select()) {
             Display::resetDimTimer();
             setMode(PorkchopMode::MENU);
@@ -821,11 +826,6 @@ void Porkchop::updateMode() {
         case PorkchopMode::XFER:
             XferServer::update();
             break;
-        case PorkchopMode::COREDUMP:
-            CoreDumpViewer::update();
-            if (!CoreDumpViewer::isActive()) {
-                setMode(PorkchopMode::MENU);
-            }
             break;
         case PorkchopMode::DIAGDATA:
             DiagDataMenu::update();

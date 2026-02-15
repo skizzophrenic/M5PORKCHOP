@@ -889,6 +889,7 @@ void SpectrumMode::updateRenderSnapshot() {
         out.hasPMF = net.hasPMF;
         out.isHidden = net.isHidden;
         out.displayFreqMHz = net.displayFreqMHz;
+        out.clientCount = net.clientCount;
         count++;
     }
     renderCount = (uint16_t)count;
@@ -1776,6 +1777,9 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         }
     }
     
+    // 1px separator line above filter buttons
+    canvas.drawFastHLine(0, XP_BAR_Y - 1, 320, fg);
+
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
 
@@ -1798,7 +1802,7 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
             canvas.setTextColor(fg);
         }
         canvas.setTextDatum(top_center);
-        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + 3);
+        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + 2);
     }
     canvas.setTextDatum(top_left);
 
@@ -1806,14 +1810,14 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
     char countBuf[16];
     snprintf(countBuf, sizeof(countBuf), "%d/%d", matchInView, matchTotal);
     canvas.setTextColor(fg);
-    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y + 3);
+    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y + 2);
 
     // Stress test or 5GHz indicator (right side)
     if (StressTest::isActive()) {
         char stressBuf[24];
         snprintf(stressBuf, sizeof(stressBuf), "[T] STRESS %lu/s", StressTest::getRate());
         canvas.setTextDatum(top_right);
-        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y + 3);
+        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y + 2);
         canvas.setTextDatum(top_left);
     } else if (has5GHzScanData()) {
         uint16_t cnt5 = 0;
@@ -1832,7 +1836,7 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         }
         canvas.setTextDatum(top_right);
         canvas.setTextColor(fg);
-        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y + 3);
+        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y + 2);
         canvas.setTextDatum(top_left);
     }
 }
@@ -2230,24 +2234,28 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
 void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     if (renderCount == 0) return;
 
-    const int listY = 106;
-    const int rowH = 14;
-    const int sepY = 105;
+    // Column positions:  >  SSID  CH  dB  SEC  P  C  PPS
+    const int COL_SSID = 10, COL_CH = 148, COL_DB = 168;
+    const int COL_SEC = 196, COL_P = 224, COL_C = 238, COL_PPS = 258;
+    const int listY = 105;
+    const int rowH = 12;
 
-    // Separator line
-    canvas.drawFastHLine(4, sepY, 312, fg);
-
-    // Header row (inverted)
+    // Header row (inverted, tight)
     canvas.fillRect(0, listY, 320, rowH, fg);
     canvas.setTextSize(1);
     canvas.setTextColor(bg);
     canvas.setTextDatum(TL_DATUM);
-    canvas.drawString("SSID", 10, listY + 2);
-    canvas.drawString("CH", 196, listY + 2);
-    canvas.drawString("dBm", 220, listY + 2);
-    canvas.drawString("SEC", 250, listY + 2);
-    canvas.drawString("P", 286, listY + 2);
+    canvas.drawString("SSID", COL_SSID, listY + 2);
+    canvas.drawString("CH", COL_CH, listY + 2);
+    canvas.drawString("dB", COL_DB, listY + 2);
+    canvas.drawString("SEC", COL_SEC, listY + 2);
+    canvas.drawString("P", COL_P, listY + 2);
+    canvas.drawString("C", COL_C, listY + 2);
+    canvas.drawString("PPS", COL_PPS, listY + 2);
     canvas.setTextColor(fg);
+
+    // 1px separator between header and first data row
+    canvas.drawFastHLine(0, listY + rowH, 320, fg);
 
     // Clamp scroll/selection
     uint16_t total = renderCount;
@@ -2272,42 +2280,55 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
             canvas.setTextColor(fg);
         }
 
-        // Selection indicator
         if (selected) {
-            canvas.drawString(">", 2, y + 3);
+            canvas.drawString(">", 2, y + 2);
         }
 
-        // SSID (truncate to 18 chars)
-        char ssidBuf[19];
+        // SSID (truncate to 12 chars to fit columns)
+        char ssidBuf[14];
         if (net.isHidden || net.ssid[0] == '\0') {
             strncpy(ssidBuf, "[HIDDEN]", sizeof(ssidBuf));
         } else {
-            strncpy(ssidBuf, net.ssid, 18);
-            ssidBuf[18] = '\0';
-            if (strlen(net.ssid) > 18) {
-                ssidBuf[16] = '.';
-                ssidBuf[17] = '.';
+            strncpy(ssidBuf, net.ssid, 12);
+            ssidBuf[12] = '\0';
+            if (strlen(net.ssid) > 12) {
+                ssidBuf[10] = '.';
+                ssidBuf[11] = '.';
             }
         }
-        canvas.drawString(ssidBuf, 10, y + 3);
+        canvas.drawString(ssidBuf, COL_SSID, y + 2);
 
-        // Channel
         char chBuf[4];
         snprintf(chBuf, sizeof(chBuf), "%2d", net.channel);
-        canvas.drawString(chBuf, 196, y + 3);
+        canvas.drawString(chBuf, COL_CH, y + 2);
 
-        // RSSI
         char rssiBuf[5];
         snprintf(rssiBuf, sizeof(rssiBuf), "%3d", net.rssi);
-        canvas.drawString(rssiBuf, 220, y + 3);
+        canvas.drawString(rssiBuf, COL_DB, y + 2);
 
-        // Security
         const char* sec = authModeToShortString(net.authmode);
-        canvas.drawString(sec, 250, y + 3);
+        canvas.drawString(sec, COL_SEC, y + 2);
 
-        // PMF indicator
         if (net.hasPMF) {
-            canvas.drawString("P", 286, y + 3);
+            canvas.drawString("P", COL_P, y + 2);
+        }
+
+        // Client count
+        if (net.clientCount > 0) {
+            char cBuf[4];
+            snprintf(cBuf, sizeof(cBuf), "%d", net.clientCount);
+            canvas.drawString(cBuf, COL_C, y + 2);
+        }
+
+        // PPS (show global displayPps for selected row only)
+        if (selected && displayPps > 0) {
+            char ppsBuf[6];
+            if (displayPps >= 1000) {
+                snprintf(ppsBuf, sizeof(ppsBuf), "%.0fk", displayPps / 1000.0f);
+            } else {
+                snprintf(ppsBuf, sizeof(ppsBuf), "%lu", displayPps);
+            }
+            canvas.drawString(ppsBuf, COL_PPS, y + 2);
         }
 
         canvas.setTextColor(fg);
@@ -2316,10 +2337,10 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
 
     // Scroll indicators
     if (listScrollOffset > 0) {
-        canvas.drawString("^", 310, listY + rowH + 3);
+        canvas.drawString("^", 310, listY + rowH + 2);
     }
     if (listScrollOffset + LIST_VISIBLE < total) {
-        canvas.drawString("v", 310, listY + (LIST_VISIBLE * rowH) + 3);
+        canvas.drawString("v", 310, listY + (LIST_VISIBLE * rowH) + 2);
     }
 }
 
@@ -3266,6 +3287,7 @@ void SpectrumMode::deauthClient(int idx) {
     
     // Feedback beep (low thump) - non-blocking
     SFX::play(SFX::DEAUTH);
+    Haptic::pulse();
     
     // Short toast with client MAC suffix
     char msg[24];

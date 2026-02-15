@@ -3,6 +3,7 @@
 #include "tracks_menu.h"
 #include <SD.h>
 #include <WiFi.h>
+#include <time.h>
 #include <string.h>
 #include "display.h"
 #include "input.h"
@@ -272,6 +273,7 @@ void TracksMenu::processAsyncScan() {
                 memset(&info, 0, sizeof(info));
                 strncpy(info.filename, base, sizeof(info.filename) - 1);
                 info.fileSize = currentFile.size();
+                info.fileTime = currentFile.getLastWrite();
                 // Estimate network count: ~150 bytes per line after header
                 info.networkCount = info.fileSize > 300 ? (info.fileSize - 300) / 150 : 0;
 
@@ -440,6 +442,22 @@ void TracksMenu::formatSize(char* out, size_t len, uint32_t bytes) {
     }
 }
 
+void TracksMenu::formatTime(char* out, size_t len, time_t t) {
+    if (!out || len == 0) return;
+    if (t == 0) {
+        strncpy(out, "---", len - 1);
+        out[len - 1] = '\0';
+        return;
+    }
+    struct tm* timeinfo = localtime(&t);
+    if (!timeinfo) {
+        strncpy(out, "---", len - 1);
+        out[len - 1] = '\0';
+        return;
+    }
+    strftime(out, len, "%b %d %H:%M", timeinfo);
+}
+
 void TracksMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
     snprintf(out, len, "B=DET HOLD-A=SYNC");
@@ -519,14 +537,16 @@ void TracksMenu::draw(M5Canvas& canvas) {
     canvas.setCursor(4, 2);
     canvas.print(summary);
 
-    // Header row
+    // Header row (column-aligned with Hashes menu)
     canvas.setCursor(4, 12);
     canvas.print("FILE");
-    canvas.setCursor(105, 12);
+    canvas.setCursor(110, 12);
     canvas.print("ST");
-    canvas.setCursor(135, 12);
+    canvas.setCursor(140, 12);
     canvas.print("NETS");
-    canvas.setCursor(210, 12);
+    canvas.setCursor(180, 12);
+    canvas.print("TIME");
+    canvas.setCursor(250, 12);
     canvas.print("SIZE");
     
     // File list (always drawn, modals overlay on top)
@@ -550,21 +570,28 @@ void TracksMenu::draw(M5Canvas& canvas) {
         canvas.setCursor(4, y);
         canvas.print(displayName);
         
-        // Status indicator (second column, matches LOOT menu)
-        canvas.setCursor(105, y);
+        // Status indicator (column-aligned with Hashes menu)
+        canvas.setCursor(110, y);
         if (file.status == WigleFileStatus::UPLOADED) {
             canvas.print("[OK]");
         } else {
             canvas.print("[--]");
         }
-        
-        // Network count and size
-        canvas.setCursor(135, y);
+
+        // Network count
+        canvas.setCursor(140, y);
+        canvas.printf("~%u", (unsigned)file.networkCount);
+
+        // Time column
+        canvas.setCursor(180, y);
+        char timeBuf[16];
+        formatTime(timeBuf, sizeof(timeBuf), file.fileTime);
+        canvas.print(timeBuf);
+
+        // Size column
+        canvas.setCursor(250, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), file.fileSize);
-        canvas.printf("~%u", (unsigned)file.networkCount);
-        
-        canvas.setCursor(210, y);
         canvas.print(sizeBuf);
         
         y += lineHeight;

@@ -58,6 +58,9 @@ enum Event {
 // Initialize audio system (call once at startup)
 void init();
 
+// Set speaker volume (0-100%)
+void setVolume(uint8_t volume);
+
 // Queue a sound event (callback-safe, ring buffer)
 // Safe to call from WiFi promiscuous callback, BLE callback, anywhere
 void play(Event event);

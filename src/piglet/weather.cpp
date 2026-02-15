@@ -204,7 +204,7 @@ void setRaining(bool active) {
         for (int i = 0; i < RAIN_DROP_COUNT; i++) {
             rainDrops[i].x = (float)random(0, DISPLAY_W);
             // Distribute drops across visible area (stop above grass at Y=88)
-            rainDrops[i].y = (float)random(16, 85);
+            rainDrops[i].y = (float)random(28, 85);
             // Fast rain (5-8 pixels per update)
             rainDrops[i].speed = random(5, 9);
         }
@@ -299,7 +299,7 @@ static void updateRain(uint32_t now) {
         // Respawn just below clouds when reaching bottom
         // Grass starts at Y=91, stop rain 3px above it
         if (rainDrops[i].y >= 88.0f) {
-            rainDrops[i].y = (float)random(16, 23);  // Just below cloud layer
+            rainDrops[i].y = (float)random(28, 37);  // Just below cloud layer
             rainDrops[i].x = (float)random(0, DISPLAY_W);
             rainDrops[i].speed = random(5, 9);  // Fast rain
         }
@@ -415,7 +415,7 @@ void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
     canvas.setTextDatum(top_left);
     
     // Draw in sky below top bar, above pig's head
-    int cloudY = 2;  // Near top of main canvas
+    int cloudY = 16;  // Below mood bar
     canvas.drawString(cloudPattern, 0, cloudY);
 }
 

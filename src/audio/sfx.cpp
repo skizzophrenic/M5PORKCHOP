@@ -290,11 +290,19 @@ void init() {
     currentStep = 0;
     queueHead = 0;
     queueTail = 0;
-    
+
     // Initialize queue
     for (int i = 0; i < QUEUE_SIZE; i++) {
         eventQueue[i] = NONE;
     }
+
+    // Set initial volume from config
+    setVolume(Config::personality().soundVolume);
+}
+
+void setVolume(uint8_t volume) {
+    if (volume > 100) volume = 100;
+    M5.Speaker.setVolume(volume * 255 / 100);
 }
 
 void play(Event event) {

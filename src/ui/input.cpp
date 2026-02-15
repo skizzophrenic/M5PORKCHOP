@@ -13,6 +13,8 @@ static bool evDown = false;
 static bool evSelect = false;
 static bool evBack = false;
 static bool evScreenshot = false;
+static bool evDoubleClick = false;
+static bool evPowerShort = false;
 
 // Hold detection (Core2 touch buttons are still exposed as Button_Class)
 static bool backFired = false;
@@ -46,7 +48,7 @@ void init() {
 }
 
 static void clearFrameEvents() {
-    evUp = evDown = evSelect = evBack = evScreenshot = false;
+    evUp = evDown = evSelect = evBack = evScreenshot = evDoubleClick = evPowerShort = false;
     evSwipeLeft = evSwipeRight = evSwipeUp = evSwipeDown = false;
     evTap = false;
     tapEv = {};
@@ -60,6 +62,11 @@ void update() {
     evUp = M5.BtnA.wasClicked();
     evDown = M5.BtnC.wasClicked();
     evSelect = M5.BtnB.wasClicked();
+    evDoubleClick = M5.BtnB.wasDoubleClicked();
+
+    // Power button short press (AXP192)
+    uint8_t pwrKey = M5.Power.getKeyState();
+    if (pwrKey == 1) evPowerShort = true;
 
     // Back hold (BtnB)
     if (M5.BtnB.isPressed()) {
@@ -123,6 +130,8 @@ bool down() { bool v = evDown; evDown = false; return v; }
 bool select() { bool v = evSelect; evSelect = false; return v; }
 bool back() { bool v = evBack; evBack = false; return v; }
 bool screenshot() { bool v = evScreenshot; evScreenshot = false; return v; }
+bool doubleClick() { bool v = evDoubleClick; evDoubleClick = false; return v; }
+bool powerShort() { bool v = evPowerShort; evPowerShort = false; return v; }
 bool swipeLeft() { bool v = evSwipeLeft; evSwipeLeft = false; return v; }
 bool swipeRight() { bool v = evSwipeRight; evSwipeRight = false; return v; }
 bool swipeUp() { bool v = evSwipeUp; evSwipeUp = false; return v; }

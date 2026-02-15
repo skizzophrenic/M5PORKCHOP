@@ -105,6 +105,7 @@ public:
     // Mode-specific UI functions
     static void drawPigSyncDeviceSelect(M5Canvas& canvas);  // PigSync device selection UI
     static void showClassPromotion(const char* oldClass, const char* newClass);  // Class tier promotion popup
+    static void showWiFiQR();  // Show OTA WiFi credentials as QR code
     static void showChallenges();  // Session challenges overlay (press '1')
     
     // LED effects (NeoPixel on GPIO 21)

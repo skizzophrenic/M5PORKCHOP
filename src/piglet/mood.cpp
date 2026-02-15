@@ -13,6 +13,7 @@
 #include "../ui/flexes_screen.h"
 #include "../modes/oink.h"
 #include "../audio/sfx.h"
+#include "../ui/haptic.h"
 #include <Preferences.h>
 #include <ctype.h>
 #include <string.h>
@@ -1533,6 +1534,7 @@ void Mood::onHandshakeCaptured(const char* apName) {
 
     // Celebratory beep for handshake capture - non-blocking via SFX engine
     SFX::play(SFX::HANDSHAKE);
+    Haptic::buzz();
     
     // Force mood peek to show EXCITED face regardless of threshold
     forceMoodPeek();
@@ -1602,6 +1604,7 @@ void Mood::onPMKIDCaptured(const char* apName) {
 
     // Triple beep for PMKID - non-blocking via SFX engine
     SFX::play(SFX::PMKID);
+    Haptic::buzz();
     
     // NOTE: saveAllPMKIDs() removed from here - OinkMode handles its own saves
     // Calling SD writes during promiscuous mode causes SPI bus contention crashes
@@ -1618,6 +1621,7 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     
     // Audio feedback - soft blip for new network
     SFX::play(SFX::NETWORK_NEW);
+    Haptic::tick();
     
     // Sniff animation - found a truffle!
     Avatar::sniff();
@@ -2676,12 +2680,12 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig at left edge → bubble floats to RIGHT of pig (horizontal arrow pointing left)
         mode = BubbleMode::LEFT_EDGE;
         bubbleX = pigX + 108 + 6;  // Right of pig body + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 37;  // At pig ear level (shifted for mood bar)
     } else if (atRightEdge) {
         // Pig at right edge → bubble floats to LEFT of pig (horizontal arrow pointing right)
         mode = BubbleMode::RIGHT_EDGE;
         bubbleX = pigX - bubbleW - 6;  // Left of pig + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 37;  // At pig ear level (shifted for mood bar)
     } else {
         // Pig in center → bubble floats ABOVE pig but not too far
         // Position bubble so it doesn't cover pig's face but stays close
@@ -2691,12 +2695,12 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig head at Y=23, ears start there
         // Arrow tip should point at pig's ear area (Y ~20)
         // Bubble should not float too far from head - min Y = 2 (near top)
-        int arrowTipY = 20;  // Point at pig's ear area
-        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 12
+        int arrowTipY = 34;  // Point at pig's ear area (shifted for mood bar)
+        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 26
         bubbleY = bubbleBottom - bubbleH;
-        
-        // Clamp bubbleY to minimum of 2 (near top) - taller bubbles stay close to head
-        if (bubbleY < 2) bubbleY = 2;
+
+        // Clamp bubbleY to minimum of 16 (below mood bar)
+        if (bubbleY < 16) bubbleY = 16;
     }
     
     // Clamp bubble to screen edges (prevent overflow)
@@ -2739,7 +2743,7 @@ void Mood::draw(M5Canvas& canvas) {
         canvas.fillTriangle(arrowTipX, arrowY, arrowBaseX, arrowY - 6, arrowBaseX, arrowY + 6, COLOR_FG);
     } else {
         // Center mode → vertical arrow pointing DOWN toward pig's head
-        int arrowTipY = 20;  // Point at pig's ear area (updated for new head Y)
+        int arrowTipY = 34;  // Point at pig's ear area (shifted for mood bar)
         int arrowBaseY = arrowTipY - ARROW_LENGTH;
         int arrowLeftX = pigHeadCenterX - 6;
         int arrowRightX = pigHeadCenterX + 6;
@@ -2930,6 +2934,7 @@ void Mood::onDeauthSuccess(const uint8_t* clientMac) {
     
     // Quick beep for confirmed kick - non-blocking
     SFX::play(SFX::DEAUTH);
+    Haptic::pulse();
     
     // Force mood peek to show emotional reaction
     forceMoodPeek();

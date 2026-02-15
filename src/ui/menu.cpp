@@ -93,6 +93,11 @@ static const char* const H_BACONTX[] = {
     "SOME CHAOS REQUIRED.",
     "I DIDN'T CRASH. NOT ME."
 };
+static const char* const H_WIFIQR[] = {
+    "SHARE THE CREDS. SCAN THE SQUARE.",
+    "QR = QUICK REGRET.",
+    "WIFI:T:WPA;S:TRUST;P:ISSUES;;"
+};
 static const char* const H_XFIL[] = {
     "LOOT OUT. LIGHTS OUT.",
     "BYTES LEAVING. TROUBLE STAYING.",
@@ -122,11 +127,6 @@ static const char* const H_BRBRS[] = {
     "RESPECT THE BRO. DON'T HAM THE HOMIES.",
     "FRIENDS? OF THE. HOG?",
     "SAFE MODE? NEVER HEARD OF HER."
-};
-static const char* const H_CRASHES[] = {
-    "CORE DUMPS. CORE FEELS. SAME FILE.",
-    "POST-MORTEM. ALWAYS ON.",
-    "RESET BUTTON. THE REAL UI."
 };
 static const char* const H_DIAG[] = {
     "DUDE WHERE'S MY HEAP?",
@@ -193,7 +193,8 @@ const MenuItem Menu::GROUP_COMMS[] = {
     {"@)", "PIGSYNC",    16, H_SYNC,    (uint8_t)(sizeof(H_SYNC)/sizeof(H_SYNC[0]))},
     {"))", "BACONTX", 18, H_BACONTX, (uint8_t)(sizeof(H_BACONTX)/sizeof(H_BACONTX[0]))},
     {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))},
-    {"5G", "JANUSHG",   22, H_JANUS,   (uint8_t)(sizeof(H_JANUS)/sizeof(H_JANUS[0]))}
+    {"5G", "JANUSHG",   22, H_JANUS,   (uint8_t)(sizeof(H_JANUS)/sizeof(H_JANUS[0]))},
+    {"QR", "WIFIQR",    23, H_WIFIQR,  (uint8_t)(sizeof(H_WIFIQR)/sizeof(H_WIFIQR[0]))}
 };
 const uint8_t Menu::GROUP_COMMS_SIZE = sizeof(GROUP_COMMS) / sizeof(GROUP_COMMS[0]);
 
@@ -209,7 +210,6 @@ const uint8_t Menu::GROUP_RANK_SIZE = sizeof(GROUP_RANK) / sizeof(GROUP_RANK[0])
 const MenuItem Menu::GROUP_SYSTEM[] = {
     {"==", "SETTINGS",   5,  H_SETTINGS, (uint8_t)(sizeof(H_SETTINGS)/sizeof(H_SETTINGS[0]))},
     {"[]", "BOARBROS",  12, H_BRBRS,    (uint8_t)(sizeof(H_BRBRS)/sizeof(H_BRBRS[0]))},
-    {"!!", "COREDUMP",  7,  H_CRASHES,  (uint8_t)(sizeof(H_CRASHES)/sizeof(H_CRASHES[0]))},
     {"::", "DIAGDATA",   19, H_DIAG,     (uint8_t)(sizeof(H_DIAG)/sizeof(H_DIAG[0]))},
     {"SD", "FORMATSD",  20, H_SDFMT,    (uint8_t)(sizeof(H_SDFMT)/sizeof(H_SDFMT[0]))},
     {"~~", "CHARGING",  21, H_CHARGING, (uint8_t)(sizeof(H_CHARGING)/sizeof(H_CHARGING[0]))},

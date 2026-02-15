@@ -740,11 +740,13 @@ void HashesMenu::draw(M5Canvas& canvas) {
     // Column headers
     canvas.setCursor(4, 12);
     canvas.print("SSID");
-    canvas.setCursor(120, 12);
+    canvas.setCursor(110, 12);
     canvas.print("ST");
-    canvas.setCursor(150, 12);
+    canvas.setCursor(140, 12);
     canvas.print("TYPE");
-    canvas.setCursor(190, 12);
+    canvas.setCursor(180, 12);
+    canvas.print("TIME");
+    canvas.setCursor(250, 12);
     canvas.print("SIZE");
 
     // Capture list
@@ -781,7 +783,7 @@ void HashesMenu::draw(M5Canvas& canvas) {
         canvas.print(ssidBuf);
 
         // Status column
-        canvas.setCursor(120, y);
+        canvas.setCursor(110, y);
         if (cap.status == CaptureStatus::CRACKED) {
             canvas.print("[OK]");
         } else if (cap.status == CaptureStatus::UPLOADED) {
@@ -791,11 +793,17 @@ void HashesMenu::draw(M5Canvas& canvas) {
         }
 
         // Type column
-        canvas.setCursor(150, y);
+        canvas.setCursor(140, y);
         canvas.print(cap.isPMKID ? "PM" : "HS");
 
+        // Time column
+        canvas.setCursor(180, y);
+        char timeBuf[16];
+        formatTime(timeBuf, sizeof(timeBuf), cap.captureTime);
+        canvas.print(timeBuf);
+
         // Size column
-        canvas.setCursor(190, y);
+        canvas.setCursor(250, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), cap.fileSize);
         canvas.print(sizeBuf);

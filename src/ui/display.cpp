@@ -30,7 +30,6 @@
 #include "menu.h"
 #include "settings_menu.h"
 #include "hashes_menu.h"
-#include "coredump_viewer.h"
 #include "diagdata_menu.h"
 #include "badges_menu.h"
 #include "flexes_screen.h"
@@ -136,7 +135,7 @@ static void drawTopBarHeapHealth(M5Canvas& topBar, uint16_t fg, uint16_t bg) {
 
     int titleW = topBar.textWidth(title);
     if (titleW <= maxTitleW) {
-        topBar.drawString(title, titleX, 3);
+        topBar.drawString(title, titleX, 2);
     } else {
         char titleBuf[24];
         size_t titleLen = strlen(title);
@@ -153,13 +152,13 @@ static void drawTopBarHeapHealth(M5Canvas& topBar, uint16_t fg, uint16_t bg) {
         if (len < titleLen) {
             strcpy(titleBuf + len, "..");
         }
-        topBar.drawString(titleBuf, titleX, 3);
+        topBar.drawString(titleBuf, titleX, 2);
     }
 
-    topBar.drawString(levelStr, 2, 3);
+    topBar.drawString(levelStr, 2, 2);
     topBar.setTextDatum(top_right);
-    topBar.drawString(msgBuf, msgRightX, 3);
-    drawHeartIcon(topBar, heartX, 3, bg);
+    topBar.drawString(msgBuf, msgRightX, 2);
+    drawHeartIcon(topBar, heartX, 2, bg);
 }
 
 // Static member initialization
@@ -248,6 +247,40 @@ void Display::init() {
     Weather::init();
     
     Serial.println("[DISPLAY] Initialized");
+}
+
+// Mood bar drawn at top of main canvas, right below the top bar
+static void drawMoodBar(M5Canvas& canvas) {
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+    const int y = 1;  // 1px top margin
+
+    canvas.setTextSize(1);
+    canvas.setFont(&fonts::Font0);
+
+    int moodVal = Mood::getEffectiveHappiness();
+    const int mbX = 4;
+    const int mbW = DISPLAY_W - 8;
+    const int mbH = 12;
+    canvas.drawRect(mbX, y, mbW, mbH, fg);
+    int mfillW = ((moodVal + 100) * (mbW - 2)) / 200;
+    if (mfillW < 0) mfillW = 0;
+    if (mfillW > mbW - 2) mfillW = mbW - 2;
+    if (mfillW > 0) canvas.fillRect(mbX + 1, y + 1, mfillW, mbH - 2, fg);
+    int fillEndX = mbX + 1 + mfillW;
+
+    // Stage labels centered in zones, inverted when covered by fill
+    static const struct { const char* lbl; int8_t center; } stages[] = {
+        {"S4D", -75}, {"M3H", -30}, {"0K", 10}, {"GUD", 50}, {"HYP3", 85}
+    };
+    canvas.setTextDatum(TC_DATUM);
+    for (int i = 0; i < 5; i++) {
+        int lx = mbX + ((stages[i].center + 100) * mbW) / 200;
+        canvas.setTextColor((fillEndX > lx) ? bg : fg);
+        canvas.drawString(stages[i].lbl, lx, y + 2);
+    }
+    canvas.setTextColor(fg);
+    canvas.setTextDatum(TL_DATUM);
 }
 
 // Info panel below avatar - shows character, recon, and loot stats
@@ -347,18 +380,15 @@ static void drawInfoPanel(M5Canvas& canvas) {
             snprintf(leftBuf, sizeof(leftBuf), "U:%03lu S:%03lu D:%luM GPS:%02dSAT",
                      unique, saved, distM, gps.satellites);
         }
-        // WARHOG already full width
     } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
         snprintf(leftBuf, sizeof(leftBuf), "TX:%lu A:%lu G:%lu S:%lu W:%lu",
                  PiggyBluesMode::getTotalPackets(), PiggyBluesMode::getAppleCount(),
                  PiggyBluesMode::getAndroidCount(), PiggyBluesMode::getSamsungCount(),
                  PiggyBluesMode::getWindowsCount());
-        // PIGGYBLUES already dense
     } else if (mode == PorkchopMode::BACON_MODE) {
         uint32_t st = BaconMode::getSessionTime();
         snprintf(leftBuf, sizeof(leftBuf), "%02lu:%02lu FATHERSHIP CH:06", st / 60, st % 60);
     } else {
-        // IDLE + fallback: session snapshot + busiest channel
         const SessionStats& sess = XP::getSession();
         uint8_t busyCh = 0;
         uint8_t busyCount = 0;
@@ -394,23 +424,6 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.setTextDatum(TL_DATUM);
     }
 
-    // --- Mood bar + value ---
-    y += 18;
-    int moodVal = Mood::getEffectiveHappiness();
-    const int moodBarX = 4;
-    const int moodBarW = DISPLAY_W - 60;
-    const int moodBarH = 10;
-    canvas.drawRect(moodBarX, y, moodBarW, moodBarH, fg);
-    int fillW = ((moodVal + 100) * (moodBarW - 2)) / 200;
-    if (fillW < 0) fillW = 0;
-    if (fillW > moodBarW - 2) fillW = moodBarW - 2;
-    if (fillW > 0) canvas.fillRect(moodBarX + 1, y + 1, fillW, moodBarH - 2, fg);
-    char moodStr[12];
-    snprintf(moodStr, sizeof(moodStr), "MOOD:%d", moodVal);
-    canvas.setTextDatum(TR_DATUM);
-    canvas.drawString(moodStr, DISPLAY_W - 4, y + 1);
-    canvas.setTextDatum(TL_DATUM);
-
     // --- P1G D3MANDS: 3 challenge detail rows ---
     y += 14;
     uint8_t chalTotal = Challenges::getActiveCount();
@@ -427,12 +440,30 @@ static void drawInfoPanel(M5Canvas& canvas) {
             } else {
                 snprintf(chalLine, sizeof(chalLine), "[%c] %s %u/%u", status, ch.name, ch.progress, ch.target);
             }
+
+            if (ch.completed) {
+                // Full inverted bar for completed challenges
+                canvas.fillRect(0, y, DISPLAY_W, 14, fg);
+                canvas.setTextColor(bg);
+            } else if (!ch.failed && ch.target > 0 && ch.progress > 0) {
+                // Partial progress bar behind text for in-progress challenges
+                int progW = (DISPLAY_W * ch.progress) / ch.target;
+                if (progW > DISPLAY_W) progW = DISPLAY_W;
+                if (progW > 0) canvas.fillRect(0, y, progW, 14, fg);
+            }
+
             canvas.drawString(chalLine, 4, y);
             char xpBuf[10];
             snprintf(xpBuf, sizeof(xpBuf), "+%uXP", ch.xpReward);
             canvas.setTextDatum(TR_DATUM);
             canvas.drawString(xpBuf, DISPLAY_W - 4, y);
             canvas.setTextDatum(TL_DATUM);
+
+            // Restore text color after inverted rows
+            if (ch.completed) {
+                canvas.setTextColor(fg);
+            }
+
             y += 14;
         }
     } else {
@@ -513,6 +544,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
+            drawMoodBar(mainCanvas);
             drawInfoPanel(mainCanvas);
             break;
 
@@ -524,6 +556,7 @@ void Display::update() {
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
+            drawMoodBar(mainCanvas);
             drawInfoPanel(mainCanvas);
             break;
 
@@ -565,10 +598,6 @@ void Display::update() {
             drawFileTransferScreen(mainCanvas);
             break;
             
-        case PorkchopMode::COREDUMP:
-            CoreDumpViewer::draw(mainCanvas);
-            break;
-
         case PorkchopMode::DIAGDATA:
             DiagDataMenu::draw(mainCanvas);
             break;
@@ -595,6 +624,8 @@ void Display::update() {
             
         case PorkchopMode::BACON_MODE:
             BaconMode::draw(mainCanvas);
+            drawMoodBar(mainCanvas);
+            drawInfoPanel(mainCanvas);
             break;
         case PorkchopMode::JANUS_HOG_MODE:
         {
@@ -735,7 +766,7 @@ void Display::update() {
             strncpy(buf, toastMessage, sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
 
-            int y = boxY + 6;
+            int y = boxY + 2;
             char* line = strtok(buf, "\n");
             while (line) {
                 mainCanvas.drawString(line, DISPLAY_W / 2, y);
@@ -862,7 +893,7 @@ void Display::drawTopBar() {
                 msgBuf[len - 2] = '.';
                 msgBuf[len - 1] = '.';
             }
-            topBar.drawString(msgBuf, 2, 3);
+            topBar.drawString(msgBuf, 2, 2);
             return;
         }
     }
@@ -913,9 +944,6 @@ void Display::drawTopBar() {
         case PorkchopMode::XFER:
             snprintf(modeBuf, sizeof(modeBuf), "XFER");
             modeColor = fg;
-            break;
-        case PorkchopMode::COREDUMP:
-            snprintf(modeBuf, sizeof(modeBuf), "COREDUMP");
             break;
         case PorkchopMode::DIAGDATA:
             snprintf(modeBuf, sizeof(modeBuf), "DIAGDATA");
@@ -971,31 +999,20 @@ void Display::drawTopBar() {
             break;
     }
     
-    // Append mood indicator
-    int happiness = Mood::getLastEffectiveHappiness();
-    const char* moodLabel;
-    if (happiness > 70) moodLabel = "HYP3";
-    else if (happiness > 30) moodLabel = "GUD";
-    else if (happiness > -10) moodLabel = "0K";
-    else if (happiness > -50) moodLabel = "M3H";
-    else moodLabel = "S4D";
-    
-    // Build final mode string with fixed buffer to prevent heap fragmentation
-    char finalModeBuf[80];  // Ample size for mode + mood + PWNED + SSID
+    // Build mode string (PWNED banner if applicable)
+    char finalModeBuf[80];
     if (mode == PorkchopMode::OINK_MODE && lootSSID[0] != '\0') {
-        // Include PWNED banner - truncate SSID if needed to fit
-        char upperLoot[20];  // Truncate SSID to 16 chars max for display
+        char upperLoot[20];
         strncpy(upperLoot, lootSSID, sizeof(upperLoot) - 1);
         upperLoot[sizeof(upperLoot) - 1] = '\0';
         for (int i = 0; upperLoot[i]; i++) upperLoot[i] = toupper(upperLoot[i]);
-        snprintf(finalModeBuf, sizeof(finalModeBuf), "%s %s PWNED %s", 
-                 modeBuf, moodLabel, upperLoot);
+        snprintf(finalModeBuf, sizeof(finalModeBuf), "%s PWNED %s", modeBuf, upperLoot);
     } else {
-        // No PWNED banner
-        snprintf(finalModeBuf, sizeof(finalModeBuf), "%s %s", 
-                 modeBuf, moodLabel);
+        strncpy(finalModeBuf, modeBuf, sizeof(finalModeBuf) - 1);
+        finalModeBuf[sizeof(finalModeBuf) - 1] = '\0';
     }
-    
+
+    // Right side: battery + status + clock
     char timeBuf[8];
     if (GPS::hasFix()) {
         GPS::getTimeString(timeBuf, sizeof(timeBuf));
@@ -1017,30 +1034,27 @@ void Display::drawTopBar() {
     statusBuf[3] = '\0';
     char rightBuf[32];
     snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);
-    int rightWidth = topBar.textWidth(rightBuf);
-    
-    // Truncate left string if it would overlap right side
-    int maxLeftWidth = DISPLAY_W - rightWidth - 8;  // 8px margin
-    char leftBuf[80];
-    strncpy(leftBuf, finalModeBuf, sizeof(leftBuf) - 1);
-    leftBuf[sizeof(leftBuf) - 1] = '\0';
-    size_t leftLen = strlen(leftBuf);
-    while (topBar.textWidth(leftBuf) > maxLeftWidth && leftLen > 10) {
-        leftBuf[--leftLen] = '\0';
-    }
-    if (topBar.textWidth(leftBuf) > maxLeftWidth && leftLen > 3) {
-        leftBuf[leftLen - 2] = '.';
-        leftBuf[leftLen - 1] = '.';
-    }
-    
-    topBar.setTextColor(modeColor);
-    topBar.setTextDatum(top_left);
-    topBar.drawString(leftBuf, 2, 2);
 
-    // Right side: battery + status icons
+    // Draw status info at right edge
     topBar.setTextColor(fg);
-    topBar.setTextDatum(top_right);
-    topBar.drawString(rightBuf, DISPLAY_W - 2, 2);
+    topBar.setTextDatum(TR_DATUM);
+    topBar.drawString(rightBuf, DISPLAY_W - 3, 2);
+    int rightWidth = topBar.textWidth(rightBuf) + 6;
+
+    // Truncate mode string if it would overlap right side
+    int maxLeftWidth = DISPLAY_W - rightWidth - 4;
+    size_t leftLen = strlen(finalModeBuf);
+    while (topBar.textWidth(finalModeBuf) > maxLeftWidth && leftLen > 10) {
+        finalModeBuf[--leftLen] = '\0';
+    }
+    if ((int)topBar.textWidth(finalModeBuf) > maxLeftWidth && leftLen > 3) {
+        finalModeBuf[leftLen - 2] = '.';
+        finalModeBuf[leftLen - 1] = '.';
+    }
+
+    topBar.setTextColor(modeColor);
+    topBar.setTextDatum(TL_DATUM);
+    topBar.drawString(finalModeBuf, 2, 2);
 }
 
 void Display::drawTopBarMessageTwoLineDirect() {
@@ -1088,10 +1102,10 @@ void Display::drawTopBarMessageTwoLineDirect() {
     M5.Display.fillRect(0, 0, DISPLAY_W, TOP_BAR_H * 2, fg);
     M5.Display.setTextColor(bg, fg);
     M5.Display.setTextSize(1);
-    M5.Display.setCursor(2, 3);
+    M5.Display.setCursor(2, 2);
     M5.Display.setFont(&fonts::Font0);
     M5.Display.print(line1Buf);
-    M5.Display.setCursor(2, TOP_BAR_H + 3);
+    M5.Display.setCursor(2, TOP_BAR_H + 2);
     M5.Display.print(line2Buf);
 }
 
@@ -1106,7 +1120,7 @@ void Display::drawBottomBar() {
         bottomBar.setTextColor(bg);
         bottomBar.setTextSize(1);
         bottomBar.setTextDatum(top_center);
-        bottomBar.drawString(bottomOverlay, DISPLAY_W / 2, 3);
+        bottomBar.drawString(bottomOverlay, DISPLAY_W / 2, 2);
         return;
     }
 
@@ -1150,10 +1164,6 @@ void Display::drawBottomBar() {
     } else if (mode == PorkchopMode::MENU) {
         // MENU: show selected item description from Menu
         statsStr = Menu::getSelectedDescription();
-    } else if (mode == PorkchopMode::COREDUMP) {
-        // CRASH_VIEWER: show selected crash file or status
-        CoreDumpViewer::getStatusLine(statsBuf, sizeof(statsBuf));
-        statsStr = statsBuf;
     } else if (mode == PorkchopMode::DIAGDATA) {
         // DIAGNOSTICS: show controls
         statsStr = "[ENT]SAVE [R]WIFI [H]HEAP [G]GC";
@@ -1179,7 +1189,7 @@ void Display::drawBottomBar() {
         statsStr = statsBuf;
     }
 
-    bottomBar.drawString(statsStr ? statsStr : "", 2, 3);
+    bottomBar.drawString(statsStr ? statsStr : "", 2, 2);
 
     // Right: uptime or PIGSYNC channel
     bottomBar.setTextDatum(top_right);
@@ -1187,14 +1197,13 @@ void Display::drawBottomBar() {
         char chBuf[12];
         uint8_t ch = PigSyncMode::getDataChannel();
         snprintf(chBuf, sizeof(chBuf), "CH:%02d", ch);
-        bottomBar.drawString(chBuf, DISPLAY_W - 2, 3);
+        bottomBar.drawString(chBuf, DISPLAY_W - 2, 2);
     } else if (mode == PorkchopMode::MENU ||
                mode == PorkchopMode::SETTINGS ||
                mode == PorkchopMode::HASHES ||
                mode == PorkchopMode::BADGES ||
                mode == PorkchopMode::ABOUT ||
                mode == PorkchopMode::XFER ||
-               mode == PorkchopMode::COREDUMP ||
                mode == PorkchopMode::DIAGDATA ||
                mode == PorkchopMode::FLEXES ||
                mode == PorkchopMode::BOAR_BROS ||
@@ -1209,7 +1218,7 @@ void Display::drawBottomBar() {
         uint16_t secs = uptime % 60;
         char uptimeBuf[12];
         snprintf(uptimeBuf, sizeof(uptimeBuf), "%u:%02u", mins, secs);
-        bottomBar.drawString(uptimeBuf, DISPLAY_W - 2, 3);
+        bottomBar.drawString(uptimeBuf, DISPLAY_W - 2, 2);
     }
 }
 
@@ -1682,6 +1691,7 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     
     // Celebratory beep sequence - non-blocking
     SFX::play(SFX::LEVEL_UP);
+    Haptic::pulse();
     
     // Auto-dismiss after 2.5 seconds or on any key press
     uint32_t startTime = millis();
@@ -1744,6 +1754,7 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
     
     // Distinct beep sequence - non-blocking (uses ACHIEVEMENT jingle for class promo)
     SFX::play(SFX::ACHIEVEMENT);
+    Haptic::pulse();
     
     // Auto-dismiss after 2.5 seconds or on any key press
     uint32_t startTime = millis();
@@ -1756,6 +1767,59 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
         }
         delay(50);
         yield();  // Feed watchdog during long celebration
+    }
+}
+
+// ==[ WIFI QR CODE ]==
+
+void Display::showWiFiQR() {
+    const auto& wifi = Config::wifi();
+    if (wifi.otaSSID[0] == '\0') {
+        showToast("NO OTA WIFI SET", 2000);
+        return;
+    }
+
+    // Format WiFi QR string: WIFI:T:WPA;S:<ssid>;P:<pass>;;
+    char qrStr[128];
+    if (wifi.otaPassword[0] != '\0') {
+        snprintf(qrStr, sizeof(qrStr), "WIFI:T:WPA;S:%s;P:%s;;",
+                 wifi.otaSSID, wifi.otaPassword);
+    } else {
+        snprintf(qrStr, sizeof(qrStr), "WIFI:T:nopass;S:%s;;", wifi.otaSSID);
+    }
+
+    uint16_t fg = getColorFG();
+    uint16_t bg = getColorBG();
+    mainCanvas.fillSprite(bg);
+
+    // Title
+    mainCanvas.setTextSize(1);
+    mainCanvas.setTextColor(fg);
+    mainCanvas.setTextDatum(TC_DATUM);
+    mainCanvas.drawString("WIFI QR", DISPLAY_W / 2, 2);
+
+    // QR code centered (140x140 fits in 200px canvas with room for SSID label)
+    int qrSize = 140;
+    int qrX = (DISPLAY_W - qrSize) / 2;
+    int qrY = 16;
+    mainCanvas.qrcode(qrStr, qrX, qrY, qrSize);
+
+    // SSID label below QR
+    char ssidLabel[48];
+    snprintf(ssidLabel, sizeof(ssidLabel), "SSID: %s", wifi.otaSSID);
+    mainCanvas.drawString(ssidLabel, DISPLAY_W / 2, qrY + qrSize + 6);
+
+    mainCanvas.drawString("[B] CLOSE", DISPLAY_W / 2, qrY + qrSize + 20);
+    mainCanvas.setTextDatum(TL_DATUM);
+    pushAll();
+
+    // Wait for dismiss
+    while (true) {
+        M5.update();
+        Input::update();
+        if (Input::select() || Input::back() || Input::up() || Input::down()) break;
+        delay(50);
+        yield();
     }
 }
 
@@ -3295,7 +3359,7 @@ void Display::drawUploadProgress(M5Canvas& topBar) {
     snprintf(progressText, sizeof(progressText), "UPLOAD %d%% %s", uploadProgress, progressStr);
 
     // Draw the progress text at same Y position as XP notification
-    topBar.drawString(progressText, 2, 3);  // Same Y=3 as XP notification
+    topBar.drawString(progressText, 2, 2);
 }
 
 void Display::drawUploadProgressDirect() {

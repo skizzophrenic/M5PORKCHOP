@@ -17,6 +17,7 @@ struct WigleFileInfo {
     char filename[48];
     uint32_t fileSize;
     uint32_t networkCount;  // Approximate based on file size
+    time_t fileTime;        // File modification time
     WigleFileStatus status;
 };
 
@@ -59,6 +60,7 @@ private:
     static void drawNukeConfirm(M5Canvas& canvas);
     static void nukeTrack();
     static void formatSize(char* out, size_t len, uint32_t bytes);
+    static void formatTime(char* out, size_t len, time_t t);
     
     // Async scan state
     static bool scanInProgress;

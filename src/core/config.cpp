@@ -17,7 +17,8 @@ static constexpr int SD_MOSI_PIN = 23;
 static constexpr int SD_MISO_PIN = 38;
 static constexpr int SD_SCK_PIN  = 18;
 
-// Dedicated SPI bus instance for SD.
+// SPI bus for SD card. Core2 shares SPI pins (18/23/38) with display on VSPI.
+// Both MUST use the same VSPI peripheral; CS multiplexing (SD=GPIO4, display=GPIO5) arbitrates.
 static SPIClass sdSPI(VSPI);
 static bool sdSpiBegun = false;
 
@@ -730,6 +731,7 @@ bool Config::loadPersonality() {
     personalityConfig.aggression = doc["aggression"] | 0.3f;
     personalityConfig.patience = doc["patience"] | 0.5f;
     personalityConfig.soundEnabled = doc["soundEnabled"] | true;
+    personalityConfig.soundVolume = doc["soundVolume"] | 80;
     personalityConfig.brightness = doc["brightness"] | 80;
     personalityConfig.dimLevel = doc["dimLevel"] | 20;
     personalityConfig.dimTimeout = doc["dimTimeout"] | 30;
@@ -765,6 +767,7 @@ void Config::savePersonalityToSPIFFS() {
     doc["aggression"] = personalityConfig.aggression;
     doc["patience"] = personalityConfig.patience;
     doc["soundEnabled"] = personalityConfig.soundEnabled;
+    doc["soundVolume"] = personalityConfig.soundVolume;
     doc["brightness"] = personalityConfig.brightness;
     doc["dimLevel"] = personalityConfig.dimLevel;
     doc["dimTimeout"] = personalityConfig.dimTimeout;

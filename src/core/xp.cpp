@@ -8,6 +8,7 @@
 #include "../ui/display.h"
 #include "../ui/flexes_screen.h"
 #include "../audio/sfx.h"
+#include "../ui/haptic.h"
 #include <M5Unified.h>
 #include <SD.h>
 #include <esp_mac.h>
@@ -1174,6 +1175,7 @@ void XP::updateSessionTime() {
                     addXPSilent(bonus);
                     Display::showToast("PIG MISSED YOU.");
                     SFX::play(SFX::ACHIEVEMENT);
+                    Haptic::pulse();
                     Serial.printf("[XP] Return bonus: +%d XP (absent %lu hours)\n",
                                   bonus, (unsigned long)(elapsed / 3600));
                 }
@@ -1429,6 +1431,7 @@ void XP::processAchievementQueue() {
         snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
         Display::showToast(toastMsg);
         SFX::play(SFX::ACHIEVEMENT);
+        Haptic::pulse();
     }
 }
 
@@ -1960,7 +1963,7 @@ void XP::drawTopBarXP(M5Canvas& topBar) {
     
     if (titleW <= maxTitleW) {
         // Title fits, draw as-is
-        topBar.drawString(title, titleX, 3);
+        topBar.drawString(title, titleX, 2);
     } else {
         // Title too long, truncate to stack buffer
         char titleBuf[24];
@@ -1982,11 +1985,11 @@ void XP::drawTopBarXP(M5Canvas& topBar) {
         if (len < titleLen) {
             strcpy(titleBuf + len, "..");
         }
-        topBar.drawString(titleBuf, titleX, 3);
+        topBar.drawString(titleBuf, titleX, 2);
     }
-    
+
     // Draw level and XP gain
-    topBar.drawString(levelStr, 2, 3);
+    topBar.drawString(levelStr, 2, 2);
     topBar.setTextDatum(top_right);
-    topBar.drawString(xpStr, DISPLAY_W - 2, 3);
+    topBar.drawString(xpStr, DISPLAY_W - 2, 2);
 }

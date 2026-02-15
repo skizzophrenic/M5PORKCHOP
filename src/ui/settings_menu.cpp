@@ -13,6 +13,7 @@
 #include <string.h>
 #include "input.h"
 #include "haptic.h"
+#include "../audio/sfx.h"
 #include "soft_keyboard.h"
 
 namespace {
@@ -31,6 +32,7 @@ enum SettingId : uint8_t {
     SET_THEME = 0,
     SET_BRIGHTNESS,
     SET_SOUND,
+    SET_VOLUME,
     SET_DIM_AFTER,
     SET_DIM_LEVEL,
     SET_G0_ACTION,
@@ -95,6 +97,7 @@ static const EntryData kDirectEntries[] = {
     {SET_THEME, "THEME", SettingType::VALUE, 0, (int)THEME_COUNT - 1, 1, "", "CYCLE COLORS"},
     {SET_BRIGHTNESS, "BRIGHTNESS", SettingType::VALUE, 10, 100, 10, "%", "SCREEN GLOW LEVEL"},
     {SET_SOUND, "SOUND", SettingType::TOGGLE, 0, 1, 1, "", "BEEPS AND BOOPS"},
+    {SET_VOLUME, "VOLUME", SettingType::VALUE, 0, 100, 10, "%", "OINK LOUDNESS"},
     {SET_DIM_AFTER, "DIM AFTER", SettingType::VALUE, 0, 300, 10, "S", "0 = NEVER DIM"},
     {SET_DIM_LEVEL, "DIM LEVEL", SettingType::VALUE, 0, 50, 5, "%", "0 = SCREEN OFF"},
     {SET_G0_ACTION, "G0 ACTION", SettingType::VALUE, 0, (int)G0_ACTION_COUNT - 1, 1, "", "G0 HOTKEY"},
@@ -106,6 +109,7 @@ static const RootEntry kRootEntries[] = {
     {"THEME", "CYCLE COLORS", false, GROUP_NONE, SET_THEME},
     {"BRIGHTNESS", "SCREEN GLOW LEVEL", false, GROUP_NONE, SET_BRIGHTNESS},
     {"SOUND", "BEEPS AND BOOPS", false, GROUP_NONE, SET_SOUND},
+    {"VOLUME", "OINK LOUDNESS", false, GROUP_NONE, SET_VOLUME},
     {"DIM AFTER", "0 = NEVER DIM", false, GROUP_NONE, SET_DIM_AFTER},
     {"DIM LEVEL", "0 = SCREEN OFF", false, GROUP_NONE, SET_DIM_LEVEL},
     {"G0 ACTION", "G0 HOTKEY", false, GROUP_NONE, SET_G0_ACTION},
@@ -213,8 +217,8 @@ static bool isTextEditable(SettingId id) {
 
 static bool isPersonalitySetting(SettingId id) {
     return id == SET_THEME || id == SET_BRIGHTNESS || id == SET_SOUND ||
-           id == SET_DIM_AFTER || id == SET_DIM_LEVEL || id == SET_G0_ACTION ||
-           id == SET_BOOT_MODE || id == SET_CALLSIGN;
+           id == SET_VOLUME || id == SET_DIM_AFTER || id == SET_DIM_LEVEL ||
+           id == SET_G0_ACTION || id == SET_BOOT_MODE || id == SET_CALLSIGN;
 }
 
 static bool isConfigSetting(SettingId id) {
@@ -536,6 +540,8 @@ static int getSettingValue(SettingId id) {
             return Config::personality().brightness;
         case SET_SOUND:
             return Config::personality().soundEnabled ? 1 : 0;
+        case SET_VOLUME:
+            return Config::personality().soundVolume;
         case SET_DIM_AFTER:
             return Config::personality().dimTimeout;
         case SET_DIM_LEVEL:
@@ -623,6 +629,13 @@ static bool setSettingValue(SettingId id, int value) {
             bool enabled = value != 0;
             if (Config::personality().soundEnabled == enabled) return false;
             Config::personality().soundEnabled = enabled;
+            return true;
+        }
+        case SET_VOLUME: {
+            uint8_t newVal = static_cast<uint8_t>(value);
+            if (Config::personality().soundVolume == newVal) return false;
+            Config::personality().soundVolume = newVal;
+            SFX::setVolume(newVal);
             return true;
         }
         case SET_DIM_AFTER: {
