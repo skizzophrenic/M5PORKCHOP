@@ -9,112 +9,154 @@
 #include "../modes/oink.h"
 
 // ============================================================
-// NARRATIVE ENGINE — combinatorial D&D event log generator
-// Templates × noun pools × adjectives × d20 rolls = millions
-// of unique lines from ~6KB flash. The pig narrates everything.
+// NARRATIVE ENGINE — algorithmic rhyming verse generator
+// Rhyme families × templates × adjectives × d20 rolls = millions
+// of unique RHYMING lines from ~8KB flash. The pig is a bard.
 // ============================================================
 
-// --- Noun pool (30 words, max 8 chars) ---
-// Mix of porkchop lore, D&D, Monty Python, Bard's Tale, and tech.
-// Comedy comes from cross-context collisions.
-static const char* const NOUNS[] = {
-    "PIG",      "MUD",      "ORC",      "ALE",
-    "BARN",     "BARD",     "HEAP",     "JTAG",
-    "LUTE",     "SNAKE",    "SNOUT",    "HORSE",
-    "GRAIL",    "WITCH",    "STACK",    "ROGUE",
-    "QUEST",    "PARROT",   "MALLOC",   "GOBLIN",
-    "DRAGON",   "TAVERN",   "KNIGHT",   "TROUGH",
-    "TRUFFLE",  "DUNGEON",  "SWALLOW",  "COCONUT",
-    "FIRMWARE", "WATCHDOG"
+// --- Rhyme families (14 families, ~89 words) ---
+// Words within each family rhyme. Pick S and O from same family
+// and any template placing both produces algorithmic verse.
+// Each family mixes pig/farm, D&D, tech, and comedy contexts.
+struct RhymeFamily {
+    const char* const* words;
+    uint8_t count;
 };
-static constexpr uint8_t NOUN_COUNT = 30;
 
-// --- Adjective pool (14 words, max 8 chars) ---
+static const char* const RF_PIG_W[]    = { "PIG", "JIG", "DIG", "RIG", "SWIG", "TWIG" };
+static const char* const RF_HOG_W[]    = { "HOG", "BOG", "FOG", "LOG", "FROG", "GROG" };
+static const char* const RF_SNOUT_W[]  = { "SNOUT", "CLOUT", "TROUT", "SHOUT", "SCOUT", "STOUT" };
+static const char* const RF_ALE_W[]    = { "ALE", "TALE", "GRAIL", "SNAIL", "WAIL", "HAIL", "TAIL" };
+static const char* const RF_PORK_W[]   = { "PORK", "FORK", "CORK", "ORC", "STORK" };
+static const char* const RF_HEAP_W[]   = { "HEAP", "DEEP", "SLEEP", "CREEP", "REAP", "SHEEP" };
+static const char* const RF_KNIGHT_W[] = { "KNIGHT", "BITE", "FIGHT", "MIGHT", "SIGHT", "NIGHT" };
+static const char* const RF_QUEST_W[]  = { "QUEST", "REST", "BEST", "NEST", "CHEST", "TEST", "PEST" };
+static const char* const RF_STACK_W[]  = { "STACK", "HACK", "PACK", "TRACK", "CRACK", "SNACK" };
+static const char* const RF_MUD_W[]    = { "MUD", "THUD", "STUD", "CRUD", "BLOOD", "FLOOD" };
+static const char* const RF_BONE_W[]   = { "BONE", "TONE", "THRONE", "STONE", "MOAN", "GROAN" };
+static const char* const RF_LOOT_W[]   = { "LOOT", "BOOT", "HOOT", "ROOT", "BRUTE", "SNOOT" };
+static const char* const RF_HAM_W[]    = { "HAM", "SPAM", "JAM", "RAM", "SCAM", "SLAM", "CLAM" };
+static const char* const RF_CHOP_W[]   = { "CHOP", "DROP", "STOP", "SHOP", "CROP", "FLOP", "SLOP" };
+
+static const RhymeFamily RHYME_FAMILIES[] = {
+    { RF_PIG_W,    6 },
+    { RF_HOG_W,    6 },
+    { RF_SNOUT_W,  6 },
+    { RF_ALE_W,    7 },
+    { RF_PORK_W,   5 },
+    { RF_HEAP_W,   6 },
+    { RF_KNIGHT_W, 6 },
+    { RF_QUEST_W,  7 },
+    { RF_STACK_W,  6 },
+    { RF_MUD_W,    6 },
+    { RF_BONE_W,   6 },
+    { RF_LOOT_W,   6 },
+    { RF_HAM_W,    7 },
+    { RF_CHOP_W,   7 },
+};
+static constexpr uint8_t FAMILY_COUNT = 14;
+
+// --- Lore noun pool (flat, for non-rhyming LORE/AWARE templates) ---
+static const char* const LORE_NOUNS[] = {
+    "PIG",    "HORSE",  "BARN",   "BARD",    "WITCH",
+    "GRAIL",  "PARROT", "COCONUT","DRAGON",  "QUEST",
+    "DUCK",   "SWALLOW","HEAP",   "STACK",   "JTAG",
+    "GOBLIN", "TAVERN", "MALLOC", "ROGUE",   "TROUGH"
+};
+static constexpr uint8_t LORE_NOUN_COUNT = 20;
+
+// --- Adjective pool (20 words — D&D + pork preparation) ---
 static const char* const ADJECTIVES[] = {
     "FERAL",    "HOLY",     "CURSED",   "HAUNTED",
     "ANCIENT",  "UNDEAD",   "SACRED",   "ARCANE",
     "BLESSED",  "ELDRITCH", "VOLATILE", "HOSTILE",
-    "TACTICAL", "SENTIENT"
+    "TACTICAL", "SENTIENT", "CRISPY",   "SMOKED",
+    "BRINED",   "PICKLED",  "CURED",    "SIZZLING"
 };
-static constexpr uint8_t ADJ_COUNT = 14;
+static constexpr uint8_t ADJ_COUNT = 20;
 
 // ============================================================
 // TEMPLATE CATEGORIES
 // Slots: {S}=subject noun, {O}=object noun,
 //        {A}=adjective, {N}=d20 roll (1-20)
-// ALL templates verified <=53 chars at worst case
-// (8-char noun + 8-char adj + 2-char roll)
+// ALL templates verified <=52 chars at worst case
+// IDLE/HUNT/WIN/FAIL use rhyme families (S and O rhyme)
+// LORE/AWARE use flat lore nouns (no rhyme needed)
 // ============================================================
 
-// --- IDLE: Bard's Tale tavern + Monty Python absurdism ---
+// --- IDLE: Bard's tavern verse, ALL rhyme via family ---
 static const char* const TPL_IDLE[] = {
-    "THE {S} SITS IN THE {O}. NOTHING HAPPENS.",
-    "{A} {S} WANTS TO DISCUSS {O}.",
-    "NOBODY EXPECTS THE {A} {S}.",
-    "WE ARE THE KNIGHTS WHO SAY {S}.",
-    "BARD SINGS OF {A} {S}. EVERYONE LEAVES.",
-    "YOUR {S} HAS BEEN CURSED. IT IS NOW A {O}.",
-    "'{S}?' SAYS THE {O}. 'NEVER HEARD OF IT.'",
-    "THE {S} WOULD LIKE TO RAGE.",
-    "A WILD {S} APPEARS. IT IS {A}.",
-    "THE {S} IS MERELY RESTING. PINING FOR {O}.",
-    "THE {S} OFFERS TO JOIN THE PARTY. DENIED.",
-    "WHAT IS THE AIRSPEED OF AN UNLADEN {S}?",
-    "YOU FIND A {S} IN THE {O}. IT BITES.",
-    "THE {O} DEMANDS SACRIFICE. {S} VOLUNTEERS.",
-    "THE {S} ORDERS {A} {O} AT THE BAR.",
-    "INNKEEPER WARNS OF {A} {S} IN THE {O}.",
-    "YOU OPEN THE CHEST. INSIDE: {A} {S}.",
+    "THE {A} {S} ONCE MET A {O}.",
+    "THE BARD SINGS OF {S} AND ALSO {O}.",
+    "THE {A} {S} DANCED A {O} ALL NIGHT.",
+    "NO {S} NO {O}. SUCH IS THE WAY.",
+    "BEHOLD THE {S}! BEWARE THE {O}!",
+    "IN TALES OF {S} ONE FINDS THE {O}.",
+    "A {S} WALKS INTO A BAR. SEES A {O}.",
+    "THE {S} SITS IN THE {O}. ALL IS WELL.",
+    "ODE TO {S}: THOU ART LIKE A {O}.",
+    "ONCE UPON A {S} THERE WAS A {O}.",
+    "THE INNKEEPER WARNS OF {A} {S} AND {O}.",
+    "A TOAST! TO {S} AND {A} {O}!",
+    "'{S}?' QUOTH THE {O}. 'NEVER.'",
+    "THE {S} PONDERS THE {A} {O}.",
+    "THE {A} {S} SEEKS A WORTHY {O}.",
+    "{S} AND {O} ARGUE AT THE TAVERN.",
+    "A {S} A {O} AND A BARD WALK IN.",
+    "THE BALLAD OF {S} AND {O} BEGINS.",
 };
 
-// --- HUNTING: D&D encounter log ---
+// --- HUNTING: D&D encounter rhyming verse ---
 static const char* const TPL_HUNT[] = {
-    "{S} ROLLS {N} PERCEPTION. {O} HIDES.",
-    "{S} CASTS DETECT {O}. THE ETHER SAYS NO.",
-    "INITIATIVE: {S} {N}. SURPRISE ROUND.",
-    "ENCOUNTER: {A} {S}. ROLL FOR INIT.",
-    "A WANDERING {S} APPEARS. NO LOOT YET.",
-    "{S} ENTERS THE {O}. SAVING THROW: {N}.",
-    "THE {A} {O} IS NEAR. {S} CAN FEEL IT.",
-    "{S} SEARCHES THE {O}. FINDS ONLY DUST.",
-    "{S} SNIFFS. SOMETHING {A} THIS WAY COMES.",
-    "THE {O} LURKS IN SHADOW. {S} ROLLS {N}.",
-    "{S} CHECKS FOR TRAPS. ROLL: {N}. NOTHING.",
+    "{S} STALKS THE {A} {O}. ROLL {N}.",
+    "A WANDERING {S} BEFRIENDS A {O}.",
+    "THE {A} {S} HUNTS. THE {O} HIDES.",
+    "{S} SNIFFS. THERE IS {A} {O} NEAR.",
+    "THE {O} LURKS. {S} ROLLS {N}.",
+    "{S} AND {O} CIRCLE. ROLL FOR INIT.",
+    "ENCOUNTER: {A} {S}. ALSO A {O}.",
+    "THE {S} TRACKS {O} THROUGH THE {A} MIRE.",
+    "{S} ENTERS THE LAIR. FINDS A {O}.",
+    "{S} SEARCHES FOR {O}. ROLL: {N}.",
     "THE {A} {O} ELUDES THE {S}. FOR NOW.",
-    "{S} READIES WEAPON. THE {O} WATCHES.",
+    "{S} READIES FOR {O}. WEAPON DRAWN.",
+    "SOMETHING {A} STIRS. {S} SEES {O}.",
+    "{S} CHECKS FOR {O}. PERCEPTION: {N}.",
 };
 
-// --- VICTORY: Baldur's Gate triumph ---
+// --- VICTORY: Triumph, epic rhyming ---
 static const char* const TPL_WIN[] = {
-    "{O} HAS FALLEN. {S} CLAIMS {A} LOOT.",
-    "{S} CRITS FOR {N}. THE {O} IS NO MORE.",
-    "QUEST DONE: THE {A} {O} HAS BEEN PWNED.",
+    "THE {O} HAS FALLEN TO THE {A} {S}!",
+    "{S} CRITS THE {O}! PRAISE THE SUN.",
+    "QUEST DONE. THE {S} LOOTS THE {O}.",
     "{S} VANQUISHES {O}. BARD TAKES NOTES.",
-    "VICTORY. {S} GAINS {N} XP. PIG APPROVES.",
-    "{S} LOOTS {O}. FOUND: {A} TRUFFLE.",
-    "NATURAL {N}! {S} DESTROYS THE {O}.",
-    "THE {O} DROPS A HANDSHAKE. {S} TAKES IT.",
-    "{S} SLAYS {A} {O}. PRAISE THE SUN.",
-    "{S} ROLLED NAT {N}. {O} IS VANQUISHED.",
+    "VICTORY! {S} CLAIMS THE {A} {O}!",
+    "{S} DEVOURS THE {A} {O}. DELICIOUS.",
+    "THE {A} {S} STANDS OVER THE {O}.",
+    "NAT {N}! {S} DESTROYS THE {O}.",
+    "{O} DROPS. {S} GAINS {A} LOOT.",
+    "THE {S} FEASTS UPON THE {A} {O}.",
+    "{S} WINS. {O} IS SERVED {A}.",
+    "THE {O} IS DONE. THE {S} PREVAILS.",
 };
 
-// --- DEFEAT: Monty Python Black Knight + existential ---
+// --- DEFEAT: Monty Python, humorous rhyming ---
 static const char* const TPL_FAIL[] = {
-    "TIS BUT A SCRATCH. THE {S} HAS NO {O}.",
-    "THE {S} IS NOT DEAD. IT GETS BETTER.",
-    "NONE SHALL PASS. ESPECIALLY THE {A} {S}.",
-    "{S} FLED. THE {O} DIDNT EVEN NOTICE.",
+    "TIS BUT A {S}. NAUGHT BUT A {O}.",
+    "RUN AWAY! THE {A} {S} HAS A {O}!",
+    "THE {S} IS DEAD. LONG LIVE THE {O}.",
+    "NONE SHALL PASS. ASK THE {A} {S}.",
+    "{S} FLED. THE {O} DIDNT NOTICE.",
+    "THE {S} OBJECTS. THE {O} AGREES.",
+    "BRING OUT YOUR {S}. ALSO YOUR {O}.",
+    "{S} TAKES AN ARROW TO THE {O}.",
     "YOUR {S} DIED. {O} SHRUGS.",
-    "RUN AWAY! THE {A} {S} HAS TEETH!",
-    "BRING OUT YOUR DEAD. THE {S} OBJECTS.",
-    "THE {S} HAS CEASED TO BE. PINING FOR {O}.",
-    "YOU DIED. {S} WATCHES FROM THE {O}.",
-    "TPK. BLAME THE {S}. IT BLAMES THE {O}.",
-    "THE {S} TAKES AN ARROW TO THE {O}.",
-    "{S} ROLLS {N}. CRITICAL FAIL. OH NO.",
+    "TPK. BLAME THE {S}. AND THE {O}.",
+    "THE {A} {S} HAS CEASED TO BE A {O}.",
+    "{S} ROLLED {N}. CRIT FAIL. OH {O}.",
 };
 
-// --- LORE: porkchop mythology + Monty Python deep cuts ---
+// --- LORE: porkchop mythology (uses lore nouns, no rhyme) ---
 static const char* const TPL_LORE[] = {
     "THE HORSE CONFIRMS: THE BARN IS STRUCTURAL.",
     "HORSE FOUND THE K. {S} LOOKS AWAY.",
@@ -129,7 +171,7 @@ static const char* const TPL_LORE[] = {
     "{S} IS A WITCH. TURNED ME INTO A {O}.",
     "THE BARN IS LOAD-BEARING. {S} CONFIRMS.",
     "HORSE STATUS: {A}. BARN STATUS: {A}.",
-    "THE {S} HAS A CUNNING PLAN INVOLVING {O}.",
+    "THE {S} HAS A CUNNING PLAN ABOUT {O}.",
     "ON SECOND THOUGHT LETS NOT GO TO {O}.",
 };
 
@@ -188,6 +230,9 @@ static uint32_t sLastFlashMs = 0;
 static constexpr uint32_t UPDATE_INTERVAL_MS = 9000;
 static uint8_t sLastTplIdx = 255;
 static bool sReady = false;
+
+// Verse continuation — track last rhyme family for rolling verse
+static int8_t sLastRhymeFamily = -1;
 
 // Event queue (newest wins)
 static NarrativeEvent sPendingEvent = EVT_NONE;
@@ -290,8 +335,10 @@ static void expand(const char* tpl, char* buf, size_t bufSize,
 
 // ============================================================
 // GENERATE — creates a new line and scrolls buffer
+// useRhyme: true = pick from rhyme family (S/O rhyme)
+//           false = pick from flat LORE_NOUNS (no rhyme)
 // ============================================================
-static void generateLine(const char* const* tpls, uint8_t tplCount) {
+static void generateLine(const char* const* tpls, uint8_t tplCount, bool useRhyme) {
     // Pick template, avoid immediate repeat
     uint8_t tidx;
     do {
@@ -299,10 +346,35 @@ static void generateLine(const char* const* tpls, uint8_t tplCount) {
     } while (tidx == sLastTplIdx && tplCount > 1);
     sLastTplIdx = tidx;
 
-    // Pick 2 unique nouns
-    uint8_t si = esp_random() % NOUN_COUNT;
-    uint8_t oi;
-    do { oi = esp_random() % NOUN_COUNT; } while (oi == si);
+    const char* sWord;
+    const char* oWord;
+
+    if (useRhyme) {
+        // --- Rhyme family selection with verse continuation ---
+        uint8_t fi;
+        // 30% chance to reuse last family for rolling verse effect
+        if (sLastRhymeFamily >= 0 && (esp_random() % 100) < 30) {
+            fi = (uint8_t)sLastRhymeFamily;
+        } else {
+            fi = esp_random() % FAMILY_COUNT;
+        }
+        sLastRhymeFamily = (int8_t)fi;
+
+        const RhymeFamily& fam = RHYME_FAMILIES[fi];
+        // Pick 2 unique words from the same family
+        uint8_t si = esp_random() % fam.count;
+        uint8_t oi;
+        do { oi = esp_random() % fam.count; } while (oi == si);
+        sWord = fam.words[si];
+        oWord = fam.words[oi];
+    } else {
+        // --- Flat lore noun pick (no rhyme needed) ---
+        uint8_t si = esp_random() % LORE_NOUN_COUNT;
+        uint8_t oi;
+        do { oi = esp_random() % LORE_NOUN_COUNT; } while (oi == si);
+        sWord = LORE_NOUNS[si];
+        oWord = LORE_NOUNS[oi];
+    }
 
     const char* adj = ADJECTIVES[esp_random() % ADJ_COUNT];
     uint8_t roll = 1 + (esp_random() % 20);
@@ -310,7 +382,7 @@ static void generateLine(const char* const* tpls, uint8_t tplCount) {
     // Scroll: line1 → line2 → line3, generate new line1
     memcpy(sLine3, sLine2, sizeof(sLine2));
     memcpy(sLine2, sLine1, sizeof(sLine1));
-    expand(tpls[tidx], sLine1, sizeof(sLine1), NOUNS[si], NOUNS[oi], adj, roll);
+    expand(tpls[tidx], sLine1, sizeof(sLine1), sWord, oWord, adj, roll);
 
     sLastFlashMs = millis();
     sReady = true;
@@ -349,7 +421,7 @@ static void generateD20Line() {
         }
     }
 
-    generateLine(tpls, tplCount);
+    generateLine(tpls, tplCount, true);
 
     // Reset accumulator
     sPendingRollCount = 0;
@@ -365,6 +437,7 @@ static void generateD20Line() {
 static void generateEventLine() {
     const char* const* tpls;
     uint8_t tplCount;
+    bool useRhyme = true;
 
     switch (sPendingEvent) {
         case EVT_HANDSHAKE:
@@ -384,6 +457,7 @@ static void generateEventLine() {
         case EVT_GPS_LOCK:
             tpls = TPL_AWARE;
             tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
+            useRhyme = false;  // AWARE uses lore nouns
             break;
         default:
             sPendingEvent = EVT_NONE;
@@ -391,7 +465,7 @@ static void generateEventLine() {
     }
 
     sPendingEvent = EVT_NONE;
-    generateLine(tpls, tplCount);
+    generateLine(tpls, tplCount, useRhyme);
 }
 
 // ============================================================
@@ -422,14 +496,17 @@ void NarrativeEngine::update(uint8_t mode) {
     // 10% lore, 15% aware (real data), then mode-driven
     const char* const* tpls;
     uint8_t tplCount;
+    bool useRhyme;
     uint8_t ctxRoll = esp_random() % 100;
 
     if (ctxRoll < 10) {
         tpls = TPL_LORE;
         tplCount = sizeof(TPL_LORE) / sizeof(TPL_LORE[0]);
+        useRhyme = false;  // Lore uses flat nouns
     } else if (ctxRoll < 25) {
         tpls = TPL_AWARE;
         tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
+        useRhyme = false;  // Aware uses flat nouns
     } else if (mode >= 1 && mode <= 3) {
         // Active modes: OINK(1), DNH(2), WARHOG(3)
         uint8_t sub = esp_random() % 100;
@@ -443,6 +520,7 @@ void NarrativeEngine::update(uint8_t mode) {
             tpls = TPL_FAIL;
             tplCount = sizeof(TPL_FAIL) / sizeof(TPL_FAIL[0]);
         }
+        useRhyme = true;  // Combat templates rhyme
     } else {
         // Idle, menu, charging, etc.
         uint8_t sub = esp_random() % 100;
@@ -456,9 +534,10 @@ void NarrativeEngine::update(uint8_t mode) {
             tpls = TPL_WIN;
             tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
         }
+        useRhyme = true;  // Idle/fail/win templates rhyme
     }
 
-    generateLine(tpls, tplCount);
+    generateLine(tpls, tplCount, useRhyme);
 }
 
 // ============================================================
