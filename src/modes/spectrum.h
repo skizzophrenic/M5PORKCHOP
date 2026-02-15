@@ -202,7 +202,7 @@ private:
     // Network list state (below spectrum)
     static uint8_t listScrollOffset;
     static uint8_t listSelectedIdx;
-    static const uint8_t LIST_VISIBLE = 7;
+    static const uint8_t LIST_VISIBLE = 5;
 
     static void handleInput();
     static void handleActionPromptInput();

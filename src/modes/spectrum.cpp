@@ -35,12 +35,12 @@ const int SPECTRUM_LEFT = 20;       // Space for dB labels
 const int SPECTRUM_RIGHT = 310;     // Right edge (use full 320px width)
 const int SPECTRUM_WIDTH = 290;     // SPECTRUM_RIGHT - SPECTRUM_LEFT
 const int SPECTRUM_TOP = 2;         // Top margin
-const int SPECTRUM_BOTTOM = 56;     // Lowered to give more vertical range
-const int WATERFALL_TOP = 58;       // Waterfall starts here
+const int SPECTRUM_BOTTOM = 64;     // +8px taller spectrum graph
+const int WATERFALL_TOP = 66;       // Waterfall starts here
 const int WATERFALL_ROWS = 22;      // Number of history rows
-const int WATERFALL_BOTTOM = 80;    // WATERFALL_TOP + WATERFALL_ROWS
-const int CHANNEL_LABEL_Y = 82;     // Channel number row
-const int XP_BAR_Y = 90;            // Filter/status bar (right after channel labels)
+const int WATERFALL_BOTTOM = 88;    // WATERFALL_TOP + WATERFALL_ROWS
+const int CHANNEL_LABEL_Y = 90;     // Channel number row
+const int XP_BAR_Y = 100;           // Filter/status bar (vertically centered)
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
@@ -1199,9 +1199,9 @@ void SpectrumMode::handleInput() {
                 }
             }
         }
-        // Network list tap: header at listY=106 (14px), data rows start at 120
-        else if (canvasY >= 120 && renderCount > 0) {
-            int hitIdx = (canvasY - 120) / 14;
+        // Network list tap: header at listY=129 (12px), data rows start at 141
+        else if (canvasY >= 141 && renderCount > 0) {
+            int hitIdx = (canvasY - 141) / 12;
             if (hitIdx >= 0 && hitIdx < LIST_VISIBLE) {
                 uint8_t idx = listScrollOffset + hitIdx;
                 if (idx < renderCount) {
@@ -1777,9 +1777,6 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         }
     }
     
-    // 1px separator line above filter buttons
-    canvas.drawFastHLine(0, XP_BAR_Y - 1, 320, fg);
-
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
 
@@ -2235,9 +2232,9 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     if (renderCount == 0) return;
 
     // Column positions:  >  SSID  CH  dB  SEC  P  C  PPS
-    const int COL_SSID = 10, COL_CH = 148, COL_DB = 168;
-    const int COL_SEC = 196, COL_P = 224, COL_C = 238, COL_PPS = 258;
-    const int listY = 105;
+    const int COL_SSID = 10, COL_CH = 160, COL_DB = 180;
+    const int COL_SEC = 208, COL_P = 240, COL_C = 254, COL_PPS = 270;
+    const int listY = 129;  // Below filter bar with breathing room
     const int rowH = 12;
 
     // Header row (inverted, tight)
@@ -2254,8 +2251,8 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     canvas.drawString("PPS", COL_PPS, listY + 2);
     canvas.setTextColor(fg);
 
-    // 1px separator between header and first data row
-    canvas.drawFastHLine(0, listY + rowH, 320, fg);
+    // 1px separator between header and first data row (inverted color)
+    canvas.drawFastHLine(0, listY + rowH, 320, bg);
 
     // Clamp scroll/selection
     uint16_t total = renderCount;
@@ -2284,16 +2281,16 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
             canvas.drawString(">", 2, y + 2);
         }
 
-        // SSID (truncate to 12 chars to fit columns)
-        char ssidBuf[14];
+        // SSID (truncate to 24 chars to fill space before CH column)
+        char ssidBuf[26];
         if (net.isHidden || net.ssid[0] == '\0') {
             strncpy(ssidBuf, "[HIDDEN]", sizeof(ssidBuf));
         } else {
-            strncpy(ssidBuf, net.ssid, 12);
-            ssidBuf[12] = '\0';
-            if (strlen(net.ssid) > 12) {
-                ssidBuf[10] = '.';
-                ssidBuf[11] = '.';
+            strncpy(ssidBuf, net.ssid, 24);
+            ssidBuf[24] = '\0';
+            if (strlen(net.ssid) > 24) {
+                ssidBuf[22] = '.';
+                ssidBuf[23] = '.';
             }
         }
         canvas.drawString(ssidBuf, COL_SSID, y + 2);

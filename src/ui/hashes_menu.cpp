@@ -734,19 +734,19 @@ void HashesMenu::draw(M5Canvas& canvas) {
     char summary[64];
     snprintf(summary, sizeof(summary), "LOOT %u OK %u UP %u LOC %u",
              (unsigned)total, (unsigned)cracked, (unsigned)uploaded, (unsigned)local);
-    canvas.setCursor(4, 2);
+    canvas.setCursor(6, 2);
     canvas.print(summary);
 
     // Column headers
-    canvas.setCursor(4, 12);
+    canvas.setCursor(6, 12);
     canvas.print("SSID");
-    canvas.setCursor(110, 12);
+    canvas.setCursor(112, 12);
     canvas.print("ST");
-    canvas.setCursor(140, 12);
+    canvas.setCursor(142, 12);
     canvas.print("TYPE");
-    canvas.setCursor(180, 12);
+    canvas.setCursor(182, 12);
     canvas.print("TIME");
-    canvas.setCursor(250, 12);
+    canvas.setCursor(252, 12);
     canvas.print("SIZE");
 
     // Capture list
@@ -765,7 +765,7 @@ void HashesMenu::draw(M5Canvas& canvas) {
         }
 
         // SSID column — uppercase, max 17 chars, truncate with ..
-        canvas.setCursor(4, y);
+        canvas.setCursor(6, y);
         char ssidBuf[20];
         size_t pos = 0;
         const char* ssidSrc = cap.ssid;
@@ -783,7 +783,7 @@ void HashesMenu::draw(M5Canvas& canvas) {
         canvas.print(ssidBuf);
 
         // Status column
-        canvas.setCursor(110, y);
+        canvas.setCursor(112, y);
         if (cap.status == CaptureStatus::CRACKED) {
             canvas.print("[OK]");
         } else if (cap.status == CaptureStatus::UPLOADED) {
@@ -793,17 +793,17 @@ void HashesMenu::draw(M5Canvas& canvas) {
         }
 
         // Type column
-        canvas.setCursor(140, y);
+        canvas.setCursor(142, y);
         canvas.print(cap.isPMKID ? "PM" : "HS");
 
         // Time column
-        canvas.setCursor(180, y);
+        canvas.setCursor(182, y);
         char timeBuf[16];
         formatTime(timeBuf, sizeof(timeBuf), cap.captureTime);
         canvas.print(timeBuf);
 
         // Size column
-        canvas.setCursor(250, y);
+        canvas.setCursor(252, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), cap.fileSize);
         canvas.print(sizeBuf);

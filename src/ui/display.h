@@ -130,6 +130,9 @@ public:
     static bool isDimmed() { return dimmed; }
     static void toggleScreenPower(); // Toggle screen on/off
 
+    // Nav button blink hint (shows user where to press on menu enter)
+    static void startNavBlink();
+
     // Screenshot
     static bool takeScreenshot();     // Save screen to SD card, returns success
     static bool isSnapping() { return snapping; }  // True during screenshot save
@@ -166,6 +169,14 @@ private:
     static volatile bool pendingTopBarMessage;
     static char pendingTopBarMessageBuf[96];
     static uint32_t pendingTopBarDurationMs;
+
+    // Nav blink animation
+    static bool navBlinkActive;
+    static uint32_t navBlinkStartMs;
+    static constexpr uint32_t NAV_BLINK_ON_MS = 350;
+    static constexpr uint32_t NAV_BLINK_OFF_MS = 250;
+    static constexpr uint32_t NAV_BLINK_CYCLE_MS = NAV_BLINK_ON_MS + NAV_BLINK_OFF_MS;
+    static constexpr uint32_t NAV_BLINK_TOTAL_MS = NAV_BLINK_CYCLE_MS * 3;
     
     static void drawTopBar();
     static void drawBottomBar();

@@ -534,19 +534,19 @@ void TracksMenu::draw(M5Canvas& canvas) {
     char summary[64];
     snprintf(summary, sizeof(summary), "WIGLE %u UP %u LOC %u NETS~%lu",
              (unsigned)total, (unsigned)uploaded, (unsigned)local, (unsigned long)netSum);
-    canvas.setCursor(4, 2);
+    canvas.setCursor(6, 2);
     canvas.print(summary);
 
     // Header row (column-aligned with Hashes menu)
-    canvas.setCursor(4, 12);
+    canvas.setCursor(6, 12);
     canvas.print("FILE");
-    canvas.setCursor(110, 12);
+    canvas.setCursor(112, 12);
     canvas.print("ST");
-    canvas.setCursor(140, 12);
+    canvas.setCursor(142, 12);
     canvas.print("NETS");
-    canvas.setCursor(180, 12);
+    canvas.setCursor(182, 12);
     canvas.print("TIME");
-    canvas.setCursor(250, 12);
+    canvas.setCursor(252, 12);
     canvas.print("SIZE");
     
     // File list (always drawn, modals overlay on top)
@@ -567,11 +567,11 @@ void TracksMenu::draw(M5Canvas& canvas) {
         // Filename first (truncated) - extract just the date/time part
         char displayName[24];
         formatDisplayName(file.filename, displayName, sizeof(displayName), 15, "..", true);
-        canvas.setCursor(4, y);
+        canvas.setCursor(6, y);
         canvas.print(displayName);
-        
+
         // Status indicator (column-aligned with Hashes menu)
-        canvas.setCursor(110, y);
+        canvas.setCursor(112, y);
         if (file.status == WigleFileStatus::UPLOADED) {
             canvas.print("[OK]");
         } else {
@@ -579,17 +579,17 @@ void TracksMenu::draw(M5Canvas& canvas) {
         }
 
         // Network count
-        canvas.setCursor(140, y);
+        canvas.setCursor(142, y);
         canvas.printf("~%u", (unsigned)file.networkCount);
 
         // Time column
-        canvas.setCursor(180, y);
+        canvas.setCursor(182, y);
         char timeBuf[16];
         formatTime(timeBuf, sizeof(timeBuf), file.fileTime);
         canvas.print(timeBuf);
 
         // Size column
-        canvas.setCursor(250, y);
+        canvas.setCursor(252, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), file.fileSize);
         canvas.print(sizeBuf);

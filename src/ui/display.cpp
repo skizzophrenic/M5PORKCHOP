@@ -42,6 +42,7 @@
 #include "input.h"
 #include "haptic.h"
 #include "../core/heap_health.h"
+#include "../piglet/narrative.h"
 #include "../core/janus_hog.h"
 #include "../core/network_recon.h"
 
@@ -184,6 +185,8 @@ char Display::bottomOverlay[96] = {0};
 volatile bool Display::pendingTopBarMessage = false;
 char Display::pendingTopBarMessageBuf[96] = {0};
 uint32_t Display::pendingTopBarDurationMs = 0;
+bool Display::navBlinkActive = false;
+uint32_t Display::navBlinkStartMs = 0;
 
 // Upload progress tracking
 bool Display::uploadInProgress = false;
@@ -284,11 +287,13 @@ static void drawMoodBar(M5Canvas& canvas) {
 }
 
 // Info panel below avatar - shows character, recon, and loot stats
-// Uses the 94px space below the grass line (y=106 to y=200)
+// Uses the 78px space below the grass line (y=122 to y=200)
+// Layout: 14px header + 6 × 11px rows = 80px (last row clips 1px, invisible)
 static void drawInfoPanel(M5Canvas& canvas) {
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
-    const int panelY = 106;
+    const int panelY = 122;  // Below grass (y=105, textSize=2, 16px tall → ends at y=121)
+    const int ROW_H = 11;    // Compact row height (Font0 size 1 = 8px, fits with 3px padding)
 
     canvas.setTextSize(1);
 
@@ -329,8 +334,8 @@ static void drawInfoPanel(M5Canvas& canvas) {
 
     canvas.setTextColor(fg);  // Restore normal colors
 
-    // --- Row 2: Mode-specific operational stats (left + right) ---
-    y = panelY + 14 + 2;  // 2px below header bar
+    // --- Row 2: Mode-specific operational stats ---
+    y = panelY + 14;  // Flush below header bar
     PorkchopMode mode = porkchop.getMode();
     char leftBuf[48];
     char rightBuf[32];
@@ -424,8 +429,8 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.setTextDatum(TL_DATUM);
     }
 
-    // --- P1G D3MANDS: 3 challenge detail rows ---
-    y += 14;
+    // --- P1G D3MANDS: challenge rows (3 × 11px) ---
+    y += ROW_H;
     uint8_t chalTotal = Challenges::getActiveCount();
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -443,13 +448,13 @@ static void drawInfoPanel(M5Canvas& canvas) {
 
             if (ch.completed) {
                 // Full inverted bar for completed challenges
-                canvas.fillRect(0, y, DISPLAY_W, 14, fg);
+                canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
                 canvas.setTextColor(bg);
             } else if (!ch.failed && ch.target > 0 && ch.progress > 0) {
-                // Partial progress bar behind text for in-progress challenges
+                // Progress bar: 2px line at bottom of row (visible, doesn't hide text)
                 int progW = (DISPLAY_W * ch.progress) / ch.target;
                 if (progW > DISPLAY_W) progW = DISPLAY_W;
-                if (progW > 0) canvas.fillRect(0, y, progW, 14, fg);
+                if (progW > 0) canvas.fillRect(0, y + ROW_H - 2, progW, 2, fg);
             }
 
             canvas.drawString(chalLine, 4, y);
@@ -459,15 +464,25 @@ static void drawInfoPanel(M5Canvas& canvas) {
             canvas.drawString(xpBuf, DISPLAY_W - 4, y);
             canvas.setTextDatum(TL_DATUM);
 
-            // Restore text color after inverted rows
             if (ch.completed) {
                 canvas.setTextColor(fg);
             }
 
-            y += 14;
+            y += ROW_H;
         }
     } else {
         canvas.drawString("P1G SLEEPS...", 4, y);
+        y += ROW_H;
+    }
+
+    // --- Narrative engine: 2 dedicated lines below challenges ---
+    NarrativeEngine::update((uint8_t)mode);
+    if (NarrativeEngine::hasContent()) {
+        if (NarrativeEngine::getLine2()[0]) {
+            canvas.drawString(NarrativeEngine::getLine2(), 4, y);
+        }
+        y += ROW_H;
+        canvas.drawString(NarrativeEngine::getLine1(), 4, y);
     }
 }
 
@@ -859,11 +874,8 @@ void Display::drawTopBar() {
         return;
     }
 
-    // Check for heap health notification (same style as XP)
-    if (HeapHealth::shouldShowToast()) {
-        drawTopBarHeapHealth(topBar, fg, bg);
-        return;
-    }
+    // Heap health toast disabled — not used on Core2 for now
+    // HeapHealth::shouldShowToast() still tracks internally if re-enabled later
 
     // Check for upload progress, show during upload operations
     if (shouldShowUploadProgress()) {
@@ -1136,14 +1148,56 @@ void Display::drawBottomBar() {
         return;
     }
 
-    // Set colors based on mode
-    if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
+    // --- On-screen nav buttons for menu-like modes ---
+    // Three tappable zones: [^ UP] [SEL] [DN v]
+    bool isMenuMode = (mode == PorkchopMode::MENU ||
+                       mode == PorkchopMode::SETTINGS ||
+                       mode == PorkchopMode::HASHES ||
+                       mode == PorkchopMode::BADGES ||
+                       mode == PorkchopMode::ABOUT ||
+                       mode == PorkchopMode::XFER ||
+                       mode == PorkchopMode::DIAGDATA ||
+                       mode == PorkchopMode::FLEXES ||
+                       mode == PorkchopMode::BOAR_BROS ||
+                       mode == PorkchopMode::TRACKS ||
+                       mode == PorkchopMode::UNLOCKABLES ||
+                       mode == PorkchopMode::BOUNTY ||
+                       mode == PorkchopMode::SD_FORMAT ||
+                       mode == PorkchopMode::PIGSYNC_DEVICE_SELECT);
+
+    if (isMenuMode) {
+        const int btnW = DISPLAY_W / 3;  // ~107px each
         bottomBar.fillSprite(bg);
+        bottomBar.setTextSize(1);
+        bottomBar.setTextDatum(top_center);
         bottomBar.setTextColor(fg);
-    } else {
-        bottomBar.fillSprite(fg);
-        bottomBar.setTextColor(bg);
+
+        // Check blink animation - hide text during off phase
+        bool blinkVisible = true;
+        if (navBlinkActive) {
+            uint32_t elapsed = millis() - navBlinkStartMs;
+            if (elapsed >= NAV_BLINK_TOTAL_MS) {
+                navBlinkActive = false;
+            } else {
+                uint32_t phase = elapsed % NAV_BLINK_CYCLE_MS;
+                blinkVisible = (phase < NAV_BLINK_ON_MS);
+            }
+        }
+
+        if (blinkVisible) {
+            // Left: UP
+            bottomBar.drawString("^", btnW / 2, 6);
+            // Center: OK
+            bottomBar.drawString("OK", DISPLAY_W / 2, 6);
+            // Right: DN
+            bottomBar.drawString("v", btnW * 2 + (DISPLAY_W - btnW * 2) / 2, 6);
+        }
+        return;
     }
+
+    // Non-menu modes: original content bar
+    bottomBar.fillSprite(fg);
+    bottomBar.setTextColor(bg);
     bottomBar.setTextSize(1);
     bottomBar.setTextDatum(top_left);
 
@@ -1151,75 +1205,29 @@ void Display::drawBottomBar() {
     statsBuf[0] = '\0';
     const char* statsStr = "";
 
-    if (mode == PorkchopMode::HASHES) {
-        // CAPTURES: show selected capture's BSSID
-        statsStr = HashesMenu::getSelectedBSSID();
-    } else if (mode == PorkchopMode::TRACKS) {
-        // WIGLE_MENU: show selected file info
-        TracksMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::SETTINGS) {
-        // SETTINGS: show description of selected item
-        statsStr = SettingsMenu::getSelectedDescription();
-    } else if (mode == PorkchopMode::MENU) {
-        // MENU: show selected item description from Menu
-        statsStr = Menu::getSelectedDescription();
-    } else if (mode == PorkchopMode::DIAGDATA) {
-        // DIAGNOSTICS: show controls
-        statsStr = "[ENT]SAVE [R]WIFI [H]HEAP [G]GC";
-    } else if (mode == PorkchopMode::SD_FORMAT) {
-        statsStr = "ENTER=SELECT  BKSP=EXIT";
-    } else if (mode == PorkchopMode::BOAR_BROS) {
-        // BOAR BROS: show delete hint
-        statsStr = "[D] DELETE";
-    } else if (mode == PorkchopMode::BOUNTY) {
-        // BOUNTY STATUS: show selected info
-        BountyMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
-        // PIGSYNC_DEVICE_SELECT: control hints (state shown in terminal)
-        statsStr = "ENTER=CALL UP/DN=SELECT ESC=EXIT";
-    } else {
-        // Default: Networks only (HS shown in active modes)
-        uint16_t netCount = porkchop.getNetworkCount();
-        char buf[32];
-        snprintf(buf, sizeof(buf), "N:%03d", netCount);
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    }
+    // Default: Networks only (HS shown in active modes)
+    uint16_t netCount = porkchop.getNetworkCount();
+    char buf[32];
+    snprintf(buf, sizeof(buf), "N:%03d", netCount);
+    strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
+    statsBuf[sizeof(statsBuf) - 1] = '\0';
+    statsStr = statsBuf;
 
-    bottomBar.drawString(statsStr ? statsStr : "", 2, 2);
+    bottomBar.drawString(statsStr, 2, 2);
 
-    // Right: uptime or PIGSYNC channel
+    // Right: uptime
     bottomBar.setTextDatum(top_right);
-    if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
-        char chBuf[12];
-        uint8_t ch = PigSyncMode::getDataChannel();
-        snprintf(chBuf, sizeof(chBuf), "CH:%02d", ch);
-        bottomBar.drawString(chBuf, DISPLAY_W - 2, 2);
-    } else if (mode == PorkchopMode::MENU ||
-               mode == PorkchopMode::SETTINGS ||
-               mode == PorkchopMode::HASHES ||
-               mode == PorkchopMode::BADGES ||
-               mode == PorkchopMode::ABOUT ||
-               mode == PorkchopMode::XFER ||
-               mode == PorkchopMode::DIAGDATA ||
-               mode == PorkchopMode::FLEXES ||
-               mode == PorkchopMode::BOAR_BROS ||
-               mode == PorkchopMode::TRACKS ||
-               mode == PorkchopMode::UNLOCKABLES ||
-               mode == PorkchopMode::BOUNTY ||
-               mode == PorkchopMode::SD_FORMAT) {
-        // No uptime on menu and submenu screens
-    } else {
-        uint32_t uptime = porkchop.getUptime();
-        uint16_t mins = uptime / 60;
-        uint16_t secs = uptime % 60;
-        char uptimeBuf[12];
-        snprintf(uptimeBuf, sizeof(uptimeBuf), "%u:%02u", mins, secs);
-        bottomBar.drawString(uptimeBuf, DISPLAY_W - 2, 2);
-    }
+    uint32_t uptime = porkchop.getUptime();
+    uint16_t mins = uptime / 60;
+    uint16_t secs = uptime % 60;
+    char uptimeBuf[12];
+    snprintf(uptimeBuf, sizeof(uptimeBuf), "%u:%02u", mins, secs);
+    bottomBar.drawString(uptimeBuf, DISPLAY_W - 2, 2);
+}
+
+void Display::startNavBlink() {
+    navBlinkActive = true;
+    navBlinkStartMs = millis();
 }
 
 void Display::showInfoBox(const char* title, const char* line1,
@@ -1458,16 +1466,43 @@ void Display::showBootSplash() {
 
     bootSplashDelay(1200);
 
-    // Screen 4 (optional): Welcome back when callsign is set
+    // Screen 4 (optional): Absurd micro-story when callsign is set
     const char* cs = Config::personality().callsign;
     if (cs[0] != '\0') {
+        static const char* const BOOT_NOUNS[] = {
+            "PIG", "HEAP", "BARN", "DEV", "JTAG", "FIRMWARE", "BUG",
+            "SNAKE", "HORSE", "WATCHDOG", "STACK", "MALLOC", "WIFI", "TROUGH"
+        };
+        static constexpr uint8_t NOUN_COUNT = 14;
+
+        // Fisher-Yates partial shuffle: pick 8 unique nouns
+        uint8_t idx[NOUN_COUNT];
+        for (uint8_t i = 0; i < NOUN_COUNT; i++) idx[i] = i;
+        for (uint8_t i = 0; i < 8; i++) {
+            uint8_t j = i + (esp_random() % (NOUN_COUNT - i));
+            uint8_t tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+        }
+
+        char line[4][54];
+        snprintf(line[0], sizeof(line[0]), "THEY HAD NO %s. BOUGHT A %s.",
+                 BOOT_NOUNS[idx[0]], BOOT_NOUNS[idx[1]]);
+        snprintf(line[1], sizeof(line[1]), "7 %sS LATER IT ESCAPED THE %s.",
+                 BOOT_NOUNS[idx[2]], BOOT_NOUNS[idx[3]]);
+        snprintf(line[2], sizeof(line[2]), "%s GRABBED THE %s AND KILLED %s.",
+                 BOOT_NOUNS[idx[4]], BOOT_NOUNS[idx[5]], BOOT_NOUNS[idx[6]]);
+        snprintf(line[3], sizeof(line[3]), "INSIDE: SLEEPING %s.",
+                 BOOT_NOUNS[idx[7]]);
+
         M5.Display.fillScreen(COLOR_BG);
         M5.Display.setTextDatum(middle_center);
-        M5.Display.setTextSize(2);
-        M5.Display.drawString("WELCOME BACK", DISPLAY_W / 2, DISPLAY_H / 2 - 15);
+        M5.Display.setTextSize(1);
+        M5.Display.drawString(line[0], DISPLAY_W / 2, 70);
+        M5.Display.drawString(line[1], DISPLAY_W / 2, 82);
+        M5.Display.drawString(line[2], DISPLAY_W / 2, 94);
+        M5.Display.drawString(line[3], DISPLAY_W / 2, 106);
         M5.Display.setTextSize(3);
-        M5.Display.drawString(cs, DISPLAY_W / 2, DISPLAY_H / 2 + 15);
-        bootSplashDelay(1000);
+        M5.Display.drawString(cs, DISPLAY_W / 2, 135);
+        bootSplashDelay(1500);
     }
 
     // Reset display state for main UI compatibility

@@ -6,6 +6,7 @@
 #include "haptic.h"
 #include "../audio/sfx.h"
 #include <string.h>
+#include <esp_random.h>
 
 // ============================================================================
 // STATIC DATA DEFINITIONS
@@ -218,6 +219,33 @@ const MenuItem Menu::GROUP_SYSTEM[] = {
 const uint8_t Menu::GROUP_SYSTEM_SIZE = sizeof(GROUP_SYSTEM) / sizeof(GROUP_SYSTEM[0]);
 
 // ============================================================================
+// BOOT-STYLE MICRO-STORY (shown below root menu items)
+// ============================================================================
+static const char* const MENU_NOUNS[] = {
+    "PIG", "HEAP", "BARN", "DEV", "JTAG", "FIRMWARE", "BUG",
+    "SNAKE", "HORSE", "WATCHDOG", "STACK", "MALLOC", "WIFI", "TROUGH"
+};
+static constexpr uint8_t MENU_NOUN_COUNT = 14;
+static char sStoryLines[4][54];
+
+static void generateMenuStory() {
+    uint8_t idx[MENU_NOUN_COUNT];
+    for (uint8_t i = 0; i < MENU_NOUN_COUNT; i++) idx[i] = i;
+    for (uint8_t i = 0; i < 8; i++) {
+        uint8_t j = i + (esp_random() % (MENU_NOUN_COUNT - i));
+        uint8_t tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+    }
+    snprintf(sStoryLines[0], sizeof(sStoryLines[0]), "THEY HAD NO %s. BOUGHT A %s.",
+             MENU_NOUNS[idx[0]], MENU_NOUNS[idx[1]]);
+    snprintf(sStoryLines[1], sizeof(sStoryLines[1]), "7 %sS LATER IT ESCAPED THE %s.",
+             MENU_NOUNS[idx[2]], MENU_NOUNS[idx[3]]);
+    snprintf(sStoryLines[2], sizeof(sStoryLines[2]), "%s GRABBED THE %s AND KILLED %s.",
+             MENU_NOUNS[idx[4]], MENU_NOUNS[idx[5]], MENU_NOUNS[idx[6]]);
+    snprintf(sStoryLines[3], sizeof(sStoryLines[3]), "INSIDE: SLEEPING %s.",
+             MENU_NOUNS[idx[7]]);
+}
+
+// ============================================================================
 // STATIC MEMBER INITIALIZATION
 // ============================================================================
 
@@ -321,6 +349,10 @@ void Menu::show() {
             rootHintIndex[i] = 0;
         }
     }
+    // Generate fresh micro-story for menu display
+    generateMenuStory();
+    // Blink nav buttons to hint where to press
+    Display::startNavBlink();
 }
 
 void Menu::hide() {
@@ -650,47 +682,22 @@ void Menu::drawRoot(M5Canvas& canvas) {
         bool isSelected = (idx == rootIdx) && (activeGroup == GroupId::NONE);
         
         if (isSelected) {
-            canvas.fillRect(5, y - 2, DISPLAY_W - 10, lineHeight, accent);
+            canvas.fillRect(0, y, DISPLAY_W, lineHeight, accent);
             canvas.setTextColor(bg);
         } else {
             canvas.setTextColor(fg);
         }
-        
+
         // Label with icon and arrow for groups
         char labelBuf[40];
         const char* icon = (item.icon && item.icon[0]) ? item.icon : ">";
         if (item.type == RootType::GROUP) {
-            // Check that the combined length won't exceed buffer size
-            size_t totalLen = strlen(icon) + strlen(item.label) + 3; // +3 for " >" and null terminator
-            if (totalLen <= sizeof(labelBuf)) {
-                snprintf(labelBuf, sizeof(labelBuf), "%s %s >", icon, item.label);
-            } else {
-                // Truncate the label to fit in the buffer
-                size_t maxLabelLen = sizeof(labelBuf) - strlen(icon) - 3; // -3 for " >" and null terminator
-                if (maxLabelLen > 0) {
-                    snprintf(labelBuf, sizeof(labelBuf), "%s %.*s >", icon, (int)maxLabelLen, item.label);
-                } else {
-                    strncpy(labelBuf, icon, sizeof(labelBuf) - 1);
-                    labelBuf[sizeof(labelBuf) - 1] = '\0';
-                }
-            }
+            snprintf(labelBuf, sizeof(labelBuf), "%s %s >", icon, item.label);
         } else {
-            // Check that the combined length won't exceed buffer size
-            size_t totalLen = strlen(icon) + strlen(item.label) + 2; // +2 for space and null terminator
-            if (totalLen <= sizeof(labelBuf)) {
-                snprintf(labelBuf, sizeof(labelBuf), "%s %s", icon, item.label);
-            } else {
-                // Truncate the label to fit in the buffer
-                size_t maxLabelLen = sizeof(labelBuf) - strlen(icon) - 2; // -2 for space and null terminator
-                if (maxLabelLen > 0) {
-                    snprintf(labelBuf, sizeof(labelBuf), "%s %.*s", icon, (int)maxLabelLen, item.label);
-                } else {
-                    strncpy(labelBuf, icon, sizeof(labelBuf) - 1);
-                    labelBuf[sizeof(labelBuf) - 1] = '\0';
-                }
-            }
+            snprintf(labelBuf, sizeof(labelBuf), "%s %s", icon, item.label);
         }
-        canvas.drawString(labelBuf, 10, y);
+        labelBuf[sizeof(labelBuf) - 1] = '\0';
+        canvas.drawString(labelBuf, 6, y + 2);
     }
     
     // Scroll indicators
@@ -701,6 +708,15 @@ void Menu::drawRoot(M5Canvas& canvas) {
     }
     if (rootScroll + VISIBLE_ITEMS < ROOT_COUNT) {
         canvas.drawString("v", DISPLAY_W - 12, yOffset + (VISIBLE_ITEMS - 1) * lineHeight);
+    }
+
+    // Micro-story below menu items (52px available from y=148 to y=200)
+    int storyY = yOffset + ROOT_COUNT * lineHeight + 6;  // 28 + 120 + 6 = 154
+    canvas.setTextSize(1);
+    canvas.setTextColor(fg);
+    canvas.setTextDatum(top_center);
+    for (int i = 0; i < 4; i++) {
+        canvas.drawString(sStoryLines[i], DISPLAY_W / 2, storyY + i * 11);
     }
 }
 
@@ -741,20 +757,21 @@ void Menu::drawModal(M5Canvas& canvas) {
         int idx = modalScroll + i;
         int y = itemStartY + i * itemHeight;
         const MenuItem& item = items[idx];
-        
+
         bool isSelected = (idx == modalIdx);
-        
+        int textY = y + 2;  // Center 16px text in 20px row
+
         if (isSelected) {
-            canvas.fillRect(boxX + itemPadX, y, boxW - (itemPadX * 2), itemHeight - 1, bg);
+            canvas.fillRect(boxX + itemPadX, y, boxW - (itemPadX * 2), itemHeight, bg);
             canvas.setTextColor(fg);
-            canvas.setCursor(boxX + textIndent, y);
+            canvas.setCursor(boxX + textIndent, textY);
             canvas.print("> ");
         } else {
             canvas.setTextColor(bg);
-            canvas.setCursor(boxX + textIndent, y);
+            canvas.setCursor(boxX + textIndent, textY);
             canvas.print("  ");
         }
-        
+
         // Icon + truncated label
         if (item.icon && item.icon[0]) {
             canvas.print(item.icon);
@@ -765,7 +782,6 @@ void Menu::drawModal(M5Canvas& canvas) {
 
         constexpr int kMaxLabelChars = 10;  // keep width with icon
         char shortLabel[kMaxLabelChars + 1];
-        // Ensure we don't copy more characters than the buffer can hold
         if (strlen(item.label) <= kMaxLabelChars) {
             strcpy(shortLabel, item.label);
         } else {

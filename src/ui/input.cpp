@@ -43,6 +43,10 @@ static constexpr uint32_t kTapMaxMs = 350;
 static constexpr int16_t kSwipeMinPx = 60;
 static constexpr uint32_t kSwipeMaxMs = 900;
 
+// On-screen nav button zones (bottom bar area, y >= 220)
+static constexpr int16_t kNavBarY = 220;   // DISPLAY_H - BOTTOM_BAR_H
+static constexpr int16_t kNavBtnW = 107;   // DISPLAY_W / 3
+
 void init() {
     // No-op for now (kept for symmetry / future expansion).
 }
@@ -112,9 +116,16 @@ void update() {
         const int16_t ady = dy < 0 ? (int16_t)-dy : dy;
 
         if (dt <= kTapMaxMs && adx <= kTapMovePx && ady <= kTapMovePx) {
-            evTap = true;
-            tapEv.x = t.x;
-            tapEv.y = t.y;
+            // Taps in the bottom bar area → on-screen nav buttons
+            if (t.y >= kNavBarY) {
+                if (t.x < kNavBtnW) evUp = true;
+                else if (t.x >= kNavBtnW * 2) evDown = true;
+                else evSelect = true;
+            } else {
+                evTap = true;
+                tapEv.x = t.x;
+                tapEv.y = t.y;
+            }
         } else if (dt <= kSwipeMaxMs && adx >= kSwipeMinPx && adx > (ady * 2)) {
             if (dx < 0) evSwipeLeft = true;
             else evSwipeRight = true;
