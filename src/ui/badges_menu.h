@@ -21,7 +21,7 @@ private:
     static bool keyWasPressed;
     static bool showingDetail;  // Showing achievement detail popup
 
-    static const uint8_t VISIBLE_ITEMS = 10;
+    static const uint8_t VISIBLE_ITEMS = 9;
     
     static void handleInput();
     static void drawDetail(M5Canvas& canvas);

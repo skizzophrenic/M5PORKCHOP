@@ -130,11 +130,11 @@ void FlexesScreen::update() {
 }
 
 void FlexesScreen::handleInput() {
-    // Tap on tab bar (canvasY 0-12) to switch tabs directly
+    // Tap on tab bar (canvasY 0-16) to switch tabs directly
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         int canvasY = tapEv.y - TOP_BAR_H;
-        if (canvasY >= 0 && canvasY < 12) {
+        if (canvasY >= 0 && canvasY < 16) {
             // Hit-test tab bar using same dynamic width calculation as drawTabBar
             const int totalTabs = 3;
             const int margin = 2;
@@ -612,8 +612,8 @@ void FlexesScreen::draw(M5Canvas& canvas) {
 void FlexesScreen::drawTabBar(M5Canvas& canvas) {
     canvas.setTextSize(1);
     const int tabY = 0;
-    const int tabH = 12;
-    const int tabTextY = 6;  // Add 1px top padding to match bottom margin
+    const int tabH = 16;
+    const int tabTextY = 4;  // Vertically center text in 16px tab
 
     // Calculate dynamic widths for three tabs. Distribute any remainder pixels
     // across the first tabs so that the tabs fill the available space evenly.
@@ -672,13 +672,13 @@ void FlexesScreen::drawStatsTab(M5Canvas& canvas) {
     } else {
         snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d: %s", level, title);
     }
-    canvas.drawString(lvlBuf, 5, 14);
+    canvas.drawString(lvlBuf, 5, 18);
     
     // Class on right
     char classBuf[24];
     snprintf(classBuf, sizeof(classBuf), "T13R: %s", className);
     canvas.setTextDatum(top_right);
-    canvas.drawString(classBuf, DISPLAY_W - 5, 14);
+    canvas.drawString(classBuf, DISPLAY_W - 5, 18);
     
     // XP bar
     int barX = 5;
@@ -705,7 +705,7 @@ void FlexesScreen::drawBuffsTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     
-    int y = 14;
+    int y = 18;
     int buffCount = 0;
     
     // === CLASS BUFFS SECTION ===
@@ -847,7 +847,7 @@ void FlexesScreen::drawStats(M5Canvas& canvas) {
 void FlexesScreen::drawWigleTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
-    int y = 14;
+    int y = 18;
     // Header
     canvas.drawString("W1GL3 ST4TS", 5, y);
     y += 12;

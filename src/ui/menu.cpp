@@ -447,9 +447,9 @@ void Menu::handleInput() {
         uint8_t groupSize = getGroupSize(activeGroup);
 
         if (tapped) {
-            // Modal box: boxX=20, boxY=15, itemStartY=boxY+26=41, itemHeight=18
+            // Modal box: boxX=20, boxY=15, itemStartY=boxY+26=41, itemHeight=20
             int canvasY = tapEv.y - TOP_BAR_H;
-            int hitIdx = (canvasY - 41) / 18;
+            int hitIdx = (canvasY - 41) / 20;
             if (hitIdx >= 0 && hitIdx < MODAL_VISIBLE) {
                 uint8_t tapped_idx = modalScroll + hitIdx;
                 if (tapped_idx < groupSize) {
@@ -730,7 +730,7 @@ void Menu::drawModal(M5Canvas& canvas) {
     const MenuItem* items = getGroupItems(activeGroup);
     uint8_t groupSize = getGroupSize(activeGroup);
     int itemStartY = boxY + 26;
-    int itemHeight = 18;
+    int itemHeight = 20;
     int itemPadX = 6;
     int textIndent = 10;
     int valueMargin = 14;

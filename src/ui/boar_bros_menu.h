@@ -30,7 +30,7 @@ private:
     static bool keyWasPressed;
     static bool deleteConfirmActive;
     
-    static const uint8_t VISIBLE_ITEMS = 10;
+    static const uint8_t VISIBLE_ITEMS = 9;
     
     static void handleInput();
     static void loadBros();

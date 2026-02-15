@@ -109,7 +109,7 @@ void BountyMenu::update() {
 void BountyMenu::handleInput() {
     const size_t count = cachedBounties.size();
 
-    // Tap-to-select: startY=2, lineH=LINE_H(17)
+    // Tap-to-select: startY=2, lineH=LINE_H(20)
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (count > 0) {

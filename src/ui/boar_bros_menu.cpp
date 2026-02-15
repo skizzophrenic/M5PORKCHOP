@@ -160,12 +160,12 @@ void BoarBrosMenu::handleInput() {
         return;
     }
 
-    // Tap-to-select: startY=2, lineHeight=18
+    // Tap-to-select: startY=2, lineHeight=20
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (!bros.empty()) {
             int canvasY = tapEv.y - TOP_BAR_H;
-            int hitIdx = (canvasY - 2) / 18;
+            int hitIdx = (canvasY - 2) / 20;
             if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
                 uint8_t idx = scrollOffset + hitIdx;
                 if (idx < bros.size()) {
@@ -265,8 +265,8 @@ void BoarBrosMenu::draw(M5Canvas& canvas) {
     
     // Draw bros list
     int y = 2;
-    int lineHeight = 18;
-    
+    int lineHeight = 20;
+
     for (uint8_t i = scrollOffset; i < bros.size() && i < scrollOffset + VISIBLE_ITEMS; i++) {
         const BroInfo& bro = bros[i];
         

@@ -360,12 +360,12 @@ void TracksMenu::handleInput() {
         syncHoldFired = false;
     }
 
-    // Tap-to-select: startY=22, lineHeight=16
+    // Tap-to-select: startY=22, lineHeight=20
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (!files.empty()) {
             int canvasY = tapEv.y - TOP_BAR_H;
-            int hitIdx = (canvasY - 22) / 16;
+            int hitIdx = (canvasY - 22) / 20;
             if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
                 uint8_t idx = scrollOffset + hitIdx;
                 if (idx < files.size()) {
@@ -531,8 +531,8 @@ void TracksMenu::draw(M5Canvas& canvas) {
     
     // File list (always drawn, modals overlay on top)
     int y = 22;
-    int lineHeight = 16;
-    
+    int lineHeight = 20;
+
     for (uint8_t i = scrollOffset; i < files.size() && i < scrollOffset + VISIBLE_ITEMS; i++) {
         const WigleFileInfo& file = files[i];
         

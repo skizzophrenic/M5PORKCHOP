@@ -44,6 +44,7 @@
 #include "haptic.h"
 #include "../core/heap_health.h"
 #include "../core/janus_hog.h"
+#include "../core/network_recon.h"
 
 // Theme color getters - read from config
 // Theme definitions
@@ -256,134 +257,187 @@ static void drawInfoPanel(M5Canvas& canvas) {
     const uint16_t bg = getColorBG();
     const int panelY = 106;
 
-    // Separator line
-    canvas.drawLine(4, panelY, DISPLAY_W - 4, panelY, fg);
-
-    // --- Row 1: Level+Title+Class LEFT, XP bar RIGHT ---
-    int y = panelY + 4;
     canvas.setTextSize(1);
-    canvas.setTextColor(fg);
+
+    // --- Row 1: Inverted header bar (14px) ---
+    canvas.fillRect(0, panelY, DISPLAY_W, 14, fg);
+    canvas.setTextColor(bg);
     canvas.setTextDatum(TL_DATUM);
+
+    int y = panelY + 3;
 
     uint8_t level = XP::getLevel();
     const char* title = XP::getDisplayTitle();
     const char* className = XP::getClassName();
     uint8_t progress = XP::getProgress();
 
-    // Level + title left
     char lvlBuf[32];
     snprintf(lvlBuf, sizeof(lvlBuf), "L%d %s", level, title);
     canvas.drawString(lvlBuf, 4, y);
 
-    // Class tier after title
     char classBuf[16];
     snprintf(classBuf, sizeof(classBuf), "[%s]", className);
     int classX = 4 + canvas.textWidth(lvlBuf) + 4;
     canvas.drawString(classBuf, classX, y);
 
-    // XP progress bar (right side, dynamic X)
-    int barX = classX + canvas.textWidth(classBuf) + 6;
-    if (barX < 190) barX = 190;
-    const int barEnd = 306;
+    // XP progress bar (inverted colors)
+    int barX = classX + canvas.textWidth(classBuf) + 12;
+    const int barEnd = DISPLAY_W - 4;
     const int barW = barEnd - barX - 24;
     const int barH = 7;
     if (barW > 20) {
-        canvas.drawRect(barX, y + 1, barW, barH, fg);
+        canvas.drawRect(barX, y + 1, barW, barH, bg);
         int fillW = (barW - 2) * progress / 100;
-        if (fillW > 0) canvas.fillRect(barX + 1, y + 2, fillW, barH - 2, fg);
+        if (fillW > 0) canvas.fillRect(barX + 1, y + 2, fillW, barH - 2, bg);
         char xpBuf[8];
         snprintf(xpBuf, sizeof(xpBuf), "%d%%", progress);
         canvas.drawString(xpBuf, barX + barW + 2, y);
     }
 
-    // --- Row 2: Lifetime recon stats (persistent across all modes) ---
-    y += 14;
-    const PorkXPData& xpData = XP::getData();
-    const SessionStats& sess = XP::getSession();
-    char line2[64];
-    snprintf(line2, sizeof(line2), "NET:%lu  HS:%lu  PMKID:%lu  DEAUTH:%lu",
-             xpData.lifetimeNetworks, xpData.lifetimeHS,
-             xpData.lifetimePMKID, xpData.lifetimeDeauths);
-    canvas.drawString(line2, 4, y);
+    canvas.setTextColor(fg);  // Restore normal colors
 
-    // --- Row 3: Loot & collections ---
-    y += 12;
-    char line3[64];
-    size_t lootCount = HashesMenu::getCount();
-    size_t trackCount = TracksMenu::getCount();
-    uint8_t badgeCount = XP::getUnlockedCount();
-    size_t broCount = BoarBrosMenu::getCount();
-    snprintf(line3, sizeof(line3), "LOOT:%u  TRKS:%u  BADGES:%u/%u  BROS:%u",
-             (unsigned)lootCount, (unsigned)trackCount,
-             badgeCount, (unsigned)BadgesMenu::TOTAL_ACHIEVEMENTS,
-             (unsigned)broCount);
-    canvas.drawString(line3, 4, y);
-
-    // --- Row 4: Session stats ---
-    y += 12;
-    char line4[64];
+    // --- Row 2: Mode-specific operational stats (left + right) ---
+    y = panelY + 14 + 2;  // 2px below header bar
+    PorkchopMode mode = porkchop.getMode();
+    char leftBuf[48];
+    char rightBuf[32];
+    rightBuf[0] = '\0';
     uint32_t uptime = porkchop.getUptime();
     uint16_t mins = uptime / 60;
     uint16_t secs = uptime % 60;
-    uint32_t sessNets = sess.networks;
-    uint32_t sessHS = sess.handshakes;
-    uint32_t sessXP = sess.xp;
 
-    if (GPS::hasFix() || JanusHog::hasC5GPSFix()) {
-        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
-        snprintf(line4, sizeof(line4), "SESS N:%lu HS:%lu XP:+%lu  %u:%02u  [%.2f,%.2f]",
-                 sessNets, sessHS, sessXP, mins, secs,
-                 gps.latitude, gps.longitude);
+    if (mode == PorkchopMode::OINK_MODE) {
+        uint16_t netCount = OinkMode::getNetworkCount();
+        uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
+        uint32_t deauthCount = OinkMode::getDeauthCount();
+        uint8_t channel = OinkMode::getChannel();
+        if (OinkMode::isLocking()) {
+            const char* ssid = OinkMode::getTargetSSID();
+            uint8_t clients = OinkMode::getTargetClientCount();
+            if (OinkMode::isTargetHidden() || ssid[0] == '\0') {
+                snprintf(leftBuf, sizeof(leftBuf), "LOCK:[GHOST] C:%02d CH:%02d", clients, channel);
+            } else {
+                char ssidShort[15];
+                strncpy(ssidShort, ssid, 14);
+                ssidShort[14] = '\0';
+                snprintf(leftBuf, sizeof(leftBuf), "LOCK:%s C:%02d CH:%02d", ssidShort, clients, channel);
+            }
+            snprintf(rightBuf, sizeof(rightBuf), "HS:%d D:%lu %u:%02u", hsCount, deauthCount, mins, secs);
+        } else {
+            snprintf(leftBuf, sizeof(leftBuf), "N:%03d HS:%02d D:%04lu CH:%02d",
+                     netCount, hsCount, deauthCount, channel);
+            snprintf(rightBuf, sizeof(rightBuf), "P:%d %u:%02u", OinkMode::getPMKIDCount(), mins, secs);
+        }
+    } else if (mode == PorkchopMode::DNH_MODE) {
+        snprintf(leftBuf, sizeof(leftBuf), "N:%03d P:%02d HS:%02d CH:%02d",
+                 DoNoHamMode::getNetworkCount(), DoNoHamMode::getPMKIDCount(),
+                 DoNoHamMode::getHandshakeCount(), DoNoHamMode::getCurrentChannel());
+        snprintf(rightBuf, sizeof(rightBuf), "D:%lu %u:%02u", XP::getSession().deauths, mins, secs);
+    } else if (mode == PorkchopMode::WARHOG_MODE) {
+        uint32_t unique = WarhogMode::getTotalNetworks();
+        uint32_t saved = WarhogMode::getSavedCount();
+        uint32_t distM = XP::getSession().distanceM;
+        bool gpsFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
+        if (gpsFix) {
+            GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
+            snprintf(leftBuf, sizeof(leftBuf), "U:%03lu S:%03lu D:%.1fKM [%.2f,%.2f]",
+                     unique, saved, distM / 1000.0, gps.latitude, gps.longitude);
+        } else {
+            GPSData gps = JanusHog::getC5GPSData();
+            snprintf(leftBuf, sizeof(leftBuf), "U:%03lu S:%03lu D:%luM GPS:%02dSAT",
+                     unique, saved, distM, gps.satellites);
+        }
+        // WARHOG already full width
+    } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
+        snprintf(leftBuf, sizeof(leftBuf), "TX:%lu A:%lu G:%lu S:%lu W:%lu",
+                 PiggyBluesMode::getTotalPackets(), PiggyBluesMode::getAppleCount(),
+                 PiggyBluesMode::getAndroidCount(), PiggyBluesMode::getSamsungCount(),
+                 PiggyBluesMode::getWindowsCount());
+        // PIGGYBLUES already dense
+    } else if (mode == PorkchopMode::BACON_MODE) {
+        uint32_t st = BaconMode::getSessionTime();
+        snprintf(leftBuf, sizeof(leftBuf), "%02lu:%02lu FATHERSHIP CH:06", st / 60, st % 60);
     } else {
-        snprintf(line4, sizeof(line4), "SESS N:%lu HS:%lu XP:+%lu  UP:%u:%02u",
-                 sessNets, sessHS, sessXP, mins, secs);
+        // IDLE + fallback: session snapshot + busiest channel
+        const SessionStats& sess = XP::getSession();
+        uint8_t busyCh = 0;
+        uint8_t busyCount = 0;
+        uint16_t netTotal = NetworkRecon::getNetworkCount();
+        if (netTotal > 0) {
+            uint8_t chCount[14] = {0};
+            NetworkRecon::CriticalSection lock;
+            const auto& nets = NetworkRecon::getNetworks();
+            for (size_t i = 0; i < nets.size(); i++) {
+                uint8_t ch = nets[i].channel;
+                if (ch >= 1 && ch <= 13) chCount[ch]++;
+            }
+            for (uint8_t c = 1; c <= 13; c++) {
+                if (chCount[c] > busyCount) { busyCount = chCount[c]; busyCh = c; }
+            }
+        }
+        if (busyCh > 0) {
+            snprintf(leftBuf, sizeof(leftBuf), "N:%lu HS:%lu +%luXP CH%u:%u",
+                     sess.networks, sess.handshakes, sess.xp, busyCh, busyCount);
+        } else {
+            snprintf(leftBuf, sizeof(leftBuf), "N:%lu HS:%lu +%luXP",
+                     sess.networks, sess.handshakes, sess.xp);
+        }
+        float distKM = sess.distanceM / 1000.0f;
+        snprintf(rightBuf, sizeof(rightBuf), "D:%.1fKM B:%u/%u %u:%02u",
+                 distKM, XP::getUnlockedCount(), XP::getAchievementCount(), mins, secs);
     }
-    canvas.drawString(line4, 4, y);
 
-    // --- Row 5: Lifetime totals ---
-    y += 12;
-    char line5[64];
-    uint32_t totalXP = XP::getTotalXP();
-    uint32_t distKm = xpData.lifetimeDistance / 1000;
-    snprintf(line5, sizeof(line5), "TOTAL XP:%lu  DIST:%luKM  SESSIONS:%u",
-             totalXP, distKm, xpData.sessions);
-    canvas.drawString(line5, 4, y);
-
-    // --- Row 6: Challenge progress ---
-    y += 12;
-    uint8_t chalDone = Challenges::getCompletedCount();
-    uint8_t chalTotal = Challenges::getActiveCount();
-    char line6[64];
-    if (chalTotal > 0) {
-        char c0 = ' ', c1 = ' ', c2 = ' ';
-        ActiveChallenge ch;
-        if (Challenges::getSnapshot(0, ch)) c0 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
-        if (Challenges::getSnapshot(1, ch)) c1 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
-        if (Challenges::getSnapshot(2, ch)) c2 = ch.completed ? 'X' : (ch.failed ? '!' : '.');
-        snprintf(line6, sizeof(line6), "P1G [%c][%c][%c] %u/%u", c0, c1, c2, chalDone, chalTotal);
-    } else {
-        snprintf(line6, sizeof(line6), "P1G SLEEPS...");
+    canvas.drawString(leftBuf, 4, y);
+    if (rightBuf[0]) {
+        canvas.setTextDatum(TR_DATUM);
+        canvas.drawString(rightBuf, DISPLAY_W - 4, y);
+        canvas.setTextDatum(TL_DATUM);
     }
-    // Mood value on the right of same line
+
+    // --- Mood bar + value ---
+    y += 18;
     int moodVal = Mood::getEffectiveHappiness();
-    char moodStr[16];
-    snprintf(moodStr, sizeof(moodStr), "MOOD:%d", moodVal);
-    canvas.drawString(line6, 4, y);
-    canvas.setTextDatum(TR_DATUM);
-    canvas.drawString(moodStr, DISPLAY_W - 4, y);
-    canvas.setTextDatum(TL_DATUM);
-
-    // --- Row 7: Mood bar ---
-    y += 12;
     const int moodBarX = 4;
-    const int moodBarW = DISPLAY_W - 8;
-    const int moodBarH = 5;
+    const int moodBarW = DISPLAY_W - 60;
+    const int moodBarH = 10;
     canvas.drawRect(moodBarX, y, moodBarW, moodBarH, fg);
-    // Map -100..100 to 0..barW-2
     int fillW = ((moodVal + 100) * (moodBarW - 2)) / 200;
     if (fillW < 0) fillW = 0;
     if (fillW > moodBarW - 2) fillW = moodBarW - 2;
     if (fillW > 0) canvas.fillRect(moodBarX + 1, y + 1, fillW, moodBarH - 2, fg);
+    char moodStr[12];
+    snprintf(moodStr, sizeof(moodStr), "MOOD:%d", moodVal);
+    canvas.setTextDatum(TR_DATUM);
+    canvas.drawString(moodStr, DISPLAY_W - 4, y + 1);
+    canvas.setTextDatum(TL_DATUM);
+
+    // --- P1G D3MANDS: 3 challenge detail rows ---
+    y += 14;
+    uint8_t chalTotal = Challenges::getActiveCount();
+    if (chalTotal > 0) {
+        for (uint8_t i = 0; i < 3; i++) {
+            ActiveChallenge ch;
+            if (!Challenges::getSnapshot(i, ch)) continue;
+            char status = ch.completed ? '*' : (ch.failed ? '!' : '.');
+            char chalLine[48];
+            if (ch.completed) {
+                snprintf(chalLine, sizeof(chalLine), "[%c] %s DONE", status, ch.name);
+            } else if (ch.failed) {
+                snprintf(chalLine, sizeof(chalLine), "[%c] %s FAIL", status, ch.name);
+            } else {
+                snprintf(chalLine, sizeof(chalLine), "[%c] %s %u/%u", status, ch.name, ch.progress, ch.target);
+            }
+            canvas.drawString(chalLine, 4, y);
+            char xpBuf[10];
+            snprintf(xpBuf, sizeof(xpBuf), "+%uXP", ch.xpReward);
+            canvas.setTextDatum(TR_DATUM);
+            canvas.drawString(xpBuf, DISPLAY_W - 4, y);
+            canvas.setTextDatum(TL_DATUM);
+            y += 14;
+        }
+    } else {
+        canvas.drawString("P1G SLEEPS...", 4, y);
+    }
 }
 
 void Display::update() {
@@ -1042,62 +1096,48 @@ void Display::drawTopBarMessageTwoLineDirect() {
 }
 
 void Display::drawBottomBar() {
-    // Cache theme colors for this function
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
-
     PorkchopMode mode = porkchop.getMode();
 
-    // Set colors based on mode - PIGSYNC_DEVICE_SELECT uses normal colors, others use inverted
-    if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
-        bottomBar.fillSprite(bg);
-        bottomBar.setTextColor(fg);
-    } else {
-        bottomBar.fillSprite(fg);  // Inverted: FG background
-        bottomBar.setTextColor(bg);  // Inverted: BG text
-    }
-    bottomBar.setTextSize(1);
-    bottomBar.setTextDatum(top_left);
-
-    // Check for overlay message, used during confirmation dialogs
+    // Overlay messages always shown (confirmation dialogs)
     if (bottomOverlay[0] != '\0') {
+        bottomBar.fillSprite(fg);
+        bottomBar.setTextColor(bg);
+        bottomBar.setTextSize(1);
         bottomBar.setTextDatum(top_center);
         bottomBar.drawString(bottomOverlay, DISPLAY_W / 2, 3);
         return;
     }
+
+    // Avatar and spectrum modes: hide bottom bar (stats shown in info panel / list)
+    if (mode == PorkchopMode::IDLE ||
+        mode == PorkchopMode::OINK_MODE ||
+        mode == PorkchopMode::DNH_MODE ||
+        mode == PorkchopMode::WARHOG_MODE ||
+        mode == PorkchopMode::PIGGYBLUES_MODE ||
+        mode == PorkchopMode::BACON_MODE ||
+        mode == PorkchopMode::SPECTRUM_MODE) {
+        bottomBar.fillSprite(bg);
+        return;
+    }
+
+    // Set colors based on mode
+    if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
+        bottomBar.fillSprite(bg);
+        bottomBar.setTextColor(fg);
+    } else {
+        bottomBar.fillSprite(fg);
+        bottomBar.setTextColor(bg);
+    }
+    bottomBar.setTextSize(1);
+    bottomBar.setTextDatum(top_left);
+
     char statsBuf[96];
     statsBuf[0] = '\0';
     const char* statsStr = "";
-    
-    if (mode == PorkchopMode::WARHOG_MODE) {
-        // WARHOG: show unique networks, saved, distance, GPS info
-        uint32_t unique = WarhogMode::getTotalNetworks();
-        uint32_t saved = WarhogMode::getSavedCount();
-        uint32_t distM = XP::getSession().distanceM;
-        bool gpsFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
-        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
 
-        char buf[64];
-        if (gpsFix) {
-            // Format distance nicely: meters or km
-            if (distM >= 1000) {
-                // Show as km with 1 decimal: "1.2KM"
-                snprintf(buf, sizeof(buf), "U:%03lu S:%03lu D:%.1fKM [%.2f,%.2f]", 
-                         unique, saved, distM / 1000.0, gps.latitude, gps.longitude);
-            } else {
-                // Show as meters: "456M"
-                snprintf(buf, sizeof(buf), "U:%03lu S:%03lu D:%luM [%.2f,%.2f]", 
-                         unique, saved, distM, gps.latitude, gps.longitude);
-            }
-        } else {
-            // No fix - show satellite count
-            snprintf(buf, sizeof(buf), "U:%03lu S:%03lu D:%luM GPS:%02dSAT", 
-                     unique, saved, distM, gps.satellites);
-        }
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::HASHES) {
+    if (mode == PorkchopMode::HASHES) {
         // CAPTURES: show selected capture's BSSID
         statsStr = HashesMenu::getSelectedBSSID();
     } else if (mode == PorkchopMode::TRACKS) {
@@ -1119,104 +1159,12 @@ void Display::drawBottomBar() {
         statsStr = "[ENT]SAVE [R]WIFI [H]HEAP [G]GC";
     } else if (mode == PorkchopMode::SD_FORMAT) {
         statsStr = "ENTER=SELECT  BKSP=EXIT";
-    } else if (mode == PorkchopMode::OINK_MODE) {
-        // OINK: show Networks, Handshakes, Deauths, Channel, and optionally BRO count
-        // PWNED banner is shown in top bar
-        // In LOCKING state, show target SSID and client discovery count
-        uint16_t netCount = OinkMode::getNetworkCount();
-        uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
-        uint32_t deauthCount = OinkMode::getDeauthCount();
-        uint8_t channel = OinkMode::getChannel();
-        uint16_t broCount = OinkMode::getExcludedCount();
-        uint16_t filteredCount = OinkMode::getFilteredCount();
-        bool locking = OinkMode::isLocking();
-        char buf[64];
-        
-        if (locking) {
-            // LOCKING state: show target and discovered clients
-            const char* targetSSID = OinkMode::getTargetSSID();
-            uint8_t clients = OinkMode::getTargetClientCount();
-            bool hidden = OinkMode::isTargetHidden();
-            
-            if (hidden || targetSSID[0] == '\0') {
-                // Hidden network - show [GHOST] label
-                snprintf(buf, sizeof(buf), "LOCK:[GHOST] C:%02d CH:%02d", clients, channel);
-            } else {
-                // Normal network - 18 chars now, proper sick innit
-                char ssidShort[19];
-                strncpy(ssidShort, targetSSID, 18);
-                ssidShort[18] = '\0';
-                // Uppercase for readability
-                for (int i = 0; ssidShort[i]; i++) ssidShort[i] = toupper(ssidShort[i]);
-                snprintf(buf, sizeof(buf), "LOCK:%s C:%02d CH:%02d", ssidShort, clients, channel);
-            }
-        } else {
-            // Attack mode: show D: counter
-            if (broCount > 0 && filteredCount > 0) {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d D:%04lu CH:%02d BRO:%02d F:%03d", netCount, hsCount, deauthCount, channel, broCount, filteredCount);
-            } else if (broCount > 0) {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d D:%04lu CH:%02d BRO:%02d", netCount, hsCount, deauthCount, channel, broCount);
-            } else if (filteredCount > 0) {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d D:%04lu CH:%02d F:%03d", netCount, hsCount, deauthCount, channel, filteredCount);
-            } else {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d D:%04lu CH:%02d", netCount, hsCount, deauthCount, channel);
-            }
-        }
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::BACON_MODE) {
-        // BACON: session time, SSID, channel (uptime shown on right separately)
-        uint32_t sessionTime = BaconMode::getSessionTime();
-        
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%02lu:%02lu USSID FATHERSHIP CH:06",
-                sessionTime / 60, sessionTime % 60);
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::DNH_MODE) {
-        // DNH: Networks, PMKIDs, Handshakes, Channel
-        uint16_t netCount = DoNoHamMode::getNetworkCount();
-        uint16_t pmkidCount = DoNoHamMode::getPMKIDCount();
-        uint16_t hsCount = DoNoHamMode::getHandshakeCount();
-        uint8_t channel = DoNoHamMode::getCurrentChannel();
-        char buf[48];
-        snprintf(buf, sizeof(buf), "N:%03d P:%02d HS:%02d CH:%02d", netCount, pmkidCount, hsCount, channel);
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
-        // PIGGYBLUES: TX:total A:apple G:android S:samsung W:windows
-        uint32_t total = PiggyBluesMode::getTotalPackets();
-        uint32_t apple = PiggyBluesMode::getAppleCount();
-        uint32_t android = PiggyBluesMode::getAndroidCount();
-        uint32_t samsung = PiggyBluesMode::getSamsungCount();
-        uint32_t windows = PiggyBluesMode::getWindowsCount();
-        char buf[48];
-        snprintf(buf, sizeof(buf), "TX:%lu A:%lu G:%lu S:%lu W:%lu", total, apple, android, samsung, windows);
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::SPECTRUM_MODE) {
-        // SPECTRUM: show selected network info or scan status
-        SpectrumMode::getSelectedInfo(statsBuf, sizeof(statsBuf));
-        statsStr = statsBuf;
     } else if (mode == PorkchopMode::BOAR_BROS) {
         // BOAR BROS: show delete hint
         statsStr = "[D] DELETE";
     } else if (mode == PorkchopMode::BOUNTY) {
         // BOUNTY STATUS: show selected info
         BountyMenu::getSelectedInfo(statsBuf, sizeof(statsBuf));
-        statsStr = statsBuf;
-    } else if (mode == PorkchopMode::IDLE) {
-        // IDLE: show session Networks, Handshakes, XP
-        const SessionStats& sess = XP::getSession();
-        char buf[48];
-        snprintf(buf, sizeof(buf), "N:%03lu  HS:%02lu  XP:+%lu",
-                 sess.networks, sess.handshakes, sess.xp);
-        strncpy(statsBuf, buf, sizeof(statsBuf) - 1);
-        statsBuf[sizeof(statsBuf) - 1] = '\0';
         statsStr = statsBuf;
     } else if (mode == PorkchopMode::PIGSYNC_DEVICE_SELECT) {
         // PIGSYNC_DEVICE_SELECT: control hints (state shown in terminal)

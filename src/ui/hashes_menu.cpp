@@ -578,12 +578,12 @@ void HashesMenu::handleInput() {
         syncHoldFired = false;
     }
 
-    // Tap-to-select: startY=22, lineHeight=16
+    // Tap-to-select: startY=22, lineHeight=20
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (!captures.empty()) {
             int canvasY = tapEv.y - TOP_BAR_H;
-            int hitIdx = (canvasY - 22) / 16;
+            int hitIdx = (canvasY - 22) / 20;
             if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
                 uint8_t idx = scrollOffset + hitIdx;
                 if (idx < captures.size()) {
@@ -749,7 +749,7 @@ void HashesMenu::draw(M5Canvas& canvas) {
 
     // Capture list
     int y = 22;
-    int lineHeight = 16;
+    int lineHeight = 20;
 
     for (uint8_t i = scrollOffset; i < captures.size() && i < scrollOffset + VISIBLE_ITEMS; i++) {
         const CaptureInfo& cap = captures[i];

@@ -144,13 +144,13 @@ void UnlockablesMenu::handleInput() {
         return;
     }
 
-    // Tap-to-select: startY=2, lineHeight=18
+    // Tap-to-select: startY=2, lineHeight=20
     Input::TapEvent tapEv;
     bool tapSelect = false;
     if (Input::tap(tapEv)) {
         if (TOTAL_UNLOCKABLES > 0) {
             int canvasY = tapEv.y - TOP_BAR_H;
-            int hitIdx = (canvasY - 2) / 18;
+            int hitIdx = (canvasY - 2) / 20;
             if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
                 uint8_t idx = scrollOffset + hitIdx;
                 if (idx < TOTAL_UNLOCKABLES) {
@@ -246,8 +246,8 @@ void UnlockablesMenu::draw(M5Canvas& canvas) {
     
     // Draw unlockables list
     int y = 2;
-    int lineHeight = 18;
-    
+    int lineHeight = 20;
+
     for (uint8_t i = scrollOffset; i < TOTAL_UNLOCKABLES && i < scrollOffset + VISIBLE_ITEMS; i++) {
         bool hasIt = (unlocked & (1UL << UNLOCKABLES[i].bitIndex)) != 0;
         

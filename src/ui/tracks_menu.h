@@ -51,7 +51,7 @@ private:
     static bool detailViewActive;   // File detail view
     static bool nukeConfirmActive;  // Nuke confirmation modal
     
-    static const uint8_t VISIBLE_ITEMS = 10;
+    static const uint8_t VISIBLE_ITEMS = 8;
     
     static void scanFiles();
     static void handleInput();

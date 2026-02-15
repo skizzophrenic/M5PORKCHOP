@@ -59,7 +59,7 @@ private:
     static bool nukeConfirmActive;  // Nuke confirmation modal
     static bool detailViewActive;   // Password detail view
     
-    static const uint8_t VISIBLE_ITEMS = 10;
+    static const uint8_t VISIBLE_ITEMS = 8;
     
     static bool scanCaptures();  // Returns true if successful, false if SD access failed
     static void handleInput();

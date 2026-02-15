@@ -131,11 +131,11 @@ void BadgesMenu::handleInput() {
         return;
     }
 
-    // Tap-to-select: startY=2, lineHeight=18
+    // Tap-to-select: startY=2, lineHeight=20
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         int canvasY = tapEv.y - TOP_BAR_H;
-        int hitIdx = (canvasY - 2) / 18;
+        int hitIdx = (canvasY - 2) / 20;
         if (hitIdx >= 0 && hitIdx < VISIBLE_ITEMS) {
             uint8_t idx = scrollOffset + hitIdx;
             if (idx < TOTAL_ACHIEVEMENTS) {
@@ -218,8 +218,8 @@ void BadgesMenu::draw(M5Canvas& canvas) {
     
     // Draw achievements list
     int y = 2;
-    int lineHeight = 18;
-    
+    int lineHeight = 20;
+
     for (uint8_t i = scrollOffset; i < TOTAL_ACHIEVEMENTS && i < scrollOffset + VISIBLE_ITEMS; i++) {
         bool hasIt = (unlocked & ACHIEVEMENTS[i].flag) != 0;
         

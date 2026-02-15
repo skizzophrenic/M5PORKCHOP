@@ -22,8 +22,8 @@ private:
     static bool keyWasPressed;
     
     // Layout constants (match boar_bros_menu pattern - no header)
-    static const uint8_t VISIBLE_ITEMS = 11;
-    static const int LINE_H = 17;
+    static const uint8_t VISIBLE_ITEMS = 9;
+    static const int LINE_H = 20;
     static const int COL_LEFT = 4;           // Left margin
     
     static void handleInput();

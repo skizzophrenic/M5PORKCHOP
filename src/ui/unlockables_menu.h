@@ -40,5 +40,5 @@ private:
     static char textBuffer[33];
     static uint8_t textLen;
     
-    static const uint8_t VISIBLE_ITEMS = 10;
+    static const uint8_t VISIBLE_ITEMS = 9;
 };

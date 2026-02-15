@@ -40,7 +40,7 @@ const int WATERFALL_TOP = 58;       // Waterfall starts here
 const int WATERFALL_ROWS = 22;      // Number of history rows
 const int WATERFALL_BOTTOM = 80;    // WATERFALL_TOP + WATERFALL_ROWS
 const int CHANNEL_LABEL_Y = 82;     // Channel number row
-const int XP_BAR_Y = 94;            // Filter/status bar
+const int XP_BAR_Y = 90;            // Filter/status bar (right after channel labels)
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
@@ -1136,14 +1136,13 @@ void SpectrumMode::handleInput() {
     if (Input::tap(tapEv)) {
         int canvasY = tapEv.y - TOP_BAR_H;
 
-        // Filter bar buttons at Y=XP_BAR_Y (94), 10px tall
-        // Buttons: btnX0=2, btnW=38, btnGap=2
-        if (canvasY >= XP_BAR_Y && canvasY < XP_BAR_Y + 10) {
+        // Filter bar buttons at Y=XP_BAR_Y, 14px tall
+        if (canvasY >= XP_BAR_Y && canvasY < XP_BAR_Y + 14) {
             static const SpectrumFilter btnFilters[] = {
                 SpectrumFilter::ALL, SpectrumFilter::VULN,
                 SpectrumFilter::SOFT, SpectrumFilter::HIDDEN
             };
-            const int btnW = 38, btnGap = 2, btnX0 = 2;
+            const int btnW = 48, btnGap = 3, btnX0 = 2;
             for (int b = 0; b < 4; b++) {
                 int bx = btnX0 + b * (btnW + btnGap);
                 if (tapEv.x >= bx && tapEv.x < bx + btnW) {
@@ -1199,9 +1198,9 @@ void SpectrumMode::handleInput() {
                 }
             }
         }
-        // Network list tap: header at listY=100 (14px), data rows start at 114
-        else if (canvasY >= 114 && renderCount > 0) {
-            int hitIdx = (canvasY - 114) / 14;
+        // Network list tap: header at listY=106 (14px), data rows start at 120
+        else if (canvasY >= 120 && renderCount > 0) {
+            int hitIdx = (canvasY - 120) / 14;
             if (hitIdx >= 0 && hitIdx < LIST_VISIBLE) {
                 uint8_t idx = listScrollOffset + hitIdx;
                 if (idx < renderCount) {
@@ -1502,10 +1501,10 @@ void SpectrumMode::handleClientMonitorInput() {
             enterRevealMode();
             return;
         }
-        // Client row tap: START_Y=18, LINE_HEIGHT=16
+        // Client row tap: START_Y=18, LINE_HEIGHT=20
         int canvasY = tapEv.y - TOP_BAR_H;
         if (canvasY >= 18) {
-            int hitIdx = (canvasY - 18) / 16;
+            int hitIdx = (canvasY - 18) / 20;
             if (hitIdx >= 0 && hitIdx < VISIBLE_CLIENTS) {
                 int clientCount_ = 0;
                 if (monitoredNetworkIndex >= 0 && monitoredNetworkIndex < (int)networks.size()) {
@@ -1786,20 +1785,20 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         SpectrumFilter::ALL, SpectrumFilter::VULN,
         SpectrumFilter::SOFT, SpectrumFilter::HIDDEN
     };
-    const int btnW = 38, btnGap = 2, btnX0 = 2;
+    const int btnW = 48, btnGap = 3, btnX0 = 2, btnH = 14;
 
     for (int b = 0; b < 4; b++) {
         int bx = btnX0 + b * (btnW + btnGap);
         bool active = (filter == btnFilters[b]);
         if (active) {
-            canvas.fillRect(bx, XP_BAR_Y, btnW, 10, fg);
+            canvas.fillRect(bx, XP_BAR_Y, btnW, btnH, fg);
             canvas.setTextColor(COLOR_BG);
         } else {
-            canvas.drawRect(bx, XP_BAR_Y, btnW, 10, fg);
+            canvas.drawRect(bx, XP_BAR_Y, btnW, btnH, fg);
             canvas.setTextColor(fg);
         }
         canvas.setTextDatum(top_center);
-        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + 1);
+        canvas.drawString(btnLabels[b], bx + btnW / 2, XP_BAR_Y + 3);
     }
     canvas.setTextDatum(top_left);
 
@@ -1807,14 +1806,14 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
     char countBuf[16];
     snprintf(countBuf, sizeof(countBuf), "%d/%d", matchInView, matchTotal);
     canvas.setTextColor(fg);
-    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y);
+    canvas.drawString(countBuf, btnX0 + 4 * (btnW + btnGap) + 4, XP_BAR_Y + 3);
 
     // Stress test or 5GHz indicator (right side)
     if (StressTest::isActive()) {
         char stressBuf[24];
         snprintf(stressBuf, sizeof(stressBuf), "[T] STRESS %lu/s", StressTest::getRate());
         canvas.setTextDatum(top_right);
-        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y);
+        canvas.drawString(stressBuf, SPECTRUM_RIGHT, XP_BAR_Y + 3);
         canvas.setTextDatum(top_left);
     } else if (has5GHzScanData()) {
         uint16_t cnt5 = 0;
@@ -1833,7 +1832,7 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
         }
         canvas.setTextDatum(top_right);
         canvas.setTextColor(fg);
-        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y);
+        canvas.drawString(c5Buf, SPECTRUM_RIGHT, XP_BAR_Y + 3);
         canvas.setTextDatum(top_left);
     }
 }
@@ -2052,8 +2051,8 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
         return;
     }
     
-    // Client list (starts at y=18, 16px per line, max 4 visible)
-    const int LINE_HEIGHT = 16;
+    // Client list (starts at y=18, 20px per line, max 9 visible)
+    const int LINE_HEIGHT = 20;
     const int START_Y = 18;
     
     for (int i = 0; i < VISIBLE_CLIENTS && (i + clientScrollOffset) < net.clientCount; i++) {
@@ -2231,9 +2230,9 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
 void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     if (renderCount == 0) return;
 
-    const int listY = 100;
+    const int listY = 106;
     const int rowH = 14;
-    const int sepY = 98;
+    const int sepY = 105;
 
     // Separator line
     canvas.drawFastHLine(4, sepY, 312, fg);

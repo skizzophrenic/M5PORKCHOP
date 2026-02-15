@@ -94,7 +94,7 @@ private:
     static bool keyWasPressed;
     
     static const uint8_t VISIBLE_ITEMS = 8;   // Core2: 200px main area fits 8
-    static const uint8_t MODAL_VISIBLE = 7;  // Core2: bigger modal
+    static const uint8_t MODAL_VISIBLE = 6;  // Core2: 20px rows in 160px box
     static uint8_t rootHintIndex[];
     static uint8_t attackHintIndex[];
     static uint8_t reconHintIndex[];
