@@ -15,7 +15,6 @@ bool FlexesScreen::keyWasPressed = false;
 BuffState FlexesScreen::currentBuffs = {0, 0};
 uint16_t FlexesScreen::currentClassBuffs = 0;
 uint32_t FlexesScreen::lastBuffUpdate = 0;
-StatsTab FlexesScreen::currentTab = StatsTab::STATS;
 
 // Buff names and descriptions (leet one-word style)
 // Buff names and descriptions (vNext Neon Operator)
@@ -99,7 +98,6 @@ void FlexesScreen::init() {
     currentBuffs = {0, 0};
     currentClassBuffs = 0;
     lastBuffUpdate = 0;
-    currentTab = StatsTab::STATS;
 }
 
 void FlexesScreen::show() {
@@ -108,7 +106,6 @@ void FlexesScreen::show() {
     currentBuffs = calculateBuffs();
     currentClassBuffs = calculateClassBuffs();
     lastBuffUpdate = millis();
-    currentTab = StatsTab::STATS;
 }
 
 void FlexesScreen::hide() {
@@ -129,68 +126,8 @@ void FlexesScreen::update() {
 }
 
 void FlexesScreen::handleInput() {
-    // Tap on tab bar (canvasY 0-16) to switch tabs directly
-    Input::TapEvent tapEv;
-    if (Input::tap(tapEv)) {
-        int canvasY = tapEv.y - TOP_BAR_H;
-        if (canvasY >= 0 && canvasY < 16) {
-            // Hit-test tab bar using same dynamic width calculation as drawTabBar
-            const int totalTabs = 3;
-            const int margin = 2;
-            const int spacing = 3;
-            const int availableW = DISPLAY_W - margin * 2 - spacing * (totalTabs - 1);
-            const int baseW = availableW / totalTabs;
-            const int remainder = availableW % totalTabs;
-
-            int x = margin;
-            StatsTab tabs[] = { StatsTab::STATS, StatsTab::BOOSTS, StatsTab::WIGLE };
-            for (int i = 0; i < totalTabs; i++) {
-                int w = baseW + (i < remainder ? 1 : 0);
-                if (tapEv.x >= x && tapEv.x < x + w) {
-                    if (tabs[i] != currentTab) {
-                        currentTab = tabs[i];
-                    }
-                    break;
-                }
-                x += w + spacing;
-            }
-        }
-        return;
-    }
-
-    // Tab cycling: BtnA cycles left, BtnC cycles right.
-    if (Input::up()) {
-        switch (currentTab) {
-            case StatsTab::STATS:
-                currentTab = StatsTab::WIGLE;
-                break;
-            case StatsTab::BOOSTS:
-                currentTab = StatsTab::STATS;
-                break;
-            case StatsTab::WIGLE:
-                currentTab = StatsTab::BOOSTS;
-                break;
-        }
-        return;
-    }
-
-    if (Input::down()) {
-        switch (currentTab) {
-            case StatsTab::STATS:
-                currentTab = StatsTab::BOOSTS;
-                break;
-            case StatsTab::BOOSTS:
-                currentTab = StatsTab::WIGLE;
-                break;
-            case StatsTab::WIGLE:
-                currentTab = StatsTab::STATS;
-                break;
-        }
-        return;
-    }
-
-    // BtnB cycles available title overrides (only on STATS tab).
-    if (Input::select() && currentTab == StatsTab::STATS) {
+    // BtnB cycles available title overrides
+    if (Input::select()) {
         TitleOverride next = XP::getNextAvailableOverride();
         XP::setTitleOverride(next);
 
@@ -588,204 +525,26 @@ const char* FlexesScreen::getDebuffDesc(PorkDebuff d) {
 
 void FlexesScreen::draw(M5Canvas& canvas) {
     if (!active) return;
-    
+
     canvas.fillSprite(COLOR_BG);
-    canvas.setTextColor(COLOR_FG);
-    
-    // Draw tab bar at top
-    drawTabBar(canvas);
-    
-    // Draw content based on current tab
-    if (currentTab == StatsTab::STATS) {
-        drawStatsTab(canvas);
-    } else if (currentTab == StatsTab::BOOSTS) {
-        drawBuffsTab(canvas);
-    } else if (currentTab == StatsTab::WIGLE) {
-        drawWigleTab(canvas);
-    }
-    
-
-}
-
-void FlexesScreen::drawTabBar(M5Canvas& canvas) {
     canvas.setTextSize(1);
-    const int tabY = 0;
-    const int tabH = 16;
-    const int tabTextY = 4;  // Vertically center text in 16px tab
 
-    // Calculate dynamic widths for three tabs. Distribute any remainder pixels
-    // across the first tabs so that the tabs fill the available space evenly.
-    const int totalTabs = 3;
-    const int margin = 2;
-    const int spacing = 3;
-    const int availableW = DISPLAY_W - margin * 2 - spacing * (totalTabs - 1);
-    const int baseW = availableW / totalTabs;
-    const int remainder = availableW % totalTabs;
+    const uint16_t fg = COLOR_FG;
+    const uint16_t bg = COLOR_BG;
+    const int ROW_H = 9;
+    int y = 0;
 
-    canvas.setTextDatum(middle_center);
-    int x = margin;
-    for (int i = 0; i < totalTabs; i++) {
-        int w = baseW + (i < remainder ? 1 : 0);
-        bool isActive;
-        const char* label;
-        if (i == 0) {
-            isActive = (currentTab == StatsTab::STATS);
-            label = "ST4TS";
-        } else if (i == 1) {
-            isActive = (currentTab == StatsTab::BOOSTS);
-            label = "B00STS";
-        } else {
-            isActive = (currentTab == StatsTab::WIGLE);
-            label = "W1GL3";
-        }
-        if (isActive) {
-            canvas.fillRect(x, tabY, w, tabH, COLOR_FG);
-            canvas.setTextColor(COLOR_BG);
-        } else {
-            canvas.drawRect(x, tabY, w, tabH, COLOR_FG);
-            canvas.setTextColor(COLOR_FG);
-        }
-        canvas.drawString(label, x + w / 2, tabTextY);
-        x += w + spacing;
-    }
-    // Reset text color
-    canvas.setTextColor(COLOR_FG);
-}
+    // Helper: inverted section header bar
+    auto drawSection = [&](const char* title) {
+        canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+        canvas.setTextColor(bg);
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(title, 4, y + 1);
+        canvas.setTextColor(fg);
+        y += 11;
+    };
 
-void FlexesScreen::drawStatsTab(M5Canvas& canvas) {
-    canvas.setTextSize(1);
-    canvas.setTextDatum(top_left);
-    
-    // Level and class info
-    uint8_t level = XP::getLevel();
-    const char* title = XP::getDisplayTitle();  // Use display title (may be override)
-    const char* className = XP::getClassName();
-    uint8_t progress = XP::getProgress();
-    
-    // Show title with indicator if it's an override
-    char lvlBuf[48];
-    if (XP::getTitleOverride() != TitleOverride::NONE) {
-        // Show override title with asterisk
-        snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d: %s*", level, title);
-    } else {
-        snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d: %s", level, title);
-    }
-    canvas.drawString(lvlBuf, 5, 18);
-    
-    // Class on right
-    char classBuf[24];
-    snprintf(classBuf, sizeof(classBuf), "T13R: %s", className);
-    canvas.setTextDatum(top_right);
-    canvas.drawString(classBuf, DISPLAY_W - 5, 18);
-    
-    // XP bar
-    int barX = 5;
-    int barY = 24;
-    int barW = DISPLAY_W - 10;
-    int barH = 6;
-    canvas.drawRect(barX, barY, barW, barH, COLOR_FG);
-    int fillW = (barW - 2) * progress / 100;
-    if (fillW > 0) {
-        canvas.fillRect(barX + 1, barY + 1, fillW, barH - 2, COLOR_FG);
-    }
-    
-    // XP text centered under bar
-    char xpBuf[32];
-    snprintf(xpBuf, sizeof(xpBuf), "%lu XP (%d%%)", (unsigned long)XP::getTotalXP(), progress);
-    canvas.setTextDatum(top_center);
-    canvas.drawString(xpBuf, DISPLAY_W / 2, 32);
-    
-    // Stats grid
-    drawStats(canvas);
-}
-
-void FlexesScreen::drawBuffsTab(M5Canvas& canvas) {
-    canvas.setTextSize(1);
-    canvas.setTextDatum(top_left);
-    
-    int y = 18;
-    int buffCount = 0;
-    
-    // === CLASS BUFFS SECTION ===
-    char classPerksBuf[32];
-    snprintf(classPerksBuf, sizeof(classPerksBuf), "%s T13R P3RKS:", XP::getClassName());
-    canvas.drawString(classPerksBuf, 5, y);
-    y += 10;
-    
-    // Show all active class buffs (permanent, based on level)
-    if (currentClassBuffs != 0) {
-        for (uint8_t i = 0; i < CLASS_BUFF_COUNT; i++) {
-            ClassBuff cb = (ClassBuff)(1 << i);
-            if (currentClassBuffs & (uint16_t)cb) {
-                char buf[48];
-                snprintf(buf, sizeof(buf), "[*] %s %s", getClassBuffName(cb), getClassBuffDesc(cb));
-                canvas.drawString(buf, 5, y);
-                y += 10;
-                buffCount++;
-                if (y > 60) break;  // Prevent overflow
-            }
-        }
-    }
-    
-    if (buffCount == 0) {
-        canvas.drawString("[=] N0N3 (LVL 6+)", 5, y);
-        y += 10;
-    }
-    
-    // === MOOD BUFFS SECTION ===
-    y += 4;  // Small gap
-    canvas.drawString("M00D B00STS:", 5, y);
-    y += 10;
-    
-    int moodCount = 0;
-    
-    // Draw active mood buffs
-    if (currentBuffs.buffs != 0) {
-        for (int i = 0; i < 5; i++) {
-            PorkBuff b = (PorkBuff)(1 << i);
-            if (currentBuffs.hasBuff(b)) {
-                char buf[48];
-                snprintf(buf, sizeof(buf), "[+] %s %s", getBuffName(b), getBuffDesc(b));
-                canvas.drawString(buf, 5, y);
-                y += 10;
-                moodCount++;
-                if (y > 90) break;
-            }
-        }
-    }
-    
-    // Draw active mood debuffs
-    if (currentBuffs.debuffs != 0) {
-        for (int i = 0; i < 5; i++) {
-            PorkDebuff d = (PorkDebuff)(1 << i);
-            if (currentBuffs.hasDebuff(d)) {
-                char buf[48];
-                snprintf(buf, sizeof(buf), "[-] %s %s", getDebuffName(d), getDebuffDesc(d));
-                canvas.drawString(buf, 5, y);
-                y += 10;
-                moodCount++;
-                if (y > 90) break;
-            }
-        }
-    }
-    
-    if (moodCount == 0) {
-        canvas.drawString("[=] N0N3 ACT1V3", 5, y);
-    }
-}
-
-void FlexesScreen::drawStats(M5Canvas& canvas) {
-    const PorkXPData& data = XP::getData();
-    
-    canvas.setTextSize(1);
-    canvas.setTextDatum(top_left);
-    
-    int y = 44;  // Start after XP bar and XP text
-    int lineH = 10;
-    int col1 = 4;    // Left labels
-    int col3 = 164;  // Right labels
-
-    // Helper: draw a stat row with label left-aligned and value right-aligned
+    // Helper: draw stat row (label left, value right-aligned)
     auto drawRow = [&](const char* label, const char* value, int lx, int rx, int ry) {
         canvas.setTextDatum(TL_DATUM);
         canvas.drawString(label, lx, ry);
@@ -793,85 +552,164 @@ void FlexesScreen::drawStats(M5Canvas& canvas) {
         canvas.drawString(value, rx, ry);
     };
 
-    char buf[16];
+    // ---- LEVEL / XP HEADER ----
+    {
+        uint8_t level = XP::getLevel();
+        const char* title = XP::getDisplayTitle();
+        uint8_t progress = XP::getProgress();
 
-    // Row 1: Networks, Handshakes
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeNetworks);
-    drawRow("N3TW0RKS:", buf, col1, 158, y);
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeHS);
-    drawRow("H4NDSH4K3S:", buf, col3, DISPLAY_W - 4, y);
+        // Inverted bar: level/title left, XP right
+        canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+        canvas.setTextColor(bg);
 
-    y += lineH;
+        char lvlBuf[40];
+        if (XP::getTitleOverride() != TitleOverride::NONE) {
+            snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d %s*", level, title);
+        } else {
+            snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d %s", level, title);
+        }
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(lvlBuf, 4, y + 1);
 
-    // Row 2: PMKIDs, Deauths
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimePMKID);
-    drawRow("PMK1DS:", buf, col1, 158, y);
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeDeauths);
-    drawRow("D34UTHS:", buf, col3, DISPLAY_W - 4, y);
+        char xpBuf[24];
+        snprintf(xpBuf, sizeof(xpBuf), "%luXP(%d%%)", (unsigned long)XP::getTotalXP(), progress);
+        canvas.setTextDatum(TR_DATUM);
+        canvas.drawString(xpBuf, DISPLAY_W - 4, y + 1);
 
-    y += lineH;
+        canvas.setTextColor(fg);
+        y += 11;
 
-    // Row 3: Distance, BLE
-    snprintf(buf, sizeof(buf), "%.1fkm", data.lifetimeDistance / 1000.0f);
-    drawRow("D1ST4NC3:", buf, col1, 158, y);
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeBLE);
-    drawRow("BL3 BL4STS:", buf, col3, DISPLAY_W - 4, y);
-
-    y += lineH;
-
-    // Row 4: Sessions, Hidden
-    snprintf(buf, sizeof(buf), "%u", data.sessions);
-    drawRow("S3SS10NS:", buf, col1, 158, y);
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.hiddenNetworks);
-    drawRow("GH0STS:", buf, col3, DISPLAY_W - 4, y);
-
-    y += lineH;
-
-    // Row 5: Roulette (PiggyBlues no-reboot)
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.rouletteWins);
-    drawRow("JST R0UL3T:", buf, col1, 158, y);
-
-    canvas.setTextDatum(TL_DATUM);
-}
-
-// Draw the WiGLE statistics tab. This function reads the cached
-// statistics from the WiGLE service and displays them in a simple
-// key/value format. If no cache is available, a placeholder message
-// instructs the user to refresh the WiGLE menu.
-void FlexesScreen::drawWigleTab(M5Canvas& canvas) {
-    canvas.setTextSize(1);
-    canvas.setTextDatum(top_left);
-    int y = 18;
-    // Header
-    canvas.drawString("W1GL3 ST4TS", 5, y);
-    y += 12;
-    // Fetch cached stats
-    WiGLE::WigleUserStats stats = WiGLE::getUserStats();
-    if (!stats.valid) {
-        canvas.drawString("N0 W1GL3 D4TA", 5, y);
-        y += 10;
-        canvas.drawString("PR3SS R 1N W1GL3", 5, y);
-        return;
+        // XP progress bar
+        int barW = DISPLAY_W - 8;
+        canvas.drawRect(4, y, barW, 5, fg);
+        int fillW = (barW - 2) * progress / 100;
+        if (fillW > 0) canvas.fillRect(5, y + 1, fillW, 3, fg);
+        y += 7;
     }
-    // Display rank and counts
-    char buf[32];
-    // Rank
-    canvas.drawString("R4NK:", 5, y);
-    snprintf(buf, sizeof(buf), "%lld", (long long)stats.rank);
-    canvas.drawString(buf, 80, y);
-    y += 10;
-    // WiFi
-    canvas.drawString("W1F1:", 5, y);
-    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)stats.wifi);
-    canvas.drawString(buf, 80, y);
-    y += 10;
-    // Cell
-    canvas.drawString("C3LL:", 5, y);
-    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)stats.cell);
-    canvas.drawString(buf, 80, y);
-    y += 10;
-    // Bluetooth
-    canvas.drawString("BL3:", 5, y);
-    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)stats.bt);
-    canvas.drawString(buf, 80, y);
+
+    // ---- LIFETIME STATS GRID ----
+    {
+        const PorkXPData& data = XP::getData();
+        const int col1 = 4, col2 = 158, col3 = 164, col4 = DISPLAY_W - 4;
+        char buf[16];
+
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeNetworks);
+        drawRow("N3TW0RKS:", buf, col1, col2, y);
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeHS);
+        drawRow("H4NDSH4K3S:", buf, col3, col4, y);
+        y += ROW_H;
+
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimePMKID);
+        drawRow("PMK1DS:", buf, col1, col2, y);
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeDeauths);
+        drawRow("D34UTHS:", buf, col3, col4, y);
+        y += ROW_H;
+
+        snprintf(buf, sizeof(buf), "%.1fkm", data.lifetimeDistance / 1000.0f);
+        drawRow("D1ST4NC3:", buf, col1, col2, y);
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.lifetimeBLE);
+        drawRow("BL3 BL4STS:", buf, col3, col4, y);
+        y += ROW_H;
+
+        snprintf(buf, sizeof(buf), "%u", data.sessions);
+        drawRow("S3SS10NS:", buf, col1, col2, y);
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.hiddenNetworks);
+        drawRow("GH0STS:", buf, col3, col4, y);
+        y += ROW_H;
+
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)data.rouletteWins);
+        drawRow("JST R0UL3T:", buf, col1, col2, y);
+
+        // Tier on right side of last stats row
+        char classBuf[20];
+        snprintf(classBuf, sizeof(classBuf), "T13R: %s", XP::getClassName());
+        drawRow("", classBuf, col3, col4, y);
+        y += ROW_H + 1;
+    }
+
+    // ---- PERKS & BOOSTS ----
+    {
+        int classCount = 0;
+        for (uint8_t i = 0; i < CLASS_BUFF_COUNT; i++) {
+            if (currentClassBuffs & (1 << i)) classCount++;
+        }
+        int moodCount = 0;
+        for (int i = 0; i < 5; i++) {
+            if (currentBuffs.buffs & (1 << i)) moodCount++;
+            if (currentBuffs.debuffs & (1 << i)) moodCount++;
+        }
+
+        char sectBuf[32];
+        snprintf(sectBuf, sizeof(sectBuf), "P3RKS [%d] + M00D [%d]", classCount, moodCount);
+        drawSection(sectBuf);
+
+        // Class perks
+        if (currentClassBuffs != 0) {
+            for (uint8_t i = 0; i < CLASS_BUFF_COUNT && y < 170; i++) {
+                ClassBuff cb = (ClassBuff)(1 << i);
+                if (currentClassBuffs & (uint16_t)cb) {
+                    char buf[52];
+                    snprintf(buf, sizeof(buf), "[*]%s %s", getClassBuffName(cb), getClassBuffDesc(cb));
+                    canvas.setTextDatum(TL_DATUM);
+                    canvas.drawString(buf, 4, y);
+                    y += ROW_H;
+                }
+            }
+        }
+
+        // Mood buffs
+        const PorkBuff buffList[] = { PorkBuff::R4G3, PorkBuff::SNOUT_SHARP, PorkBuff::H0TSTR3AK, PorkBuff::C4FF31N4T3D, PorkBuff::CL34R_SKY };
+        for (int i = 0; i < 5 && y < 170; i++) {
+            if (currentBuffs.hasBuff(buffList[i])) {
+                char buf[52];
+                snprintf(buf, sizeof(buf), "[+]%s %s", getBuffName(buffList[i]), getBuffDesc(buffList[i]));
+                canvas.setTextDatum(TL_DATUM);
+                canvas.drawString(buf, 4, y);
+                y += ROW_H;
+            }
+        }
+
+        // Mood debuffs
+        const PorkDebuff debuffList[] = { PorkDebuff::SLOP_SLUG, PorkDebuff::F0GSNOUT, PorkDebuff::TR0UGHDR41N, PorkDebuff::HAM_STR1NG, PorkDebuff::TH0ND3R_SLAB };
+        for (int i = 0; i < 5 && y < 170; i++) {
+            if (currentBuffs.hasDebuff(debuffList[i])) {
+                char buf[52];
+                snprintf(buf, sizeof(buf), "[-]%s %s", getDebuffName(debuffList[i]), getDebuffDesc(debuffList[i]));
+                canvas.setTextDatum(TL_DATUM);
+                canvas.drawString(buf, 4, y);
+                y += ROW_H;
+            }
+        }
+
+        if (classCount == 0 && moodCount == 0) {
+            canvas.setTextDatum(TL_DATUM);
+            canvas.drawString("N0N3 ACT1V3", 4, y);
+            y += ROW_H;
+        }
+
+        y += 1;
+    }
+
+    // ---- WIGLE SECTION ----
+    {
+        WiGLE::WigleUserStats stats = WiGLE::getUserStats();
+        if (stats.valid && y < 180) {
+            drawSection("W1GL3");
+
+            char buf[32];
+            const int col1 = 4, col2 = 158, col3 = 164, col4 = DISPLAY_W - 4;
+
+            snprintf(buf, sizeof(buf), "R4NK: %lld", (long long)stats.rank);
+            canvas.setTextDatum(TL_DATUM);
+            canvas.drawString(buf, col1, y);
+            snprintf(buf, sizeof(buf), "W1F1: %llu", (unsigned long long)stats.wifi);
+            canvas.drawString(buf, col3, y);
+            y += ROW_H;
+
+            snprintf(buf, sizeof(buf), "C3LL: %llu", (unsigned long long)stats.cell);
+            canvas.drawString(buf, col1, y);
+            snprintf(buf, sizeof(buf), "BL3: %llu", (unsigned long long)stats.bt);
+            canvas.drawString(buf, col3, y);
+        }
+    }
 }

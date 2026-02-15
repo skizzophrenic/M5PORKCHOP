@@ -49,13 +49,6 @@ struct BuffState {
     bool hasDebuff(PorkDebuff d) const { return debuffs & (uint8_t)d; }
 };
 
-// Tab selection for FLEXES
-enum class StatsTab : uint8_t {
-    STATS = 0,
-    BOOSTS = 1,
-    WIGLE = 2
-};
-
 class FlexesScreen {
 public:
     static void init();
@@ -64,11 +57,11 @@ public:
     static void update();
     static void draw(M5Canvas& canvas);
     static bool isActive() { return active; }
-    
+
     // Buff/debuff calculation (called by modes)
     static BuffState calculateBuffs();
     static uint16_t calculateClassBuffs();  // Returns ClassBuff flags
-    
+
     // Buff effect getters for game mechanics
     static uint8_t getDeauthBurstCount();     // Base 5, modified by buffs
     static uint8_t getDeauthJitterMax();      // Base 5ms, modified by debuffs
@@ -77,12 +70,12 @@ public:
     static uint32_t getLockTime();            // Base 4000ms (configurable), modified by class
     static float getDistanceXPMultiplier();   // 1.0 base, modified by class
     static float getCaptureXPMultiplier();    // 1.0 base, modified by class
-    
+
     // Class buff helpers
     static bool hasClassBuff(ClassBuff cb);
     static const char* getClassBuffName(ClassBuff cb);
     static const char* getClassBuffDesc(ClassBuff cb);
-    
+
     // Buff/debuff name getters for display
     static const char* getBuffName(PorkBuff b);
     static const char* getDebuffName(PorkDebuff d);
@@ -95,16 +88,6 @@ private:
     static BuffState currentBuffs;
     static uint16_t currentClassBuffs;
     static uint32_t lastBuffUpdate;
-    static StatsTab currentTab;
-    
-    static void handleInput();
-    static void drawStatsTab(M5Canvas& canvas);
-    static void drawBuffsTab(M5Canvas& canvas);
-    static void drawTabBar(M5Canvas& canvas);
-    static void drawStats(M5Canvas& canvas);  // Stat grid helper
 
-    // Draw the WiGLE statistics tab. This tab displays the user's rank
-    // and total observations as read from the WiGLE stats cache. See
-    // WiGLE::getUserStats() for details.
-    static void drawWigleTab(M5Canvas& canvas);
+    static void handleInput();
 };
