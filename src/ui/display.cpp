@@ -241,7 +241,37 @@ static void drawMoodBar(M5Canvas& canvas) {
 // Drawn AFTER weather/avatar so it sits on top, with opaque bg for readability.
 static void drawBuffOverlay(M5Canvas& canvas) {
     BuffState buffs = FlexesScreen::calculateBuffs();
-    if (buffs.buffs == 0 && buffs.debuffs == 0) return;
+
+    // Blink-on-change: hidden by default, flash for ~5s when effects change
+    static uint8_t prevBuffs = 0;
+    static uint8_t prevDebuffs = 0;
+    static uint32_t blinkStartMs = 0;
+
+    uint8_t curBuffs = buffs.buffs;
+    uint8_t curDebuffs = buffs.debuffs;
+
+    if (curBuffs != prevBuffs || curDebuffs != prevDebuffs) {
+        blinkStartMs = millis();
+        prevBuffs = curBuffs;
+        prevDebuffs = curDebuffs;
+    }
+
+    // No active effects and no recent change — nothing to draw
+    if (curBuffs == 0 && curDebuffs == 0 && blinkStartMs == 0) return;
+
+    // Phase timing
+    uint32_t elapsed = millis() - blinkStartMs;
+    const uint32_t PERSIST_MS = 5000;   // solid visible
+    const uint32_t BLINKOUT_MS = 1000;  // blink-out transition
+
+    if (elapsed > PERSIST_MS + BLINKOUT_MS) return;  // fully hidden
+
+    // During blink-out phase: rapid on/off (~150ms cycle)
+    if (elapsed > PERSIST_MS) {
+        uint32_t blinkElapsed = elapsed - PERSIST_MS;
+        if ((blinkElapsed / 150) % 2 != 0) return;  // off frames
+    }
+    // During persist phase (elapsed <= PERSIST_MS): always draw
 
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
@@ -297,6 +327,93 @@ static void drawBuffOverlay(M5Canvas& canvas) {
     }
 
     canvas.setTextDatum(TL_DATUM);
+}
+
+// Mini spectrum widget - shows per-channel signal bars from NetworkRecon data
+static void drawMiniSpectrum(M5Canvas& canvas, int x, int y, int w, int h) {
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+    const int8_t RSSI_MIN = -95;
+    const int8_t RSSI_MAX = -30;
+    const int8_t NOISE_FLOOR = -92;
+    const int barAreaH = h - 10;  // Top portion for bars, bottom 10px for label
+
+    // Build per-channel peak RSSI from NetworkRecon
+    int8_t peakRSSI[14];
+    memset(peakRSSI, 0, sizeof(peakRSSI)); // 0 = no data
+
+    if (NetworkRecon::isRunning() || NetworkRecon::isPaused()) {
+        NetworkRecon::CriticalSection lock;
+        const auto& nets = NetworkRecon::getNetworks();
+        for (size_t i = 0; i < nets.size(); i++) {
+            uint8_t ch = nets[i].channel;
+            if (ch >= 1 && ch <= 13) {
+                int8_t rssi = nets[i].rssi;
+                if (peakRSSI[ch] == 0 || rssi > peakRSSI[ch]) {
+                    peakRSSI[ch] = rssi;
+                }
+            }
+        }
+    }
+
+    uint8_t curCh = NetworkRecon::getCurrentChannel();
+
+    // Border
+    canvas.drawRect(x, y, w, h, fg);
+
+    // Inner area starts at x+1, y+1
+    int ix = x + 1;
+    int iy = y + 1;
+    int iw = w - 2;
+    int barPitch = iw / 13;          // px per channel (6 for 82px inner)
+    int barW = barPitch - 1;          // bar width (5px with 1px gap)
+    int pad = (iw - barPitch * 13) / 2; // center leftover pixels
+
+    // Draw channel bars
+    for (uint8_t ch = 1; ch <= 13; ch++) {
+        int barX = ix + pad + (ch - 1) * barPitch;
+
+        if (peakRSSI[ch] != 0) {
+            int8_t rssi = peakRSSI[ch];
+            if (rssi < RSSI_MIN) rssi = RSSI_MIN;
+            if (rssi > RSSI_MAX) rssi = RSSI_MAX;
+            int barH = ((rssi - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
+            if (barH < 1) barH = 1;
+
+            int barY = iy + barAreaH - barH;
+
+            if (ch == curCh) {
+                // Highlighted: full column inverted, bar punched out
+                canvas.fillRect(barX, iy, barW, barAreaH, fg);
+                canvas.fillRect(barX, barY, barW, barH, bg);
+            } else {
+                canvas.fillRect(barX, barY, barW, barH, fg);
+            }
+        } else if (ch == curCh) {
+            // Current channel but no networks: solid column
+            canvas.fillRect(barX, iy, barW, barAreaH, fg);
+        }
+    }
+
+    // Noise floor line at -92dBm
+    int noiseH = ((NOISE_FLOOR - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
+    int noiseY = iy + barAreaH - noiseH;
+    if (noiseY >= iy && noiseY < iy + barAreaH) {
+        for (int px = ix; px < ix + iw; px += 2) {
+            canvas.drawPixel(px, noiseY, fg);
+        }
+    }
+
+    // Channel number text at bottom center
+    if (curCh >= 1 && curCh <= 13) {
+        char chBuf[6];
+        snprintf(chBuf, sizeof(chBuf), "CH%u", curCh);
+        canvas.setTextDatum(BC_DATUM);
+        canvas.setTextSize(1);
+        canvas.setTextColor(fg);
+        canvas.drawString(chBuf, x + w / 2, y + h - 1);
+        canvas.setTextDatum(TL_DATUM);
+    }
 }
 
 // Info panel below avatar - shows character, recon, and loot stats
@@ -444,6 +561,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
 
     // --- P1G D3MANDS ---
     y += ROW_H + 1;
+    int chalStartY = y;  // Save for mini spectrum placement
 
     // Pre-build challenge data for XP column alignment
     uint8_t chalTotal = Challenges::getActiveCount();
@@ -473,7 +591,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     }
 
     int xpColX = maxChalW + 34;
-    if (xpColX > DISPLAY_W - 40) xpColX = DISPLAY_W - 40;
+    if (xpColX > DISPLAY_W - 90) xpColX = DISPLAY_W - 90;
 
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -482,7 +600,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
             int textY = y + (ROW_H - 8) / 2;
 
             if (ch.completed) {
-                canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
+                canvas.fillRect(0, y, DISPLAY_W - 88, ROW_H, fg);
                 canvas.setTextColor(bg);
                 canvas.drawString(chalLines[i], 4, textY);
                 canvas.drawString(xpBufs[i], xpColX, textY);
@@ -491,6 +609,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
                 int xpEndX = xpColX + canvas.textWidth(xpBufs[i]);
                 int progW = (xpEndX * ch.progress) / ch.target;
                 if (progW > xpEndX) progW = xpEndX;
+                int rightEdge = DISPLAY_W - 88;
                 if (progW > 0) {
                     canvas.fillRect(0, y, progW, ROW_H, fg);
                     canvas.setClipRect(0, y, progW, ROW_H);
@@ -500,8 +619,12 @@ static void drawInfoPanel(M5Canvas& canvas) {
                     canvas.clearClipRect();
                     canvas.setTextColor(fg);
                 }
-                canvas.drawString(chalLines[i], 4, textY);
-                canvas.drawString(xpBufs[i], xpColX, textY);
+                if (progW < rightEdge) {
+                    canvas.setClipRect(progW, y, rightEdge - progW, ROW_H);
+                    canvas.drawString(chalLines[i], 4, textY);
+                    canvas.drawString(xpBufs[i], xpColX, textY);
+                    canvas.clearClipRect();
+                }
             } else {
                 canvas.drawString(chalLines[i], 4, textY);
                 canvas.drawString(xpBufs[i], xpColX, textY);
@@ -512,6 +635,9 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.drawString("P1G SLEEPS...", 4, y);
         y += ROW_H;
     }
+
+    // Mini spectrum widget to the right of challenge rows
+    drawMiniSpectrum(canvas, DISPLAY_W - 86, chalStartY, 84, 42);
 
     // 3rd narrative line (oldest) drawn at bottom of mainCanvas, just above bottomBar
     if (NarrativeEngine::hasContent() && NarrativeEngine::getLine3()[0]) {
