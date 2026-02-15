@@ -230,6 +230,10 @@ public:
     static void addXP(uint16_t amount);  // Direct XP add (can trigger JACKPOT)
     static void addXPSilent(uint16_t amount);  // Silent XP add (no JACKPOT, no toast)
     static void addRouletteWin();  // PiggyBlues no-reboot roulette counter
+
+    // D20 combat roll — replaces flat XP for combat events
+    // Returns modified XP based on d20 multiplier table
+    static uint16_t rollD20Combat(uint16_t baseXP);
     
     // Level info
     static uint8_t getLevel();

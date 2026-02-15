@@ -1,6 +1,7 @@
 // Piglet mood implementation
 
 #include "mood.h"
+#include "narrative.h"
 #include "weather.h"
 #include "../core/config.h"
 #include "../core/xp.h"
@@ -1468,6 +1469,7 @@ void Mood::onHandshakeCaptured(const char* apName) {
     Avatar::setAttackShake(true, true);
     
     // Award XP for handshake capture
+    NarrativeEngine::pushEvent(EVT_HANDSHAKE);
     XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
     
     // Bonus XP for low battery clutch capture
@@ -1555,6 +1557,7 @@ void Mood::onPMKIDCaptured(const char* apName) {
     Avatar::setAttackShake(true, true);
     
     // Award XP for PMKID capture
+    NarrativeEngine::pushEvent(EVT_PMKID);
     // If in DO NO HAM mode, award the rare ghost PMKID XP (100 XP!)
     if (porkchop.getMode() == PorkchopMode::DNH_MODE) {
         XP::addXP(XPEvent::DNH_PMKID_GHOST);  // Rare passive PMKID!

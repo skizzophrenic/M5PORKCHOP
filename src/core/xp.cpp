@@ -9,6 +9,7 @@
 #include "../ui/flexes_screen.h"
 #include "../audio/sfx.h"
 #include "../ui/haptic.h"
+#include "../piglet/narrative.h"
 #include <M5Unified.h>
 #include <SD.h>
 #include <esp_mac.h>
@@ -957,7 +958,15 @@ void XP::addXP(XPEvent event) {
 
     // pig tracks your labor (challenges progress)
     Challenges::onXPEvent(event);
-    
+
+    // D20 combat roll for combat events — replaces flat base XP
+    // Stacking: D20 modifies base, THEN capture/streak/jackpot/flex multiply on top
+    if (event == XPEvent::DEAUTH_SUCCESS ||
+        event == XPEvent::HANDSHAKE_CAPTURED ||
+        event == XPEvent::PMKID_CAPTURED) {
+        amount = rollD20Combat(amount);
+    }
+
     // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
     if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
         float captureMult = FlexesScreen::getCaptureXPMultiplier();
@@ -1143,6 +1152,25 @@ void XP::addXPSilent(uint16_t amount) {
 
 void XP::addRouletteWin() {
     data.rouletteWins++;
+}
+
+uint16_t XP::rollD20Combat(uint16_t baseXP) {
+    uint8_t roll = 1 + (random(0, 20));
+    float mult;
+    if (roll == 1)       mult = 0.5f;
+    else if (roll <= 5)  mult = 0.75f;
+    else if (roll <= 10) mult = 1.0f;
+    else if (roll <= 15) mult = 1.25f;
+    else if (roll <= 19) mult = 1.5f;
+    else                 mult = 3.0f;  // NAT 20
+
+    uint16_t xp = (uint16_t)(baseXP * mult);
+    if (xp < 1) xp = 1;
+
+    // Feed roll to narrative engine (batches rapid rolls)
+    NarrativeEngine::pushD20Roll(roll, xp);
+
+    return xp;
 }
 
 void XP::addDistance(uint32_t meters) {

@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <string.h>
 #include <stdio.h>
+#include <M5Unified.h>
+#include "../core/xp.h"
+#include "../core/network_recon.h"
+#include "../modes/oink.h"
 
 // ============================================================
 // NARRATIVE ENGINE — combinatorial D&D event log generator
@@ -129,41 +133,154 @@ static const char* const TPL_LORE[] = {
     "ON SECOND THOUGHT LETS NOT GO TO {O}.",
 };
 
+// --- AWARE: situational templates using real game data ---
+// Multi-char slots: {NETS} {HS} {CH} {BAT} {LVL}
+static const char* const TPL_AWARE[] = {
+    "{NETS} NETWORKS QUAKE BEFORE THE {A} {S}.",
+    "CHANNEL {CH}: THE {S} LURKS IN SHADOW.",
+    "{HS} HANDSHAKES COLLECTED. {S} HUNGERS.",
+    "BATTERY AT {BAT}%. THE {A} {S} GROWS WEARY.",
+    "L{LVL} {S} SURVEYS THE {O}. {NETS} TARGETS.",
+    "THE {A} {S} TUNES TO CH{CH}. SOMETHING STIRS.",
+    "{HS} SOULS HARVESTED. THE {O} IS NEXT.",
+    "AT {BAT}%, THE {S} CONSIDERS RETIREMENT.",
+    "LVL {LVL}: THE {A} {S} HAS SEEN {NETS} REALMS.",
+    "THE {O} HIDES ON CH{CH}. {S} ROLLS {N}.",
+};
+
+// --- D20: combat roll result templates ---
+// Single roll: {D20}=roll value, {XP}=xp result
+static const char* const TPL_D20[] = {
+    "{S} ROLLS {D20}. {A} BLOW FOR {XP}XP.",
+    "D20:{D20}! THE {A} {S} STRIKES FOR {XP}XP.",
+    "{S} ROLLS {D20} VS {O}. {XP}XP CLAIMED.",
+    "THE {A} {S} ATTACKS. D20:{D20}. {XP}XP!",
+};
+static const char* const TPL_D20_CRIT[] = {
+    "NATURAL 20! {S} CRITS THE {O}. {XP}XP!",
+    "NAT 20! THE {A} {S} OBLITERATES. {XP}XP!",
+    "CRIT! {S} DEVASTATES {O}. {XP}XP CLAIMED!",
+};
+static const char* const TPL_D20_FUMBLE[] = {
+    "FUMBLE! {S} TRIPS OVER THE {A} {O}. {XP}XP.",
+    "NAT 1! THE {S} HITS ITSELF. {XP}XP. OOF.",
+    "CRITICAL FAIL. {S} EMBARRASSES THE {O}.",
+};
+// Batch templates: {COUNT}=number of rolls
+static const char* const TPL_D20_BATCH[] = {
+    "{COUNT}x D20: {S} UNLEASHES {A} FURY. {XP}XP.",
+    "{COUNT} ROLLS. THE {A} {S} CLAIMS {XP}XP.",
+    "{S} ROLLS {COUNT}x. THE {O} YIELDS {XP}XP.",
+};
+static const char* const TPL_D20_BATCH_CRIT[] = {
+    "NAT 20 IN {COUNT} ROLLS! {S} CRITS. {XP}XP!",
+    "{COUNT}x D20 W/ CRIT! {A} {S} EARNS {XP}XP!",
+};
+
 // ============================================================
 // STATE
 // ============================================================
 static char sLine1[54] = "";
 static char sLine2[54] = "";
+static char sLine3[54] = "";
 static uint32_t sLastUpdate = 0;
+static uint32_t sLastFlashMs = 0;
 static constexpr uint32_t UPDATE_INTERVAL_MS = 9000;
 static uint8_t sLastTplIdx = 255;
 static bool sReady = false;
 
+// Event queue (newest wins)
+static NarrativeEvent sPendingEvent = EVT_NONE;
+
+// D20 roll accumulator
+static uint8_t sPendingRollCount = 0;
+static uint8_t sLastRoll = 0;
+static uint8_t sBestRoll = 0;       // Track best roll in batch for crit detection
+static uint16_t sTotalRollXP = 0;
+static uint32_t sFirstRollMs = 0;
+static constexpr uint32_t ROLL_BATCH_WAIT_MS = 2000;  // 2s to collect batch
+
 // ============================================================
-// SLOT EXPANDER — replaces {S},{O},{A},{N} in template
+// SLOT EXPANDER — replaces all slot types in template
+// Single-char: {S} {O} {A} {N}
+// Multi-char:  {NETS} {HS} {CH} {BAT} {LVL} {D20} {XP} {COUNT}
 // ============================================================
+
+// Helper: try to match a multi-char slot starting at tpl
+// Returns length consumed (including braces) or 0 if no match
+// Writes value to dst via pointer-to-pointer (advances caller's dst)
+static int tryExpandMulti(const char* tpl, char** pDst, const char* end) {
+    if (*tpl != '{') return 0;
+
+    // Build lookup for each multi-char slot
+    struct Slot { const char* tag; int tagLen; char val[8]; };
+    // Populate values on-demand
+    uint16_t nets = NetworkRecon::getNetworkCount();
+    uint16_t hs = XP::getSession().handshakes;
+    uint8_t ch = OinkMode::getChannel();
+    int bat = M5.Power.getBatteryLevel();
+    uint8_t lvl = XP::getLevel();
+
+    Slot slots[] = {
+        { "{NETS}",  6, "" },
+        { "{HS}",    4, "" },
+        { "{CH}",    4, "" },
+        { "{BAT}",   5, "" },
+        { "{LVL}",   5, "" },
+        { "{D20}",   5, "" },
+        { "{XP}",    4, "" },
+        { "{COUNT}", 7, "" },
+    };
+    snprintf(slots[0].val, sizeof(slots[0].val), "%u", nets);
+    snprintf(slots[1].val, sizeof(slots[1].val), "%u", hs);
+    snprintf(slots[2].val, sizeof(slots[2].val), "%u", ch);
+    snprintf(slots[3].val, sizeof(slots[3].val), "%d", bat);
+    snprintf(slots[4].val, sizeof(slots[4].val), "%u", lvl);
+    snprintf(slots[5].val, sizeof(slots[5].val), "%u", sLastRoll);
+    snprintf(slots[6].val, sizeof(slots[6].val), "%u", sTotalRollXP);
+    snprintf(slots[7].val, sizeof(slots[7].val), "%u", sPendingRollCount);
+
+    for (auto& sl : slots) {
+        if (strncmp(tpl, sl.tag, sl.tagLen) == 0) {
+            const char* v = sl.val;
+            while (*v && *pDst < end) *(*pDst)++ = *v++;
+            return sl.tagLen;
+        }
+    }
+    return 0;
+}
+
 static void expand(const char* tpl, char* buf, size_t bufSize,
                    const char* s, const char* o, const char* a, uint8_t n) {
     char* dst = buf;
     const char* end = buf + bufSize - 1;
 
     while (*tpl && dst < end) {
-        if (*tpl == '{' && *(tpl + 1) && *(tpl + 2) == '}') {
-            const char* ins = nullptr;
-            char numBuf[4];
-            switch (tpl[1]) {
-                case 'S': ins = s; break;
-                case 'O': ins = o; break;
-                case 'A': ins = a; break;
-                case 'N':
-                    snprintf(numBuf, sizeof(numBuf), "%d", n);
-                    ins = numBuf;
-                    break;
-            }
-            if (ins) {
-                while (*ins && dst < end) *dst++ = *ins++;
-                tpl += 3;
+        if (*tpl == '{') {
+            // Try multi-char slots first
+            int consumed = tryExpandMulti(tpl, &dst, end);
+            if (consumed > 0) {
+                tpl += consumed;
                 continue;
+            }
+            // Single-char slots: {S} {O} {A} {N}
+            if (*(tpl + 1) && *(tpl + 2) == '}') {
+                const char* ins = nullptr;
+                char numBuf[4];
+                switch (tpl[1]) {
+                    case 'S': ins = s; break;
+                    case 'O': ins = o; break;
+                    case 'A': ins = a; break;
+                    case 'N':
+                        snprintf(numBuf, sizeof(numBuf), "%d", n);
+                        ins = numBuf;
+                        break;
+                }
+                if (ins) {
+                    while (*ins && dst < end) *dst++ = *ins++;
+                    tpl += 3;
+                    continue;
+                }
             }
         }
         *dst++ = *tpl++;
@@ -172,22 +289,147 @@ static void expand(const char* tpl, char* buf, size_t bufSize,
 }
 
 // ============================================================
-// UPDATE — generates new narrative line on timer
+// GENERATE — creates a new line and scrolls buffer
+// ============================================================
+static void generateLine(const char* const* tpls, uint8_t tplCount) {
+    // Pick template, avoid immediate repeat
+    uint8_t tidx;
+    do {
+        tidx = esp_random() % tplCount;
+    } while (tidx == sLastTplIdx && tplCount > 1);
+    sLastTplIdx = tidx;
+
+    // Pick 2 unique nouns
+    uint8_t si = esp_random() % NOUN_COUNT;
+    uint8_t oi;
+    do { oi = esp_random() % NOUN_COUNT; } while (oi == si);
+
+    const char* adj = ADJECTIVES[esp_random() % ADJ_COUNT];
+    uint8_t roll = 1 + (esp_random() % 20);
+
+    // Scroll: line1 → line2 → line3, generate new line1
+    memcpy(sLine3, sLine2, sizeof(sLine2));
+    memcpy(sLine2, sLine1, sizeof(sLine1));
+    expand(tpls[tidx], sLine1, sizeof(sLine1), NOUNS[si], NOUNS[oi], adj, roll);
+
+    sLastFlashMs = millis();
+    sReady = true;
+}
+
+// ============================================================
+// D20 ROLL NARRATIVE — generates line from pending rolls
+// ============================================================
+static void generateD20Line() {
+    if (sPendingRollCount == 0) return;
+
+    const char* const* tpls;
+    uint8_t tplCount;
+    bool hasCrit = (sBestRoll == 20);
+
+    if (sPendingRollCount == 1) {
+        // Single roll
+        if (sLastRoll == 20) {
+            tpls = TPL_D20_CRIT;
+            tplCount = sizeof(TPL_D20_CRIT) / sizeof(TPL_D20_CRIT[0]);
+        } else if (sLastRoll == 1) {
+            tpls = TPL_D20_FUMBLE;
+            tplCount = sizeof(TPL_D20_FUMBLE) / sizeof(TPL_D20_FUMBLE[0]);
+        } else {
+            tpls = TPL_D20;
+            tplCount = sizeof(TPL_D20) / sizeof(TPL_D20[0]);
+        }
+    } else {
+        // Batch
+        if (hasCrit) {
+            tpls = TPL_D20_BATCH_CRIT;
+            tplCount = sizeof(TPL_D20_BATCH_CRIT) / sizeof(TPL_D20_BATCH_CRIT[0]);
+        } else {
+            tpls = TPL_D20_BATCH;
+            tplCount = sizeof(TPL_D20_BATCH) / sizeof(TPL_D20_BATCH[0]);
+        }
+    }
+
+    generateLine(tpls, tplCount);
+
+    // Reset accumulator
+    sPendingRollCount = 0;
+    sLastRoll = 0;
+    sBestRoll = 0;
+    sTotalRollXP = 0;
+    sFirstRollMs = 0;
+}
+
+// ============================================================
+// EVENT NARRATIVE — generates line from pending event
+// ============================================================
+static void generateEventLine() {
+    const char* const* tpls;
+    uint8_t tplCount;
+
+    switch (sPendingEvent) {
+        case EVT_HANDSHAKE:
+        case EVT_PMKID:
+            tpls = TPL_WIN;
+            tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
+            break;
+        case EVT_DEAUTH_CRIT:
+            tpls = TPL_D20_CRIT;
+            tplCount = sizeof(TPL_D20_CRIT) / sizeof(TPL_D20_CRIT[0]);
+            break;
+        case EVT_DEAUTH_FUMBLE:
+            tpls = TPL_D20_FUMBLE;
+            tplCount = sizeof(TPL_D20_FUMBLE) / sizeof(TPL_D20_FUMBLE[0]);
+            break;
+        case EVT_LOW_BATTERY:
+        case EVT_GPS_LOCK:
+            tpls = TPL_AWARE;
+            tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
+            break;
+        default:
+            sPendingEvent = EVT_NONE;
+            return;
+    }
+
+    sPendingEvent = EVT_NONE;
+    generateLine(tpls, tplCount);
+}
+
+// ============================================================
+// UPDATE — generates new narrative line on timer or event
 // ============================================================
 void NarrativeEngine::update(uint8_t mode) {
     uint32_t now = millis();
+
+    // Priority 1: D20 rolls ready (batch wait elapsed)
+    if (sPendingRollCount > 0 && (now - sFirstRollMs >= ROLL_BATCH_WAIT_MS)) {
+        generateD20Line();
+        sLastUpdate = now;
+        return;
+    }
+
+    // Priority 2: Forced event (bypass timer)
+    if (sPendingEvent != EVT_NONE) {
+        generateEventLine();
+        sLastUpdate = now;
+        return;
+    }
+
+    // Priority 3: Timer-based generation
     if (sReady && (now - sLastUpdate < UPDATE_INTERVAL_MS)) return;
     sLastUpdate = now;
 
     // --- Context selection ---
-    // 12% lore always, then mode-driven
+    // 10% lore, 15% aware (real data), then mode-driven
     const char* const* tpls;
     uint8_t tplCount;
     uint8_t ctxRoll = esp_random() % 100;
 
-    if (ctxRoll < 12) {
+    if (ctxRoll < 10) {
         tpls = TPL_LORE;
         tplCount = sizeof(TPL_LORE) / sizeof(TPL_LORE[0]);
+    } else if (ctxRoll < 25) {
+        tpls = TPL_AWARE;
+        tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
     } else if (mode >= 1 && mode <= 3) {
         // Active modes: OINK(1), DNH(2), WARHOG(3)
         uint8_t sub = esp_random() % 100;
@@ -216,28 +458,33 @@ void NarrativeEngine::update(uint8_t mode) {
         }
     }
 
-    // --- Pick template, avoid immediate repeat ---
-    uint8_t tidx;
-    do {
-        tidx = esp_random() % tplCount;
-    } while (tidx == sLastTplIdx && tplCount > 1);
-    sLastTplIdx = tidx;
-
-    // --- Pick 2 unique nouns ---
-    uint8_t si = esp_random() % NOUN_COUNT;
-    uint8_t oi;
-    do { oi = esp_random() % NOUN_COUNT; } while (oi == si);
-
-    const char* adj = ADJECTIVES[esp_random() % ADJ_COUNT];
-    uint8_t roll = 1 + (esp_random() % 20);
-
-    // --- Scroll: line1 → line2, generate new line1 ---
-    memcpy(sLine2, sLine1, sizeof(sLine1));
-    expand(tpls[tidx], sLine1, sizeof(sLine1), NOUNS[si], NOUNS[oi], adj, roll);
-
-    sReady = true;
+    generateLine(tpls, tplCount);
 }
+
+// ============================================================
+// EVENT + D20 PUBLIC API
+// ============================================================
+
+void NarrativeEngine::pushEvent(NarrativeEvent evt) {
+    sPendingEvent = evt;  // Newest wins
+}
+
+void NarrativeEngine::pushD20Roll(uint8_t roll, uint16_t xp) {
+    if (sPendingRollCount == 0) {
+        sFirstRollMs = millis();
+    }
+    sPendingRollCount++;
+    sLastRoll = roll;
+    if (roll > sBestRoll) sBestRoll = roll;
+    sTotalRollXP += xp;
+}
+
+// ============================================================
+// ACCESSORS
+// ============================================================
 
 const char* NarrativeEngine::getLine1() { return sLine1; }
 const char* NarrativeEngine::getLine2() { return sLine2; }
+const char* NarrativeEngine::getLine3() { return sLine3; }
 bool NarrativeEngine::hasContent() { return sReady; }
+bool NarrativeEngine::isFlashing() { return sLastFlashMs > 0 && (millis() - sLastFlashMs) < 500; }

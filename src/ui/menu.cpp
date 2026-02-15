@@ -5,6 +5,8 @@
 #include "input.h"
 #include "haptic.h"
 #include "../audio/sfx.h"
+#include "../piglet/narrative.h"
+#include "../core/porkchop.h"
 #include <string.h>
 #include <esp_random.h>
 
@@ -218,32 +220,8 @@ const MenuItem Menu::GROUP_SYSTEM[] = {
 };
 const uint8_t Menu::GROUP_SYSTEM_SIZE = sizeof(GROUP_SYSTEM) / sizeof(GROUP_SYSTEM[0]);
 
-// ============================================================================
-// BOOT-STYLE MICRO-STORY (shown below root menu items)
-// ============================================================================
-static const char* const MENU_NOUNS[] = {
-    "PIG", "HEAP", "BARN", "DEV", "JTAG", "FIRMWARE", "BUG",
-    "SNAKE", "HORSE", "WATCHDOG", "STACK", "MALLOC", "WIFI", "TROUGH"
-};
-static constexpr uint8_t MENU_NOUN_COUNT = 14;
-static char sStoryLines[4][54];
-
-static void generateMenuStory() {
-    uint8_t idx[MENU_NOUN_COUNT];
-    for (uint8_t i = 0; i < MENU_NOUN_COUNT; i++) idx[i] = i;
-    for (uint8_t i = 0; i < 8; i++) {
-        uint8_t j = i + (esp_random() % (MENU_NOUN_COUNT - i));
-        uint8_t tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
-    }
-    snprintf(sStoryLines[0], sizeof(sStoryLines[0]), "THEY HAD NO %s. BOUGHT A %s.",
-             MENU_NOUNS[idx[0]], MENU_NOUNS[idx[1]]);
-    snprintf(sStoryLines[1], sizeof(sStoryLines[1]), "7 %sS LATER IT ESCAPED THE %s.",
-             MENU_NOUNS[idx[2]], MENU_NOUNS[idx[3]]);
-    snprintf(sStoryLines[2], sizeof(sStoryLines[2]), "%s GRABBED THE %s AND KILLED %s.",
-             MENU_NOUNS[idx[4]], MENU_NOUNS[idx[5]], MENU_NOUNS[idx[6]]);
-    snprintf(sStoryLines[3], sizeof(sStoryLines[3]), "INSIDE: SLEEPING %s.",
-             MENU_NOUNS[idx[7]]);
-}
+// Story generation removed — narrative engine takes its place in the menu.
+// Boot splash screen 4 still shows the "THEY HAD NO..." story at boot.
 
 // ============================================================================
 // STATIC MEMBER INITIALIZATION
@@ -349,8 +327,6 @@ void Menu::show() {
             rootHintIndex[i] = 0;
         }
     }
-    // Generate fresh micro-story for menu display
-    generateMenuStory();
     // Blink nav buttons to hint where to press
     Display::startNavBlink();
 }
@@ -710,13 +686,31 @@ void Menu::drawRoot(M5Canvas& canvas) {
         canvas.drawString("v", DISPLAY_W - 12, yOffset + (VISIBLE_ITEMS - 1) * lineHeight);
     }
 
-    // Micro-story below menu items (52px available from y=148 to y=200)
-    int storyY = yOffset + ROOT_COUNT * lineHeight + 6;  // 28 + 120 + 6 = 154
-    canvas.setTextSize(1);
-    canvas.setTextColor(fg);
-    canvas.setTextDatum(top_center);
-    for (int i = 0; i < 4; i++) {
-        canvas.drawString(sStoryLines[i], DISPLAY_W / 2, storyY + i * 11);
+    // Narrative engine in right column (x=170, 3 lines stacked vertically)
+    NarrativeEngine::update((uint8_t)PorkchopMode::MENU);
+    if (NarrativeEngine::hasContent()) {
+        canvas.setTextSize(1);
+        canvas.setTextDatum(TL_DATUM);
+        bool flash = NarrativeEngine::isFlashing();
+        int nx = 170;
+        int ny = 60;
+        const char* lines[3] = {
+            NarrativeEngine::getLine3(),  // Oldest
+            NarrativeEngine::getLine2(),
+            NarrativeEngine::getLine1()   // Newest
+        };
+        for (int i = 0; i < 3; i++) {
+            if (lines[i][0] == '\0') continue;
+            bool inv = (flash && i == 2);  // Flash newest line only
+            if (inv) {
+                canvas.fillRect(nx - 2, ny + i * 12, DISPLAY_W - nx, 10, fg);
+                canvas.setTextColor(bg);
+            } else {
+                canvas.setTextColor(fg);
+            }
+            canvas.drawString(lines[i], nx, ny + i * 12);
+        }
+        canvas.setTextColor(fg);  // Restore
     }
 }
 

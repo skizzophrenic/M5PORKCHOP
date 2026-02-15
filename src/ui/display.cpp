@@ -252,8 +252,20 @@ void Display::init() {
     Serial.println("[DISPLAY] Initialized");
 }
 
-// Mood bar drawn at top of main canvas, right below the top bar
+// Mood bar drawn at top of main canvas (non-avatar modes only)
+// Avatar modes skip this entirely — mood is shown via weather/avatar behavior
 static void drawMoodBar(M5Canvas& canvas) {
+    PorkchopMode mode = porkchop.getMode();
+    // Avatar modes: no mood bar, space reclaimed for info panel
+    if (mode == PorkchopMode::IDLE ||
+        mode == PorkchopMode::OINK_MODE ||
+        mode == PorkchopMode::DNH_MODE ||
+        mode == PorkchopMode::WARHOG_MODE ||
+        mode == PorkchopMode::PIGGYBLUES_MODE ||
+        mode == PorkchopMode::BACON_MODE) {
+        return;
+    }
+
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
     const int y = 1;  // 1px top margin
@@ -287,12 +299,12 @@ static void drawMoodBar(M5Canvas& canvas) {
 }
 
 // Info panel below avatar - shows character, recon, and loot stats
-// Uses the 78px space below the grass line (y=122 to y=200)
-// Layout: 14px header + 6 × 11px rows = 80px (last row clips 1px, invisible)
+// Uses the 92px space below the grass line (y=108 to y=200)
+// Layout: 14px header + rows + narrative line at bottom
 static void drawInfoPanel(M5Canvas& canvas) {
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
-    const int panelY = 122;  // Below grass (y=105, textSize=2, 16px tall → ends at y=121)
+    const int panelY = 108;  // Below grass (y=91, textSize=2, 16px tall → ends at y=107)
     const int ROW_H = 11;    // Compact row height (Font0 size 1 = 8px, fits with 3px padding)
 
     canvas.setTextSize(1);
@@ -335,7 +347,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     canvas.setTextColor(fg);  // Restore normal colors
 
     // --- Row 2: Mode-specific operational stats ---
-    y = panelY + 14;  // Flush below header bar
+    y = panelY + 18;  // 4px gap below header bar
     PorkchopMode mode = porkchop.getMode();
     char leftBuf[48];
     char rightBuf[32];
@@ -430,7 +442,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     }
 
     // --- P1G D3MANDS: challenge rows (3 × 11px) ---
-    y += ROW_H;
+    y += ROW_H + 6;  // 6px gap between stats and challenges
     uint8_t chalTotal = Challenges::getActiveCount();
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -475,14 +487,19 @@ static void drawInfoPanel(M5Canvas& canvas) {
         y += ROW_H;
     }
 
-    // --- Narrative engine: 2 dedicated lines below challenges ---
-    NarrativeEngine::update((uint8_t)mode);
-    if (NarrativeEngine::hasContent()) {
-        if (NarrativeEngine::getLine2()[0]) {
-            canvas.drawString(NarrativeEngine::getLine2(), 4, y);
+    // 3rd narrative line (oldest) drawn at bottom of mainCanvas, just above bottomBar
+    if (NarrativeEngine::hasContent() && NarrativeEngine::getLine3()[0]) {
+        bool flash = NarrativeEngine::isFlashing();
+        if (flash) {
+            canvas.fillRect(0, 190, DISPLAY_W, 10, fg);
+            canvas.setTextColor(bg);
+        } else {
+            canvas.setTextColor(fg);
         }
-        y += ROW_H;
-        canvas.drawString(NarrativeEngine::getLine1(), 4, y);
+        canvas.setTextSize(1);
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(NarrativeEngine::getLine3(), 4, 190);
+        if (flash) canvas.setTextColor(fg);  // Restore
     }
 }
 
@@ -916,6 +933,22 @@ void Display::drawTopBar() {
 
     // Left side: mode indicator
     PorkchopMode mode = porkchop.getMode();
+
+    // Mood fill for avatar modes — full-width bar behind text
+    bool isAvatarMode = (mode == PorkchopMode::IDLE ||
+                         mode == PorkchopMode::OINK_MODE ||
+                         mode == PorkchopMode::DNH_MODE ||
+                         mode == PorkchopMode::WARHOG_MODE ||
+                         mode == PorkchopMode::PIGGYBLUES_MODE ||
+                         mode == PorkchopMode::BACON_MODE);
+    int moodFillW = 0;
+    if (isAvatarMode) {
+        int moodVal = Mood::getEffectiveHappiness();  // -100 to +100
+        moodFillW = ((moodVal + 100) * DISPLAY_W) / 200;
+        if (moodFillW < 0) moodFillW = 0;
+        if (moodFillW > DISPLAY_W) moodFillW = DISPLAY_W;
+        if (moodFillW > 0) topBar.fillRect(0, 0, moodFillW, TOP_BAR_H, fg);
+    }
     char modeBuf[40];
     modeBuf[0] = '\0';
     uint16_t modeColor = fg;
@@ -1047,11 +1080,14 @@ void Display::drawTopBar() {
     char rightBuf[32];
     snprintf(rightBuf, sizeof(rightBuf), "%d%% %s %s", battLevel, statusBuf, timeBuf);
 
-    // Draw status info at right edge
-    topBar.setTextColor(fg);
+    // Draw status info at right edge (smart inversion for mood fill)
+    int rightBufW = topBar.textWidth(rightBuf);
+    int rightMidX = DISPLAY_W - 3 - rightBufW / 2;
+    uint16_t rightColor = (moodFillW > rightMidX) ? bg : fg;
+    topBar.setTextColor(rightColor);
     topBar.setTextDatum(TR_DATUM);
     topBar.drawString(rightBuf, DISPLAY_W - 3, 2);
-    int rightWidth = topBar.textWidth(rightBuf) + 6;
+    int rightWidth = rightBufW + 6;
 
     // Truncate mode string if it would overlap right side
     int maxLeftWidth = DISPLAY_W - rightWidth - 4;
@@ -1064,7 +1100,10 @@ void Display::drawTopBar() {
         finalModeBuf[leftLen - 1] = '.';
     }
 
-    topBar.setTextColor(modeColor);
+    // Smart inversion: check if mode label midpoint is within mood fill
+    int leftMidX = 2 + topBar.textWidth(finalModeBuf) / 2;
+    uint16_t leftColor = (moodFillW > leftMidX) ? bg : modeColor;
+    topBar.setTextColor(leftColor);
     topBar.setTextDatum(TL_DATUM);
     topBar.drawString(finalModeBuf, 2, 2);
 }
@@ -1136,15 +1175,36 @@ void Display::drawBottomBar() {
         return;
     }
 
-    // Avatar and spectrum modes: hide bottom bar (stats shown in info panel / list)
+    // Spectrum mode: hide bottom bar
+    if (mode == PorkchopMode::SPECTRUM_MODE) {
+        bottomBar.fillSprite(bg);
+        return;
+    }
+
+    // Avatar modes: narrative engine in bottom bar (2 lines)
     if (mode == PorkchopMode::IDLE ||
         mode == PorkchopMode::OINK_MODE ||
         mode == PorkchopMode::DNH_MODE ||
         mode == PorkchopMode::WARHOG_MODE ||
         mode == PorkchopMode::PIGGYBLUES_MODE ||
-        mode == PorkchopMode::BACON_MODE ||
-        mode == PorkchopMode::SPECTRUM_MODE) {
-        bottomBar.fillSprite(bg);
+        mode == PorkchopMode::BACON_MODE) {
+        NarrativeEngine::update((uint8_t)mode);
+        bool flash = NarrativeEngine::isFlashing();
+        if (flash) {
+            bottomBar.fillSprite(fg);
+            bottomBar.setTextColor(bg);
+        } else {
+            bottomBar.fillSprite(bg);
+            bottomBar.setTextColor(fg);
+        }
+        if (NarrativeEngine::hasContent()) {
+            bottomBar.setTextSize(1);
+            bottomBar.setTextDatum(TL_DATUM);
+            if (NarrativeEngine::getLine2()[0]) {
+                bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
+            }
+            bottomBar.drawString(NarrativeEngine::getLine1(), 4, 10);
+        }
         return;
     }
 

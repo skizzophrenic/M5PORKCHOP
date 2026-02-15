@@ -528,7 +528,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
-    int startY = 37 + shakeY;  // Apply shake offset (shifted down for mood bar + XP bar)
+    int startY = 23 + shakeY;  // Apply shake offset (mood bar removed, content shifted up 14px)
     int lineHeight = 22;
     
     for (uint8_t i = 0; i < lines; i++) {
@@ -735,7 +735,7 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
     
     // Draw at bottom of avatar area, full screen width
-    int grassY = 105;  // Below the pig face (shifted down for mood bar)
+    int grassY = 91;  // Below the pig face (mood bar removed, shifted up 14px)
     canvas.drawString(grassPattern, 0, grassY);
 }
 
@@ -779,8 +779,8 @@ void Avatar::initStarPositions() {
         // y 20-100 sky/backdrop, bubble still wins
         // x 5-315 near full width (320px screen)
         stars[i].x = random(5, 315);
-        // Match rain clip: keep stars above grass (rain clips at y < 88)
-        stars[i].y = random(20, 88);
+        // Match rain clip: keep stars above grass (rain clips at y < 74)
+        stars[i].y = random(6, 74);
         stars[i].size = 1;
         stars[i].brightness = 0;
         stars[i].fadeInStart = 0;
@@ -844,8 +844,8 @@ void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
 
     int boxX = currentX - 25;
     int boxW = 155;  // covers tail + 7 chars + margin
-    int boxY = 25;   // base y (37) minus jump headroom (12)
-    int boxH = 84;   // stops above grass near y109
+    int boxY = 11;   // base y (23) minus jump headroom (12)
+    int boxH = 84;   // stops above grass near y95
 
     // Clamp to screen
     if (boxX < 0) { boxW += boxX; boxX = 0; }
@@ -865,7 +865,7 @@ void Avatar::drawStars(M5Canvas& canvas) {
 
     for (uint8_t i = 0; i < starCount; i++) {
         if (stars[i].brightness < 128) continue;
-        if (stars[i].y >= 88) continue;  // Match rain clip above grass
+        if (stars[i].y >= 74) continue;  // Match rain clip above grass
 
         char starChar = '.';
         if (stars[i].isBlinking) {
