@@ -473,7 +473,7 @@ void Avatar::draw(M5Canvas& canvas) {
                         transitionStartTime = now;
                         transitionFromX = currentX;
                         transitionToX = target;
-                        transitionToFacingRight = (target > currentX);
+                        transitionToFacingRight = !grassDirection;  // Keep treadmill facing
                     }
                 }
             } else {

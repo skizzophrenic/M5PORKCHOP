@@ -2,6 +2,7 @@
 // Designed to avoid hot-path heap use and to be deterministic.
 
 #include "input.h"
+#include "haptic.h"
 
 #include <M5Unified.h>
 
@@ -134,6 +135,11 @@ void update() {
             else evSwipeDown = true;
         }
     }
+
+    // Haptic tick for any input event (centralized — no per-file tick calls needed)
+    if (evUp || evDown || evSelect || evBack || evScreenshot || evDoubleClick ||
+        evSwipeLeft || evSwipeRight || evSwipeUp || evSwipeDown || evTap)
+        Haptic::tick();
 }
 
 bool up() { bool v = evUp; evUp = false; return v; }

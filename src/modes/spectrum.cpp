@@ -1150,7 +1150,6 @@ void SpectrumMode::handleInput() {
                     SpectrumFilter newFilter = btnFilters[b];
                     if (newFilter != filter) {
                         filter = newFilter;
-                        Haptic::tick();
                         // Re-validate selection after filter change
                         if (viewBand == SpectrumBand::BAND_24) {
                             if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
@@ -1206,7 +1205,6 @@ void SpectrumMode::handleInput() {
                 uint8_t idx = listScrollOffset + hitIdx;
                 if (idx < renderCount) {
                     listSelectedIdx = idx;
-                    Haptic::tick();
                     // Sync spectrum selection and center view on tapped network
                     if (viewBand == SpectrumBand::BAND_24) {
                         for (size_t ni = 0; ni < networks.size(); ni++) {
@@ -1519,7 +1517,6 @@ void SpectrumMode::handleClientMonitorInput() {
                         clientDetailActive = true;
                     } else {
                         selectedClientIndex = idx;
-                        Haptic::tick();
                     }
                 }
             }

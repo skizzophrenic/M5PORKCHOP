@@ -3,7 +3,6 @@
 #include "badges_menu.h"
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../core/xp.h"
 #include <ctype.h>
 #include <string.h>
@@ -143,7 +142,6 @@ void BadgesMenu::handleInput() {
                     showingDetail = true;
                 } else {
                     selectedIndex = idx;
-                    Haptic::tick();
                     updateBottomOverlay();
                 }
             }

@@ -6,7 +6,6 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../modes/oink.h"
 #include "../core/sd_layout.h"
 
@@ -173,7 +172,6 @@ void BoarBrosMenu::handleInput() {
                         deleteConfirmActive = true;
                     } else {
                         selectedIndex = idx;
-                        Haptic::tick();
                     }
                 }
             }

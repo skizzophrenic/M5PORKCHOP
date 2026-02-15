@@ -8,7 +8,6 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../audio/sfx.h"
 #include "../web/wpasec.h"
 #include "../core/config.h"
@@ -592,7 +591,6 @@ void HashesMenu::handleInput() {
                     } else {
                         selectedIndex = idx;
                         SFX::play(SFX::CLICK);
-                        Haptic::tick();
                     }
                 }
             }

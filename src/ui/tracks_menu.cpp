@@ -7,7 +7,6 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../web/wigle.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -375,7 +374,6 @@ void TracksMenu::handleInput() {
                         detailViewActive = true;
                     } else {
                         selectedIndex = idx;
-                        Haptic::tick();
                     }
                 }
             }

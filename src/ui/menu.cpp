@@ -3,7 +3,6 @@
 #include "menu.h"
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../audio/sfx.h"
 #include "../piglet/narrative.h"
 #include "../core/porkchop.h"
@@ -379,7 +378,6 @@ void Menu::update() {
 
 void Menu::selectRootItem() {
     SFX::play(SFX::MENU_CLICK);
-    Haptic::tick();
     const RootItem& item = ROOT_ITEMS[rootIdx];
     if (item.type == RootType::GROUP) {
         activeGroup = item.groupId;
@@ -425,7 +423,6 @@ void Menu::selectRootItem() {
 
 void Menu::selectModalItem() {
     SFX::play(SFX::MENU_CLICK);
-    Haptic::tick();
     const MenuItem* items = getGroupItems(activeGroup);
     if (items && callback) {
         callback(items[modalIdx].actionId);
@@ -466,7 +463,6 @@ void Menu::handleInput() {
                     } else {
                         modalIdx = tapped_idx;
                         SFX::play(SFX::MENU_CLICK);
-                        Haptic::tick();
                     }
                 }
             }
@@ -528,7 +524,6 @@ void Menu::handleInput() {
                     } else {
                         rootIdx = tapped_idx;
                         SFX::play(SFX::MENU_CLICK);
-                        Haptic::tick();
                     }
                 }
             }

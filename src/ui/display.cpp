@@ -1047,26 +1047,6 @@ void Display::drawTopBar() {
             break;
     }
 
-    // Mood stage label at fill edge (after modeBuf is populated)
-    if (isAvatarMode && moodFillW > 0) {
-        const char* moodLabel;
-        int moodVal2 = Mood::getEffectiveHappiness();
-        if (moodVal2 <= -50)      moodLabel = "S4D";
-        else if (moodVal2 <= -10) moodLabel = "M3H";
-        else if (moodVal2 <= 30)  moodLabel = "0K";
-        else if (moodVal2 <= 70)  moodLabel = "GUD";
-        else                      moodLabel = "HYP3";
-
-        topBar.setTextDatum(TR_DATUM);
-        int labelX = moodFillW;
-        if (moodFillW >= DISPLAY_W) labelX = DISPLAY_W - 2;
-        int minLabelX = topBar.textWidth(modeBuf) + 8 + topBar.textWidth(moodLabel);
-        if (labelX < minLabelX) labelX = minLabelX;
-        topBar.setTextColor(fg);
-        topBar.drawString(moodLabel, labelX, 10);
-        topBar.setTextDatum(TL_DATUM);
-    }
-
     // Build mode string (PWNED banner if applicable)
     char finalModeBuf[80];
     if (mode == PorkchopMode::OINK_MODE && lootSSID[0] != '\0') {
@@ -1123,6 +1103,27 @@ void Display::drawTopBar() {
     topBar.setTextColor(modeColor);
     topBar.setTextDatum(TL_DATUM);
     topBar.drawString(finalModeBuf, 2, 2);
+
+    // Mood stage label — right of fill edge, below text row, above bar
+    if (isAvatarMode && moodFillW > 0) {
+        const char* moodLabel;
+        int moodVal2 = Mood::getEffectiveHappiness();
+        if (moodVal2 <= -50)      moodLabel = "S4D";
+        else if (moodVal2 <= -10) moodLabel = "M3H";
+        else if (moodVal2 <= 30)  moodLabel = "0K";
+        else if (moodVal2 <= 70)  moodLabel = "GUD";
+        else                      moodLabel = "HYP3";
+
+        int labelW = topBar.textWidth(moodLabel);
+        int labelX = moodFillW + 2;  // Right of fill edge
+        int maxX = DISPLAY_W - rightWidth - labelW;  // Don't overlap right text
+        if (labelX > maxX) labelX = maxX;
+        int minX = (int)topBar.textWidth(finalModeBuf) + 6;  // Don't overlap mode text
+        if (labelX < minX) labelX = minX;
+        topBar.setTextColor(fg);
+        topBar.setTextDatum(TL_DATUM);
+        topBar.drawString(moodLabel, labelX, 11);
+    }
 }
 
 void Display::drawTopBarMessageTwoLineDirect() {

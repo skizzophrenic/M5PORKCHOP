@@ -5,7 +5,6 @@
 #include "bounty_menu.h"
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "../modes/pigsync_mode.h"
 #include "../modes/warhog.h"
 #include "../modes/oink.h"
@@ -119,7 +118,6 @@ void BountyMenu::handleInput() {
                 uint16_t idx = scrollOffset + hitIdx;
                 if (idx < count) {
                     selectedIndex = idx;
-                    Haptic::tick();
                 }
             }
         }

@@ -8,7 +8,6 @@
 #include "../piglet/weather.h"
 #include "../web/wigle.h"
 #include "input.h"
-#include "haptic.h"
 
 // Static member initialization
 bool FlexesScreen::active = false;
@@ -150,7 +149,6 @@ void FlexesScreen::handleInput() {
                 if (tapEv.x >= x && tapEv.x < x + w) {
                     if (tabs[i] != currentTab) {
                         currentTab = tabs[i];
-                        Haptic::tick();
                     }
                     break;
                 }

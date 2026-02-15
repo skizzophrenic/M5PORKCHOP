@@ -12,7 +12,6 @@
 #include <SD.h>
 #include <string.h>
 #include "input.h"
-#include "haptic.h"
 #include "../audio/sfx.h"
 #include "soft_keyboard.h"
 
@@ -1087,7 +1086,6 @@ void SettingsMenu::handleInput() {
                         sel = true;  // double-tap = select
                     } else {
                         rootIndex = idx;
-                        Haptic::tick();
                         if (rootIndex < rootScroll) rootScroll = rootIndex;
                         else if (rootIndex >= rootScroll + VISIBLE_ROOT_ITEMS)
                             rootScroll = rootIndex - VISIBLE_ROOT_ITEMS + 1;
@@ -1106,7 +1104,6 @@ void SettingsMenu::handleInput() {
                         sel = true;  // double-tap = select
                     } else {
                         groupIndex = idx;
-                        Haptic::tick();
                         if (groupIndex < groupScroll) groupScroll = groupIndex;
                         else if (groupIndex >= groupScroll + VISIBLE_GROUP_ITEMS)
                             groupScroll = groupIndex - VISIBLE_GROUP_ITEMS + 1;

@@ -3,7 +3,6 @@
 #include "porkchop.h"
 #include "../ui/display.h"
 #include "../ui/input.h"
-#include "../ui/haptic.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/hashes_menu.h"
@@ -771,7 +770,6 @@ void Porkchop::handleInput() {
                 lastPetMs = now;
                 Avatar::cuteJump();
                 Mood::adjustHappiness(3);
-                Haptic::tick();
             }
         }
         return;

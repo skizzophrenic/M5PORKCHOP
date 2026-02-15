@@ -4,7 +4,6 @@
 #include <mbedtls/sha256.h>
 #include "display.h"
 #include "input.h"
-#include "haptic.h"
 #include "soft_keyboard.h"
 #include "../core/xp.h"
 #include "../piglet/mood.h"
@@ -158,7 +157,6 @@ void UnlockablesMenu::handleInput() {
                         tapSelect = true;  // double-tap = try unlock
                     } else {
                         selectedIndex = idx;
-                        Haptic::tick();
                         updateBottomOverlay();
                     }
                 }
