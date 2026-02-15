@@ -38,6 +38,10 @@ static const uint32_t TRANSITION_DURATION_MS = 1200;  // 1.2s slow relaxed walk 
 static uint32_t lastGrassStopTime = 0;
 static const uint32_t GRASS_REST_COOLDOWN_MS = 3000;  // 3 second chill period after grass stops
 
+// Grass wander state (random roaming toward center while treadmill runs)
+static uint32_t grassWanderTimer = 0;
+static uint32_t grassWanderInterval = 4000;
+
 // Attack shake state (visual feedback for captures)
 static bool attackShakeActive = false;
 static bool attackShakeStrong = false;
@@ -450,7 +454,44 @@ void Avatar::draw(M5Canvas& canvas) {
         }
         skip_walk:;
     }
-    
+
+    // === GRASS WANDER: Random roaming toward center while treadmill runs ===
+    if (!transitioning && grassMoving) {
+        if (now - grassWanderTimer > grassWanderInterval) {
+            int homeX = grassDirection ? 180 : 25;
+            int centerX = DISPLAY_W / 2;  // 160 = screen center limit
+            int distFromHome = abs(currentX - homeX);
+
+            if (distFromHome < 20) {
+                // Near home - chance to wander toward center
+                if (random(0, 100) < 35) {
+                    int lo = (homeX < centerX) ? homeX + 10 : centerX;
+                    int hi = (homeX < centerX) ? centerX : homeX - 10;
+                    int target = random(lo, hi + 1);
+                    if (abs(target - currentX) > 10) {
+                        transitioning = true;
+                        transitionStartTime = now;
+                        transitionFromX = currentX;
+                        transitionToX = target;
+                        transitionToFacingRight = (target > currentX);
+                    }
+                }
+            } else {
+                // Away from home - maybe return (or stay and chill)
+                if (random(0, 100) < 45) {
+                    transitioning = true;
+                    transitionStartTime = now;
+                    transitionFromX = currentX;
+                    transitionToX = homeX;
+                    transitionToFacingRight = !grassDirection;  // Restore treadmill facing
+                }
+            }
+
+            grassWanderTimer = now;
+            grassWanderInterval = random(3000, 8000);
+        }
+    }
+
     // Select frame based on state and direction (blink modifies eye only, not ears)
     const char** frame;
     bool shouldBlink = isBlinking && currentState != AvatarState::SLEEPY;
@@ -661,6 +702,8 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
         
         // Clear cooldown since we successfully started
         lastGrassStopTime = 0;
+        grassWanderTimer = millis();
+        grassWanderInterval = random(3000, 8000);  // Initial delay before first wander
     } else {
         // Stop grass and coast back to resting position
         grassMoving = false;

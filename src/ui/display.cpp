@@ -305,7 +305,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
     const int panelY = 108;  // Below grass (y=91, textSize=2, 16px tall → ends at y=107)
-    const int ROW_H = 11;    // Compact row height (Font0 size 1 = 8px, fits with 3px padding)
+    const int ROW_H = 14;    // Row height (Font0 size 1 = 8px, 3px progress bar, 3px gap)
 
     canvas.setTextSize(1);
 
@@ -442,7 +442,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     }
 
     // --- P1G D3MANDS: challenge rows (3 × 11px) ---
-    y += ROW_H + 6;  // 6px gap between stats and challenges
+    y += ROW_H + 2;  // 4px gap between stats and challenges
     uint8_t chalTotal = Challenges::getActiveCount();
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -458,6 +458,8 @@ static void drawInfoPanel(M5Canvas& canvas) {
                 snprintf(chalLine, sizeof(chalLine), "[%c] %s %u/%u", status, ch.name, ch.progress, ch.target);
             }
 
+            int textY = y + (ROW_H - 8) / 2;  // Center 8px text in ROW_H
+
             if (ch.completed) {
                 // Full inverted bar for completed challenges
                 canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
@@ -470,11 +472,11 @@ static void drawInfoPanel(M5Canvas& canvas) {
                 if (progW > 0) canvas.fillRect(4, y + ROW_H - 3, progW, 3, fg);
             }
 
-            canvas.drawString(chalLine, 4, y);
+            canvas.drawString(chalLine, 4, textY);
             char xpBuf[10];
             snprintf(xpBuf, sizeof(xpBuf), "+%uXP", ch.xpReward);
             canvas.setTextDatum(TR_DATUM);
-            canvas.drawString(xpBuf, DISPLAY_W - 4, y);
+            canvas.drawString(xpBuf, DISPLAY_W - 4, textY);
             canvas.setTextDatum(TL_DATUM);
 
             if (ch.completed) {
@@ -1044,7 +1046,27 @@ void Display::drawTopBar() {
             modeColor = fg;
             break;
     }
-    
+
+    // Mood stage label at fill edge (after modeBuf is populated)
+    if (isAvatarMode && moodFillW > 0) {
+        const char* moodLabel;
+        int moodVal2 = Mood::getEffectiveHappiness();
+        if (moodVal2 <= -50)      moodLabel = "S4D";
+        else if (moodVal2 <= -10) moodLabel = "M3H";
+        else if (moodVal2 <= 30)  moodLabel = "0K";
+        else if (moodVal2 <= 70)  moodLabel = "GUD";
+        else                      moodLabel = "HYP3";
+
+        topBar.setTextDatum(TR_DATUM);
+        int labelX = moodFillW;
+        if (moodFillW >= DISPLAY_W) labelX = DISPLAY_W - 2;
+        int minLabelX = topBar.textWidth(modeBuf) + 8 + topBar.textWidth(moodLabel);
+        if (labelX < minLabelX) labelX = minLabelX;
+        topBar.setTextColor(fg);
+        topBar.drawString(moodLabel, labelX, 10);
+        topBar.setTextDatum(TL_DATUM);
+    }
+
     // Build mode string (PWNED banner if applicable)
     char finalModeBuf[80];
     if (mode == PorkchopMode::OINK_MODE && lootSSID[0] != '\0') {

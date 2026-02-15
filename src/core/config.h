@@ -38,7 +38,7 @@ struct GPSConfig {
 
     uint8_t txPin = 14;  // PORT.C TXD2
 
-    uint32_t baudRate = 115200;     // 115200 for most modern GPS modules
+    uint32_t baudRate = 9600;       // AT6668 (ATGM336H) default baud
     uint16_t updateInterval = 5;        // Seconds between GPS updates
     uint16_t sleepTimeMs = 5000;        // Sleep duration when stationary
     bool powerSave = true;
