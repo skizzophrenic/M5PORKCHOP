@@ -542,10 +542,10 @@ static void drawInfoPanel(M5Canvas& canvas) {
         }
         if (busyCh > 0) {
             snprintf(leftBuf, sizeof(leftBuf), "N:%lu HS:%lu +%luXP CH%u:%u",
-                     sess.networks, sess.handshakes, sess.xp, busyCh, busyCount);
+                     (unsigned long)netTotal, sess.handshakes, sess.xp, busyCh, busyCount);
         } else {
             snprintf(leftBuf, sizeof(leftBuf), "N:%lu HS:%lu +%luXP",
-                     sess.networks, sess.handshakes, sess.xp);
+                     (unsigned long)netTotal, sess.handshakes, sess.xp);
         }
         float distKM = sess.distanceM / 1000.0f;
         snprintf(rightBuf, sizeof(rightBuf), "D:%.1fKM B:%u/%u %u:%02u",
@@ -590,7 +590,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
         if (w > maxChalW) maxChalW = w;
     }
 
-    int xpColX = maxChalW + 34;
+    int xpColX = maxChalW + 22;
     if (xpColX > DISPLAY_W - 90) xpColX = DISPLAY_W - 90;
 
     if (chalTotal > 0) {

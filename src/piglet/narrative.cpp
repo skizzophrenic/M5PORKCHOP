@@ -37,6 +37,11 @@ static const char* const RF_BONE_W[]   = { "BONE", "TONE", "THRONE", "STONE", "M
 static const char* const RF_LOOT_W[]   = { "LOOT", "BOOT", "HOOT", "ROOT", "BRUTE", "SNOOT" };
 static const char* const RF_HAM_W[]    = { "HAM", "SPAM", "JAM", "RAM", "SCAM", "SLAM", "CLAM" };
 static const char* const RF_CHOP_W[]   = { "CHOP", "DROP", "STOP", "SHOP", "CROP", "FLOP", "SLOP" };
+static const char* const RF_FEAST_W[]  = { "FEAST", "BEAST", "LEAST", "PRIEST", "YEAST", "EAST" };
+static const char* const RF_SPELL_W[]  = { "SPELL", "HELL", "BELL", "FELL", "WELL", "SHELL" };
+static const char* const RF_GOLD_W[]   = { "GOLD", "BOLD", "OLD", "COLD", "TOLD", "MOLD" };
+static const char* const RF_FLAME_W[]  = { "FLAME", "GAME", "NAME", "BLAME", "SHAME", "FAME" };
+static const char* const RF_BREW_W[]   = { "BREW", "STEW", "DEW", "CREW", "FEW", "KNEW" };
 
 static const RhymeFamily RHYME_FAMILIES[] = {
     { RF_PIG_W,    6 },
@@ -53,8 +58,13 @@ static const RhymeFamily RHYME_FAMILIES[] = {
     { RF_LOOT_W,   6 },
     { RF_HAM_W,    7 },
     { RF_CHOP_W,   7 },
+    { RF_FEAST_W,  6 },
+    { RF_SPELL_W,  6 },
+    { RF_GOLD_W,   6 },
+    { RF_FLAME_W,  6 },
+    { RF_BREW_W,   6 },
 };
-static constexpr uint8_t FAMILY_COUNT = 14;
+static constexpr uint8_t FAMILY_COUNT = 19;
 
 // --- Lore noun pool (flat, for non-rhyming LORE/AWARE templates) ---
 static const char* const LORE_NOUNS[] = {
@@ -71,9 +81,13 @@ static const char* const ADJECTIVES[] = {
     "ANCIENT",  "UNDEAD",   "SACRED",   "ARCANE",
     "BLESSED",  "ELDRITCH", "VOLATILE", "HOSTILE",
     "TACTICAL", "SENTIENT", "CRISPY",   "SMOKED",
-    "BRINED",   "PICKLED",  "CURED",    "SIZZLING"
+    "BRINED",   "PICKLED",  "CURED",    "SIZZLING",
+    "MYTHIC",   "CHAOTIC",  "SPECTRAL", "PRIMAL",
+    "DUBIOUS",  "SKETCHY",  "DODGY",    "SUS",
+    "UNHINGED", "FOUL",     "ROTISSERIE","GLAZED",
+    "BRAISED",  "CHARRED",  "MARINATED"
 };
-static constexpr uint8_t ADJ_COUNT = 20;
+static constexpr uint8_t ADJ_COUNT = 35;
 
 // ============================================================
 // TEMPLATE CATEGORIES
@@ -104,6 +118,14 @@ static const char* const TPL_IDLE[] = {
     "{S} AND {O} ARGUE AT THE TAVERN.",
     "A {S} A {O} AND A BARD WALK IN.",
     "THE BALLAD OF {S} AND {O} BEGINS.",
+    "THE {S} ORDERS {A} {O} AT THE BAR.",
+    "TWO {S}S WALK INTO A {O}. OUCH.",
+    "THE TAVERN SERVES {A} {O}. ITS FINE.",
+    "THE {S} LOST ITS {O} LAST TUESDAY.",
+    "RUMOR: THE {O} IS ACTUALLY {A}.",
+    "THE INNKEEPER SELLS {A} {S} CHEAP.",
+    "A {A} {S} REVIEWS THE {O}. ONE STAR.",
+    "THE {S} NAPS. DREAMS OF {A} {O}.",
 };
 
 // --- HUNTING: D&D encounter rhyming verse ---
@@ -122,6 +144,12 @@ static const char* const TPL_HUNT[] = {
     "{S} READIES FOR {O}. WEAPON DRAWN.",
     "SOMETHING {A} STIRS. {S} SEES {O}.",
     "{S} CHECKS FOR {O}. PERCEPTION: {N}.",
+    "{S} PICKS UP THE SCENT OF {A} {O}.",
+    "THE HUNT FOR {A} {O} BEGINS. AGAIN.",
+    "AMBUSH! {S} WASNT READY FOR {O}.",
+    "THE {A} {O} LEAVES TRACKS. {S} FOLLOWS.",
+    "{S} SETS A TRAP BAITED WITH {O}.",
+    "STEALTH CHECK: {S} VS {O}. ROLL {N}.",
 };
 
 // --- VICTORY: Triumph, epic rhyming ---
@@ -138,6 +166,10 @@ static const char* const TPL_WIN[] = {
     "THE {S} FEASTS UPON THE {A} {O}.",
     "{S} WINS. {O} IS SERVED {A}.",
     "THE {O} IS DONE. THE {S} PREVAILS.",
+    "THE {A} {S} LOOTS 3 GOLD AND A {O}.",
+    "GG. THE {O} NEVER STOOD A CHANCE.",
+    "{S} FLEXES OVER THE {A} {O}. EARNED.",
+    "FLAWLESS. {S} DIDNT EVEN NEED THE {O}.",
 };
 
 // --- DEFEAT: Monty Python, humorous rhyming ---
@@ -154,6 +186,10 @@ static const char* const TPL_FAIL[] = {
     "TPK. BLAME THE {S}. AND THE {O}.",
     "THE {A} {S} HAS CEASED TO BE A {O}.",
     "{S} ROLLED {N}. CRIT FAIL. OH {O}.",
+    "THE {S} TRIED. THE {O} DIDNT CARE.",
+    "EVERYONE SAW {S} FAIL. EVEN THE {O}.",
+    "THE {A} {S} RAGE QUITS. {O} WAVES.",
+    "SKILL ISSUE. THE {O} WAS JUST A {S}.",
 };
 
 // --- LORE: porkchop mythology (uses lore nouns, no rhyme) ---
@@ -173,6 +209,11 @@ static const char* const TPL_LORE[] = {
     "HORSE STATUS: {A}. BARN STATUS: {A}.",
     "THE {S} HAS A CUNNING PLAN ABOUT {O}.",
     "ON SECOND THOUGHT LETS NOT GO TO {O}.",
+    "THERE IS NO {S} IN THIS {O}. TRUST.",
+    "THE {S} PROTOCOL HAS BEEN DEPRECATED.",
+    "LEGEND SAYS THE FIRST {S} COMPILED ITSELF.",
+    "THE {S} WAS INSIDE THE {O} ALL ALONG.",
+    "PATCH NOTES: REMOVED {S}. ADDED MORE {O}.",
 };
 
 // --- AWARE: situational templates using real game data ---
@@ -188,6 +229,50 @@ static const char* const TPL_AWARE[] = {
     "AT {BAT}%, THE {S} CONSIDERS RETIREMENT.",
     "LVL {LVL}: THE {A} {S} HAS SEEN {NETS} REALMS.",
     "THE {O} HIDES ON CH{CH}. {S} ROLLS {N}.",
+    "SESSION: {NETS} TARGETS. {HS} CAUGHT. {A}.",
+    "{BAT}% POWER. {NETS} REMAIN. THE {S} PUSHES.",
+    "LVL {LVL} {S}. {HS} TROPHIES MOUNTED.",
+    "CH{CH} HUMS WITH {A} ENERGY. {NETS} SOULS.",
+    "{NETS} IN THE AIR. {HS} IN THE BAG.",
+    "THE {S} HAS SEEN {NETS} REALMS TODAY.",
+};
+
+// --- TAUNT: directed at visible networks (uses {SSID}, lore nouns) ---
+static const char* const TPL_TAUNT[] = {
+    "'{SSID}' HAS NO IDEA WHATS COMING.",
+    "THE {A} {S} CIRCLES '{SSID}'. PATIENCE.",
+    "'{SSID}': YOUR PMF WONT SAVE YOU.",
+    "THE BARD WRITES AN ODE TO '{SSID}'.",
+    "'{SSID}' LOOKS {A}. THE {S} DISAGREES.",
+    "WHO NAMED THEIR WIFI '{SSID}'? WHY.",
+    "'{SSID}' BROADCASTS FEAR. THE {S} SMELLS IT.",
+    "THE {S} JUDGES '{SSID}'. FOUND WANTING.",
+    "'{SSID}' SLEEPS. THE {A} {S} DOES NOT.",
+    "DEAR '{SSID}': THE {S} SENDS REGARDS.",
+};
+
+// --- QUIET: existential, when no networks visible (rhyme families) ---
+static const char* const TPL_QUIET[] = {
+    "THE AIR IS DEAD. NOT A {S} STIRS.",
+    "THE {A} {S} LISTENS. SILENCE. THEN {O}.",
+    "NOTHING ON ANY CHANNEL. THE {S} WAITS.",
+    "NO TARGETS. THE {A} {S} QUESTIONS LIFE.",
+    "THE SPECTRUM IS A GRAVEYARD OF {O}.",
+    "THE {S} HOWLS INTO THE VOID. NO {O}.",
+    "CHANNEL {CH}: EMPTY. THE {S} SIGHS.",
+    "SOMEWHERE A {O} EXISTS. NOT HERE.",
+};
+
+// --- META: 4th wall breaks, self-aware humor (rhyme families) ---
+static const char* const TPL_META[] = {
+    "THE {S} SUSPECTS IT LIVES IN A DEVICE.",
+    "WAIT. IS ANYONE READING THIS.",
+    "THIS NARRATIVE HAS NO PLOT. ONLY {S}.",
+    "THE BARD FORGETS THE LINE. BLAMES {O}.",
+    "PAGE {N}. THE SCROLL HAS NO END.",
+    "THE {A} {S} BREAKS THE FOURTH WALL.",
+    "SOMEWHERE A DEV LAUGHS AT THIS.",
+    "THE {S} WONDERS WHY ITS ALWAYS UPPER CASE.",
 };
 
 // --- D20: combat roll result templates ---
@@ -258,7 +343,7 @@ static int tryExpandMulti(const char* tpl, char** pDst, const char* end) {
     if (*tpl != '{') return 0;
 
     // Build lookup for each multi-char slot
-    struct Slot { const char* tag; int tagLen; char val[8]; };
+    struct Slot { const char* tag; int tagLen; char val[16]; };
     // Populate values on-demand
     uint16_t nets = NetworkRecon::getNetworkCount();
     uint16_t hs = XP::getSession().handshakes;
@@ -275,6 +360,7 @@ static int tryExpandMulti(const char* tpl, char** pDst, const char* end) {
         { "{D20}",   5, "" },
         { "{XP}",    4, "" },
         { "{COUNT}", 7, "" },
+        { "{SSID}",  6, "" },
     };
     snprintf(slots[0].val, sizeof(slots[0].val), "%u", nets);
     snprintf(slots[1].val, sizeof(slots[1].val), "%u", hs);
@@ -284,6 +370,18 @@ static int tryExpandMulti(const char* tpl, char** pDst, const char* end) {
     snprintf(slots[5].val, sizeof(slots[5].val), "%u", sLastRoll);
     snprintf(slots[6].val, sizeof(slots[6].val), "%u", sTotalRollXP);
     snprintf(slots[7].val, sizeof(slots[7].val), "%u", sPendingRollCount);
+    // {SSID}: pick a random visible network name
+    const auto& netVec = NetworkRecon::getNetworks();
+    if (!netVec.empty()) {
+        uint16_t pick = esp_random() % netVec.size();
+        strncpy(slots[8].val, netVec[pick].ssid, 14);
+        slots[8].val[14] = '\0';
+        for (char* p = slots[8].val; *p; p++) *p = toupper(*p);
+        // Fall back if SSID was empty (hidden network)
+        if (slots[8].val[0] == '\0') strcpy(slots[8].val, "HIDDEN");
+    } else {
+        strcpy(slots[8].val, "UNKNOWN");
+    }
 
     for (auto& sl : slots) {
         if (strncmp(tpl, sl.tag, sl.tagLen) == 0) {
@@ -492,21 +590,48 @@ void NarrativeEngine::update(uint8_t mode) {
     if (sReady && (now - sLastUpdate < UPDATE_INTERVAL_MS)) return;
     sLastUpdate = now;
 
-    // --- Context selection ---
-    // 10% lore, 15% aware (real data), then mode-driven
+    // --- Context-aware selection ---
+    // Situational overrides first, then standard weighted selection
     const char* const* tpls;
     uint8_t tplCount;
     bool useRhyme;
     uint8_t ctxRoll = esp_random() % 100;
 
-    if (ctxRoll < 10) {
-        tpls = TPL_LORE;
-        tplCount = sizeof(TPL_LORE) / sizeof(TPL_LORE[0]);
-        useRhyme = false;  // Lore uses flat nouns
-    } else if (ctxRoll < 25) {
+    uint16_t netCount = NetworkRecon::getNetworkCount();
+    int bat = M5.Power.getBatteryLevel();
+    uint32_t sessionSec = (now - XP::getSession().startTime) / 1000;
+
+    // === CONTEXT OVERRIDES (checked first) ===
+    if (netCount == 0 && ctxRoll < 40) {
+        // No networks → existential QUIET templates
+        tpls = TPL_QUIET;
+        tplCount = sizeof(TPL_QUIET) / sizeof(TPL_QUIET[0]);
+        useRhyme = true;
+    } else if (bat > 0 && bat < 20 && ctxRoll < 30) {
+        // Low battery → urgent AWARE templates
         tpls = TPL_AWARE;
         tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
-        useRhyme = false;  // Aware uses flat nouns
+        useRhyme = false;
+    } else if (netCount > 0 && ctxRoll < 12) {
+        // Networks visible → TAUNT a specific SSID
+        tpls = TPL_TAUNT;
+        tplCount = sizeof(TPL_TAUNT) / sizeof(TPL_TAUNT[0]);
+        useRhyme = false;
+    } else if (sessionSec > 1800 && ctxRoll < 7) {
+        // Long session (30+ min) → 4th wall META
+        tpls = TPL_META;
+        tplCount = sizeof(TPL_META) / sizeof(TPL_META[0]);
+        useRhyme = true;
+    }
+    // === STANDARD SELECTION ===
+    else if (ctxRoll < 17) {
+        tpls = TPL_LORE;
+        tplCount = sizeof(TPL_LORE) / sizeof(TPL_LORE[0]);
+        useRhyme = false;
+    } else if (ctxRoll < 37) {
+        tpls = TPL_AWARE;
+        tplCount = sizeof(TPL_AWARE) / sizeof(TPL_AWARE[0]);
+        useRhyme = false;
     } else if (mode >= 1 && mode <= 3) {
         // Active modes: OINK(1), DNH(2), WARHOG(3)
         uint8_t sub = esp_random() % 100;
@@ -520,21 +645,21 @@ void NarrativeEngine::update(uint8_t mode) {
             tpls = TPL_FAIL;
             tplCount = sizeof(TPL_FAIL) / sizeof(TPL_FAIL[0]);
         }
-        useRhyme = true;  // Combat templates rhyme
+        useRhyme = true;
     } else {
         // Idle, menu, charging, etc.
         uint8_t sub = esp_random() % 100;
-        if (sub < 65) {
+        if (sub < 60) {
             tpls = TPL_IDLE;
             tplCount = sizeof(TPL_IDLE) / sizeof(TPL_IDLE[0]);
-        } else if (sub < 85) {
+        } else if (sub < 80) {
             tpls = TPL_FAIL;
             tplCount = sizeof(TPL_FAIL) / sizeof(TPL_FAIL[0]);
         } else {
             tpls = TPL_WIN;
             tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
         }
-        useRhyme = true;  // Idle/fail/win templates rhyme
+        useRhyme = true;
     }
 
     generateLine(tpls, tplCount, useRhyme);

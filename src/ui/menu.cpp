@@ -219,8 +219,7 @@ const MenuItem Menu::GROUP_SYSTEM[] = {
 };
 const uint8_t Menu::GROUP_SYSTEM_SIZE = sizeof(GROUP_SYSTEM) / sizeof(GROUP_SYSTEM[0]);
 
-// Story generation removed — narrative engine takes its place in the menu.
-// Boot splash screen 4 still shows the "THEY HAD NO..." story at boot.
+
 
 // ============================================================================
 // STATIC MEMBER INITIALIZATION

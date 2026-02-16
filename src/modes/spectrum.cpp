@@ -44,7 +44,6 @@ const int XP_BAR_Y = 100;           // Filter/status bar
 const int BTN_H = 18;               // Filter button height (was 14)
 const int LIST_Y = 120;             // Network list top (compact gap from filter bar)
 const int LIST_ROW_H = 12;          // Network list row height
-const uint8_t TOTAL_VISIBLE = 6;    // Total visible rows: 5 in mainCanvas + 1 in bottom bar
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
@@ -1202,16 +1201,10 @@ void SpectrumMode::handleInput() {
                 }
             }
         }
-        // Network list tap: rows 0-4 in mainCanvas, row 5 in bottom bar
+        // Network list tap: rows 0-4 in mainCanvas (bottom bar is now RF sitrep, not a list row)
         else if (renderCount > 0 && canvasY >= LIST_Y + LIST_ROW_H) {
-            int hitIdx;
-            if (tapEv.y >= (DISPLAY_H - BOTTOM_BAR_H)) {
-                // Tap in bottom bar area → 6th row
-                hitIdx = LIST_VISIBLE;
-            } else {
-                hitIdx = (canvasY - (LIST_Y + LIST_ROW_H)) / LIST_ROW_H;
-            }
-            if (hitIdx >= 0 && hitIdx < (int)TOTAL_VISIBLE) {
+            int hitIdx = (canvasY - (LIST_Y + LIST_ROW_H)) / LIST_ROW_H;
+            if (hitIdx >= 0 && hitIdx < (int)LIST_VISIBLE) {
                 uint8_t idx = listScrollOffset + hitIdx;
                 if (idx < renderCount) {
                     listSelectedIdx = idx;
@@ -1247,7 +1240,7 @@ void SpectrumMode::handleInput() {
     if (Input::swipeUp() && renderCount > 0) {
         if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
             int count = 0;
-            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
+            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
                 int startIdx = selectedIndex;
                 int c = 0;
                 do {
@@ -1262,7 +1255,7 @@ void SpectrumMode::handleInput() {
                 viewCenter24MHz = viewCenterMHz;
             }
         } else if (viewBand == SpectrumBand::BAND_5) {
-            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
+            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
                 int next = findNextC5Index(selectedC5Index, -1);
                 if (next < 0) break;
                 selectedC5Index = next;
@@ -1278,7 +1271,7 @@ void SpectrumMode::handleInput() {
     if (Input::swipeDown() && renderCount > 0) {
         if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
             int count = 0;
-            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
+            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
                 int startIdx = selectedIndex;
                 int c = 0;
                 do {
@@ -1293,7 +1286,7 @@ void SpectrumMode::handleInput() {
                 viewCenter24MHz = viewCenterMHz;
             }
         } else if (viewBand == SpectrumBand::BAND_5) {
-            for (int jump = 0; jump < TOTAL_VISIBLE; jump++) {
+            for (int jump = 0; jump < LIST_VISIBLE; jump++) {
                 int next = findNextC5Index(selectedC5Index, +1);
                 if (next < 0) break;
                 selectedC5Index = next;
@@ -2324,8 +2317,8 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     uint16_t total = renderCount;
     if (listSelectedIdx >= total) listSelectedIdx = total - 1;
     if (listScrollOffset > listSelectedIdx) listScrollOffset = listSelectedIdx;
-    if (listSelectedIdx >= listScrollOffset + TOTAL_VISIBLE) {
-        listScrollOffset = listSelectedIdx - TOTAL_VISIBLE + 1;
+    if (listSelectedIdx >= listScrollOffset + LIST_VISIBLE) {
+        listScrollOffset = listSelectedIdx - LIST_VISIBLE + 1;
     }
 
     // Draw rows 0-4 in mainCanvas (5 rows)
@@ -2341,28 +2334,41 @@ void SpectrumMode::drawNetworkList(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     if (listScrollOffset > 0) {
         canvas.drawString("^", 310, LIST_Y + LIST_ROW_H + 2);
     }
-    if (listScrollOffset + TOTAL_VISIBLE < total) {
+    if (listScrollOffset + LIST_VISIBLE < total) {
         canvas.drawString("v", 310, LIST_Y + (LIST_VISIBLE * LIST_ROW_H) + LIST_ROW_H + 2);
     }
 }
 
-// Draw 6th list row in the bottom bar canvas (20px tall, row at y=4)
+// RF intel sitrep in the bottom bar (20px tall)
 void SpectrumMode::drawBottomBarRow(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
-    if (renderCount == 0 || monitoringNetwork || actionPromptActive) {
-        canvas.fillSprite(bg);
-        return;
-    }
-
     canvas.fillSprite(bg);
     canvas.setTextSize(1);
     canvas.setFont(&fonts::Font0);
-    canvas.setTextDatum(TL_DATUM);
+    canvas.setTextColor(fg);
 
-    // Row 5 (6th visible) — index = listScrollOffset + 5
-    uint8_t idx6 = listScrollOffset + LIST_VISIBLE;
-    if (idx6 < renderCount) {
-        drawListRow(canvas, 4, idx6, idx6 == listSelectedIdx, fg, bg);
+    // Count SOFT targets (no PMF = deauth-able) from render snapshot
+    uint16_t softCount = 0;
+    for (uint16_t i = 0; i < renderCount; i++) {
+        if (!renderNets[i].hasPMF) softCount++;
     }
+
+    // Left: N:<total> S:<soft> HS:<handshakes>
+    const SessionStats& sess = XP::getSession();
+    uint16_t netTotal = NetworkRecon::getNetworkCount();
+    char leftBuf[32];
+    snprintf(leftBuf, sizeof(leftBuf), "N:%u S:%u HS:%lu",
+             netTotal, softCount, (unsigned long)sess.handshakes);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.drawString(leftBuf, 4, 6);
+
+    // Right: PPS:<rate> <uptime>
+    uint32_t uptime = (millis() - sess.startTime) / 1000;
+    char rightBuf[24];
+    snprintf(rightBuf, sizeof(rightBuf), "PPS:%lu %lu:%02lu",
+             (unsigned long)displayPps, (unsigned long)(uptime / 60), (unsigned long)(uptime % 60));
+    canvas.setTextDatum(TR_DATUM);
+    canvas.drawString(rightBuf, 316, 6);
+    canvas.setTextDatum(TL_DATUM);
 }
 
 void SpectrumMode::drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg) {

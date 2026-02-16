@@ -100,7 +100,6 @@ static const char* bootModeLabel(BootMode mode) {
     }
 }
 
-static bool bootStoryShown = false;
 
 Porkchop::Porkchop()
     : currentMode(PorkchopMode::IDLE)
@@ -254,21 +253,6 @@ void Porkchop::init() {
     
     // SFX::init() already called in setup() for boot sound — don't re-init
 
-    if (!bootStoryShown) {
-        bootStoryShown = true;
-        // Generate 4 narrative lines for multi-line boot toast
-        for (int i = 0; i < 4; i++) NarrativeEngine::update(0);
-        if (NarrativeEngine::hasContent()) {
-            char storyBuf[160];
-            snprintf(storyBuf, sizeof(storyBuf), "%s\n%s\n%s\n%s",
-                     NarrativeEngine::getLine3(),
-                     NarrativeEngine::getLine2(),
-                     NarrativeEngine::getLine1(),
-                     "JAH BLESS DI RF.");
-            Display::showToast(storyBuf, 5000);
-        }
-    }
-    
     Serial.println("[PORKCHOP] Initialized");
     SDLog::log("PORK", "Initialized - LV%d %s", XP::getLevel(), XP::getTitle());
 }
