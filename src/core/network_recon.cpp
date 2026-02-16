@@ -323,6 +323,7 @@ static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) {
         net.isHidden = false;
         net.lastDataSeen = 0;
         net.cooldownUntil = 0;
+        net.lastAttackTime = 0;
         net.clientBitset = 0;
         net.clientBitsetHigh = 0;
 

@@ -317,7 +317,6 @@ void TracksMenu::handleInput() {
                 scanFiles();
             }
         } else {
-            // BtnA cancels during sync (back-hold exits to MENU via core state machine).
             if (Input::up()) {
                 cancelSync();
             }
@@ -346,22 +345,7 @@ void TracksMenu::handleInput() {
         return;
     }
 
-    // Hold BtnA to start WiGLE sync.
-    static uint32_t aPressStartMs = 0;
-    static bool syncHoldFired = false;
-    constexpr uint32_t kSyncHoldMs = 900;
-    if (M5.BtnA.isPressed()) {
-        if (aPressStartMs == 0) aPressStartMs = millis();
-        if (!syncHoldFired && (millis() - aPressStartMs) >= kSyncHoldMs) {
-            startSync();
-            syncHoldFired = true;
-        }
-    } else {
-        aPressStartMs = 0;
-        syncHoldFired = false;
-    }
-
-    // Tap-to-select: startY=22, lineHeight=20
+    // Tap-to-select on list items
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (!files.empty()) {
@@ -401,26 +385,21 @@ void TracksMenu::handleInput() {
         return;
     }
 
+    // SYNC button (BtnA / left bottom bar zone)
     if (Input::up()) {
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
+        startSync();
         return;
     }
 
+    // NUKE button (BtnC / right bottom bar zone)
     if (Input::down()) {
-        if (!files.empty() && selectedIndex < files.size() - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
+        if (!files.empty()) {
+            nukeConfirmActive = true;
         }
         return;
     }
 
+    // OK / detail view (BtnB / center bottom bar zone)
     if (Input::select()) {
         if (!files.empty()) {
             detailViewActive = true;
@@ -540,11 +519,11 @@ void TracksMenu::draw(M5Canvas& canvas) {
     canvas.print("FILE");
     canvas.setCursor(112, 12);
     canvas.print("ST");
-    canvas.setCursor(142, 12);
+    canvas.setCursor(140, 12);
     canvas.print("NETS");
-    canvas.setCursor(182, 12);
+    canvas.setCursor(176, 12);
     canvas.print("TIME");
-    canvas.setCursor(252, 12);
+    canvas.setCursor(258, 12);
     canvas.print("SIZE");
     
     // File list (always drawn, modals overlay on top)
@@ -564,7 +543,7 @@ void TracksMenu::draw(M5Canvas& canvas) {
         
         // Filename first (truncated) - extract just the date/time part
         char displayName[24];
-        formatDisplayName(file.filename, displayName, sizeof(displayName), 15, "..", true);
+        formatDisplayName(file.filename, displayName, sizeof(displayName), 17, "..", true);
         canvas.setCursor(6, y);
         canvas.print(displayName);
 
@@ -577,17 +556,17 @@ void TracksMenu::draw(M5Canvas& canvas) {
         }
 
         // Network count
-        canvas.setCursor(142, y);
+        canvas.setCursor(140, y);
         canvas.printf("~%u", (unsigned)file.networkCount);
 
         // Time column
-        canvas.setCursor(182, y);
+        canvas.setCursor(176, y);
         char timeBuf[16];
         formatTime(timeBuf, sizeof(timeBuf), file.fileTime);
         canvas.print(timeBuf);
 
         // Size column
-        canvas.setCursor(252, y);
+        canvas.setCursor(258, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), file.fileSize);
         canvas.print(sizeBuf);

@@ -694,8 +694,9 @@ void Menu::drawRoot(M5Canvas& canvas) {
         };
         for (int i = 0; i < 3; i++) {
             if (lines[i][0] == '\0') continue;
-            // All lines permanently inverted
-            canvas.fillRect(0, ny + i * 14, DISPLAY_W, 12, fg);
+            // All lines permanently inverted (10px per line, 1px margin = centered)
+            int ly = ny + i * 10;
+            canvas.fillRect(0, ly, DISPLAY_W, 10, fg);
             canvas.setTextColor(bg);
             if (i == 2) {
                 // Newest line: typing reveal
@@ -704,15 +705,15 @@ void Menu::drawRoot(M5Canvas& canvas) {
                 if (rev > 0) {
                     memcpy(buf, lines[i], rev);
                     buf[rev] = '\0';
-                    canvas.drawString(buf, 4, ny + i * 14);
+                    canvas.drawString(buf, 4, ly + 1);
                 }
                 // Blinking cursor while typing
                 if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
                     int cx = 4 + canvas.textWidth(buf);
-                    canvas.fillRect(cx, ny + i * 14, 6, 8, bg);
+                    canvas.fillRect(cx, ly + 1, 6, 8, bg);
                 }
             } else {
-                canvas.drawString(lines[i], 4, ny + i * 14);
+                canvas.drawString(lines[i], 4, ly + 1);
             }
         }
         canvas.setTextColor(fg);  // Restore

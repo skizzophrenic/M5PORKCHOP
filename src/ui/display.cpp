@@ -329,18 +329,18 @@ static void drawBuffOverlay(M5Canvas& canvas) {
     canvas.setTextDatum(TL_DATUM);
 }
 
-// Mini spectrum widget - shows per-channel signal bars from NetworkRecon data
+// Mini spectrum widget - analog waveform scanner with filled curve
 static void drawMiniSpectrum(M5Canvas& canvas, int x, int y, int w, int h) {
     const uint16_t fg = getColorFG();
     const uint16_t bg = getColorBG();
     const int8_t RSSI_MIN = -95;
     const int8_t RSSI_MAX = -30;
     const int8_t NOISE_FLOOR = -92;
-    const int barAreaH = h - 10;  // Top portion for bars, bottom 10px for label
+    const int barAreaH = h - 10;
 
     // Build per-channel peak RSSI from NetworkRecon
     int8_t peakRSSI[14];
-    memset(peakRSSI, 0, sizeof(peakRSSI)); // 0 = no data
+    memset(peakRSSI, 0, sizeof(peakRSSI));
 
     if (NetworkRecon::isRunning() || NetworkRecon::isPaused()) {
         NetworkRecon::CriticalSection lock;
@@ -361,47 +361,72 @@ static void drawMiniSpectrum(M5Canvas& canvas, int x, int y, int w, int h) {
     // Border
     canvas.drawRect(x, y, w, h, fg);
 
-    // Inner area starts at x+1, y+1
+    // Inner area
     int ix = x + 1;
     int iy = y + 1;
     int iw = w - 2;
-    int barPitch = iw / 13;          // px per channel (6 for 82px inner)
-    int barW = barPitch - 1;          // bar width (5px with 1px gap)
-    int pad = (iw - barPitch * 13) / 2; // center leftover pixels
+    int pitch = iw / 13;
+    int pad = (iw - pitch * 13) / 2;
+    int baseline = iy + barAreaH - 1;
 
-    // Draw channel bars
+    // Compute 13 waveform points (center of each channel slot)
+    int16_t ptx[13], pty[13];
     for (uint8_t ch = 1; ch <= 13; ch++) {
-        int barX = ix + pad + (ch - 1) * barPitch;
-
+        int i = ch - 1;
+        ptx[i] = ix + pad + i * pitch + pitch / 2;
         if (peakRSSI[ch] != 0) {
             int8_t rssi = peakRSSI[ch];
             if (rssi < RSSI_MIN) rssi = RSSI_MIN;
             if (rssi > RSSI_MAX) rssi = RSSI_MAX;
-            int barH = ((rssi - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
-            if (barH < 1) barH = 1;
-
-            int barY = iy + barAreaH - barH;
-
-            if (ch == curCh) {
-                // Highlighted: full column inverted, bar punched out
-                canvas.fillRect(barX, iy, barW, barAreaH, fg);
-                canvas.fillRect(barX, barY, barW, barH, bg);
-            } else {
-                canvas.fillRect(barX, barY, barW, barH, fg);
-            }
-        } else if (ch == curCh) {
-            // Current channel but no networks: solid column
-            canvas.fillRect(barX, iy, barW, barAreaH, fg);
+            int sh = ((rssi - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
+            if (sh < 2) sh = 2;
+            pty[i] = baseline - sh;
+        } else {
+            pty[i] = baseline;
         }
     }
 
-    // Noise floor line at -92dBm
+    // Fill waveform: left edge slope
+    canvas.fillTriangle(ix, baseline, ptx[0], pty[0], ptx[0], baseline, fg);
+    // Fill waveform: inter-channel trapezoids (2 triangles each)
+    for (int i = 0; i < 12; i++) {
+        canvas.fillTriangle(ptx[i], pty[i], ptx[i+1], pty[i+1], ptx[i], baseline, fg);
+        canvas.fillTriangle(ptx[i+1], pty[i+1], ptx[i+1], baseline, ptx[i], baseline, fg);
+    }
+    // Fill waveform: right edge slope
+    canvas.fillTriangle(ptx[12], pty[12], ix + iw - 1, baseline, ptx[12], baseline, fg);
+
+    // Crisp waveform edge lines
+    canvas.drawLine(ix, baseline, ptx[0], pty[0], fg);
+    for (int i = 0; i < 12; i++) {
+        canvas.drawLine(ptx[i], pty[i], ptx[i+1], pty[i+1], fg);
+    }
+    canvas.drawLine(ptx[12], pty[12], ix + iw - 1, baseline, fg);
+
+    // Scan line at current channel (inverted: fg above waveform, bg inside)
+    if (curCh >= 1 && curCh <= 13) {
+        int si = curCh - 1;
+        int peakY = pty[si];
+        // Above waveform: fg line on bg background
+        if (peakY > iy)
+            canvas.drawFastVLine(ptx[si], iy, peakY - iy, fg);
+        // Inside waveform: bg line on fg fill
+        canvas.drawFastVLine(ptx[si], peakY, baseline - peakY + 1, bg);
+        canvas.fillCircle(ptx[si], peakY, 1, bg);
+    }
+
+    // Noise floor dotted line (BG dots punch through fill)
     int noiseH = ((NOISE_FLOOR - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
-    int noiseY = iy + barAreaH - noiseH;
-    if (noiseY >= iy && noiseY < iy + barAreaH) {
-        for (int px = ix; px < ix + iw; px += 2) {
-            canvas.drawPixel(px, noiseY, fg);
+    int noiseY = baseline - noiseH;
+    if (noiseY >= iy && noiseY < baseline) {
+        for (int nx = ix; nx < ix + iw; nx += 3) {
+            canvas.drawPixel(nx, noiseY, bg);
         }
+    }
+
+    // Channel tick marks at baseline (BG cuts through fill)
+    for (int i = 0; i < 13; i++) {
+        canvas.drawFastVLine(ptx[i], baseline - 1, 2, bg);
     }
 
     // Channel number text at bottom center
@@ -645,7 +670,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.setTextColor(bg);
         canvas.setTextSize(1);
         canvas.setTextDatum(TL_DATUM);
-        canvas.drawString(NarrativeEngine::getLine3(), 4, 190);
+        canvas.drawString(NarrativeEngine::getLine3(), 4, 191);
         canvas.setTextColor(fg);  // Restore
     }
 }
@@ -1380,14 +1405,32 @@ void Display::drawBottomBar() {
             if (rev > 0) {
                 memcpy(buf, NarrativeEngine::getLine1(), rev);
                 buf[rev] = '\0';
-                bottomBar.drawString(buf, 4, 10);
+                bottomBar.drawString(buf, 4, 11);
             }
             // Blinking cursor while typing
             if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
                 int cx = 4 + bottomBar.textWidth(buf);
-                bottomBar.fillRect(cx, 10, 6, 8, bg);
+                bottomBar.fillRect(cx, 11, 6, 8, bg);
             }
         }
+        return;
+    }
+
+    // --- Loot menus: SYNC + OK + NUKE action buttons ---
+    bool isLootMode = (mode == PorkchopMode::HASHES || mode == PorkchopMode::TRACKS);
+    if (isLootMode) {
+        const int btnW = DISPLAY_W / 3;
+        bottomBar.fillSprite(bg);
+        bottomBar.setTextSize(1);
+        bottomBar.setTextDatum(top_center);
+        bottomBar.setTextColor(fg);
+        // Dividers
+        bottomBar.drawFastVLine(btnW, 2, 16, fg);
+        bottomBar.drawFastVLine(btnW * 2, 2, 16, fg);
+        // Labels
+        bottomBar.drawString("SYNC", btnW / 2, 6);
+        bottomBar.drawString("OK", DISPLAY_W / 2, 6);
+        bottomBar.drawString("NUKE", btnW * 2 + (DISPLAY_W - btnW * 2) / 2, 6);
         return;
     }
 
@@ -1395,14 +1438,12 @@ void Display::drawBottomBar() {
     // Three tappable zones: [^ UP] [SEL] [DN v]
     bool isMenuMode = (mode == PorkchopMode::MENU ||
                        mode == PorkchopMode::SETTINGS ||
-                       mode == PorkchopMode::HASHES ||
                        mode == PorkchopMode::BADGES ||
                        mode == PorkchopMode::ABOUT ||
                        mode == PorkchopMode::XFER ||
                        mode == PorkchopMode::DIAGDATA ||
                        mode == PorkchopMode::FLEXES ||
                        mode == PorkchopMode::BOAR_BROS ||
-                       mode == PorkchopMode::TRACKS ||
                        mode == PorkchopMode::UNLOCKABLES ||
                        mode == PorkchopMode::BOUNTY ||
                        mode == PorkchopMode::SD_FORMAT ||

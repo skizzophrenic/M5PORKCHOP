@@ -1189,6 +1189,7 @@ void OinkMode::update() {
                          for (auto& net : networks()) {
                              if (memcmp(net.bssid, c5BackgroundBssid, 6) == 0) {
                                  net.attackAttempts++;
+                                 net.lastAttackTime = now;
                                  break;
                              }
                          }
@@ -1210,6 +1211,7 @@ void OinkMode::update() {
                 // Select this target (locks to channel, stops hopping)
                 selectTarget(selectionIndex);
                 networks()[selectionIndex].attackAttempts++;
+                networks()[selectionIndex].lastAttackTime = now;
 
                 // Go to LOCKING state to discover clients before attacking
                 autoState = AutoState::LOCKING;
@@ -3789,7 +3791,18 @@ int OinkMode::getNextTarget() {
     int bestRecentScore = -100000;
 
     NetworkRecon::enterCritical();
-    
+
+    // Reset exhausted networks when conditions change (new client activity)
+    for (auto& net : networks()) {
+        if (net.attackAttempts >= TARGET_MAX_ATTEMPTS && net.lastAttackTime > 0) {
+            // New client data since last attack — fresh reconnection opportunity
+            if (net.lastDataSeen > net.lastAttackTime) {
+                net.attackAttempts = 0;
+                net.cooldownUntil = 0;
+            }
+        }
+    }
+
     // #region agent log - H3 PMF detection check
     {
         static uint32_t lastTargetLog = 0;
@@ -4035,7 +4048,8 @@ void OinkMode::injectTestNetwork(const uint8_t* bssid, const char* ssid, uint8_t
     net.isHidden = (!ssid || ssid[0] == 0);
     net.lastDataSeen = 0;
     net.cooldownUntil = 0;
-    
+    net.lastAttackTime = 0;
+
     try {
         networks().push_back(net);
     } catch (const std::bad_alloc&) {

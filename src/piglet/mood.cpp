@@ -3259,9 +3259,9 @@ void Mood::onBored(uint16_t networkCount) {
     int idx = pickPhraseIdx(PhraseCategory::BORED, boredCount);
 
     if (networkCount > 0) {
-        // Networks exist but all exhausted/protected
+        // Networks exist but all exhausted/protected (not necessarily captured)
         char buf[48];
-        snprintf(buf, sizeof(buf), "%s (%d pwned)", boredPhrases[idx], networkCount);
+        snprintf(buf, sizeof(buf), "%s (%d APs)", boredPhrases[idx], networkCount);
         SET_PHRASE(currentPhrase, buf);
     } else {
         // No networks at all

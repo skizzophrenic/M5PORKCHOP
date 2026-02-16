@@ -525,14 +525,12 @@ void HashesMenu::handleInput() {
     // --- Sync modal (takes over input) ---
     if (syncModalActive) {
         if (syncState == SyncState::ERROR || syncState == SyncState::COMPLETE) {
-            // BtnB closes the modal after completion/error
             if (Input::select() || Input::up()) {
                 syncModalActive = false;
                 syncState = SyncState::IDLE;
-                scanCaptures();  // Rescan captures after sync
+                scanCaptures();
             }
         } else {
-            // BtnA cancels during sync (back-hold exits to MENU via core state machine).
             if (Input::up()) {
                 cancelSync();
             }
@@ -540,7 +538,7 @@ void HashesMenu::handleInput() {
         return;
     }
 
-    // --- Nuke confirmation modal (Core2 doesn't expose the shortcut, but keep logic) ---
+    // --- Nuke confirmation modal ---
     if (nukeConfirmActive) {
         if (Input::select()) {
             nukeLoot();
@@ -562,22 +560,7 @@ void HashesMenu::handleInput() {
         return;
     }
 
-    // Hold BtnA to start WPA-SEC sync (keeps navigation as click-only).
-    static uint32_t aPressStartMs = 0;
-    static bool syncHoldFired = false;
-    constexpr uint32_t kSyncHoldMs = 900;
-    if (M5.BtnA.isPressed()) {
-        if (aPressStartMs == 0) aPressStartMs = millis();
-        if (!syncHoldFired && (millis() - aPressStartMs) >= kSyncHoldMs) {
-            startSync();
-            syncHoldFired = true;
-        }
-    } else {
-        aPressStartMs = 0;
-        syncHoldFired = false;
-    }
-
-    // Tap-to-select: startY=22, lineHeight=20
+    // Tap-to-select on list items
     Input::TapEvent tapEv;
     if (Input::tap(tapEv)) {
         if (!captures.empty()) {
@@ -618,30 +601,21 @@ void HashesMenu::handleInput() {
         return;
     }
 
-    // Navigation with BtnA (up) and BtnC (down) — also rotates hints.
+    // SYNC button (BtnA / left bottom bar zone)
     if (Input::up()) {
-        hintIndex = (hintIndex + 1) % HINT_COUNT;
-        if (selectedIndex > 0) {
-            selectedIndex--;
-            if (selectedIndex < scrollOffset) {
-                scrollOffset = selectedIndex;
-            }
-        }
+        startSync();
         return;
     }
 
+    // NUKE button (BtnC / right bottom bar zone)
     if (Input::down()) {
-        hintIndex = (hintIndex + 1) % HINT_COUNT;
-        if (!captures.empty() && selectedIndex < captures.size() - 1) {
-            selectedIndex++;
-            if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
-                scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
-            }
+        if (!captures.empty()) {
+            nukeConfirmActive = true;
         }
         return;
     }
 
-    // BtnB opens detail view.
+    // OK / detail view (BtnB / center bottom bar zone)
     if (Input::select()) {
         if (!captures.empty() && selectedIndex < captures.size()) {
             detailViewActive = true;
@@ -740,11 +714,11 @@ void HashesMenu::draw(M5Canvas& canvas) {
     canvas.print("SSID");
     canvas.setCursor(112, 12);
     canvas.print("ST");
-    canvas.setCursor(142, 12);
+    canvas.setCursor(140, 12);
     canvas.print("TYPE");
-    canvas.setCursor(182, 12);
+    canvas.setCursor(176, 12);
     canvas.print("TIME");
-    canvas.setCursor(252, 12);
+    canvas.setCursor(258, 12);
     canvas.print("SIZE");
 
     // Capture list
@@ -791,17 +765,17 @@ void HashesMenu::draw(M5Canvas& canvas) {
         }
 
         // Type column
-        canvas.setCursor(142, y);
+        canvas.setCursor(140, y);
         canvas.print(cap.isPMKID ? "PM" : "HS");
 
         // Time column
-        canvas.setCursor(182, y);
+        canvas.setCursor(176, y);
         char timeBuf[16];
         formatTime(timeBuf, sizeof(timeBuf), cap.captureTime);
         canvas.print(timeBuf);
 
         // Size column
-        canvas.setCursor(252, y);
+        canvas.setCursor(258, y);
         char sizeBuf[12];
         formatSize(sizeBuf, sizeof(sizeBuf), cap.fileSize);
         canvas.print(sizeBuf);
