@@ -24,7 +24,11 @@ public:
     static const char* getLine2();   // Previous narrative line
     static const char* getLine3();   // Oldest narrative line (3rd scrollback)
     static bool hasContent();
-    static bool isFlashing();        // True for 500ms after new line generated
+
+    // Typing animation — call tick() every frame, only line1 types in
+    static void tick();              // Advance typing reveal
+    static uint8_t getReveal1();     // Chars revealed so far for line1
+    static bool isTyping();          // True while line1 still revealing
 
     // Event-driven forced lines (bypass 9s timer, newest wins)
     static void pushEvent(NarrativeEvent evt);

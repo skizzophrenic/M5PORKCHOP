@@ -680,12 +680,12 @@ void Menu::drawRoot(M5Canvas& canvas) {
         canvas.drawString("v", DISPLAY_W - 12, yOffset + (VISIBLE_ITEMS - 1) * lineHeight);
     }
 
-    // Narrative engine below menu stack (3 lines, full width)
+    // Narrative engine below menu stack (3 lines, inverted, typing effect on newest)
     NarrativeEngine::update((uint8_t)PorkchopMode::MENU);
+    NarrativeEngine::tick();
     if (NarrativeEngine::hasContent()) {
         canvas.setTextSize(1);
         canvas.setTextDatum(TL_DATUM);
-        bool flash = NarrativeEngine::isFlashing();
         int ny = 155;  // Below 6 root items (y=28 + 6*20 = 148) + gap
         const char* lines[3] = {
             NarrativeEngine::getLine3(),  // Oldest
@@ -694,14 +694,26 @@ void Menu::drawRoot(M5Canvas& canvas) {
         };
         for (int i = 0; i < 3; i++) {
             if (lines[i][0] == '\0') continue;
-            bool inv = (flash && i == 2);  // Flash newest line only
-            if (inv) {
-                canvas.fillRect(0, ny + i * 14, DISPLAY_W, 12, fg);
-                canvas.setTextColor(bg);
+            // All lines permanently inverted
+            canvas.fillRect(0, ny + i * 14, DISPLAY_W, 12, fg);
+            canvas.setTextColor(bg);
+            if (i == 2) {
+                // Newest line: typing reveal
+                char buf[54] = {0};
+                uint8_t rev = NarrativeEngine::getReveal1();
+                if (rev > 0) {
+                    memcpy(buf, lines[i], rev);
+                    buf[rev] = '\0';
+                    canvas.drawString(buf, 4, ny + i * 14);
+                }
+                // Blinking cursor while typing
+                if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
+                    int cx = 4 + canvas.textWidth(buf);
+                    canvas.fillRect(cx, ny + i * 14, 6, 8, bg);
+                }
             } else {
-                canvas.setTextColor(fg);
+                canvas.drawString(lines[i], 4, ny + i * 14);
             }
-            canvas.drawString(lines[i], 4, ny + i * 14);
         }
         canvas.setTextColor(fg);  // Restore
     }

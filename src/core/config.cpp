@@ -529,7 +529,7 @@ bool Config::applyJson(const JsonDocument& doc) {
         gpsConfig.rxPin = 13;  // Core2 PORT.C RXD2
         gpsConfig.txPin = 14;  // Core2 PORT.C TXD2
 
-        gpsConfig.baudRate = doc["gps"]["baudRate"] | 115200;
+        gpsConfig.baudRate = doc["gps"]["baudRate"] | 9600;
         gpsConfig.updateInterval = doc["gps"]["updateInterval"] | 5;
         gpsConfig.sleepTimeMs = doc["gps"]["sleepTimeMs"] | 5000;
         gpsConfig.powerSave = doc["gps"]["powerSave"] | true;

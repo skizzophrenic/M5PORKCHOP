@@ -106,13 +106,14 @@ void GPS::processSerial() {
         yield(); // Allow other tasks to run
     }
     
-    // GPS debug logs silenced - pig prefers stealth
-    // Uncomment for debugging:
-    // uint32_t now = millis();
-    // if (now - lastDebugTime >= 5000) {
-    //     Serial.printf("[GPS] Bytes: %lu, Sats: %d, Valid: %s\n", bytesProcessed, gps.satellites.value(), gps.location.isValid() ? "Y" : "N");
-    //     lastDebugTime = now;
-    // }
+    uint32_t now = millis();
+    if (now - lastDebugTime >= 5000) {
+        Serial.printf("[GPS] Bytes: %lu, Sats: %d, Valid: %s, Age: %lu, HDOP: %d\n",
+                      bytesProcessed, gps.satellites.value(),
+                      gps.location.isValid() ? "Y" : "N",
+                      gps.location.age(), gps.hdop.value());
+        lastDebugTime = now;
+    }
 }
 
 void GPS::updateData() {

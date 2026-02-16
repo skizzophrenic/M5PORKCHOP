@@ -511,7 +511,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
             snprintf(leftBuf, sizeof(leftBuf), "U:%03lu S:%03lu D:%.1fKM [%.2f,%.2f]",
                      unique, saved, distM / 1000.0, gps.latitude, gps.longitude);
         } else {
-            GPSData gps = JanusHog::getC5GPSData();
+            GPSData gps = GPS::getData();
             snprintf(leftBuf, sizeof(leftBuf), "U:%03lu S:%03lu D:%luM GPS:%02dSAT",
                      unique, saved, distM, gps.satellites);
         }
@@ -641,17 +641,12 @@ static void drawInfoPanel(M5Canvas& canvas) {
 
     // 3rd narrative line (oldest) drawn at bottom of mainCanvas, just above bottomBar
     if (NarrativeEngine::hasContent() && NarrativeEngine::getLine3()[0]) {
-        bool flash = NarrativeEngine::isFlashing();
-        if (flash) {
-            canvas.fillRect(0, 190, DISPLAY_W, 10, fg);
-            canvas.setTextColor(bg);
-        } else {
-            canvas.setTextColor(fg);
-        }
+        canvas.fillRect(0, 190, DISPLAY_W, 10, fg);
+        canvas.setTextColor(bg);
         canvas.setTextSize(1);
         canvas.setTextDatum(TL_DATUM);
         canvas.drawString(NarrativeEngine::getLine3(), 4, 190);
-        if (flash) canvas.setTextColor(fg);  // Restore
+        canvas.setTextColor(fg);  // Restore
     }
 }
 
@@ -1358,7 +1353,7 @@ void Display::drawBottomBar() {
         return;
     }
 
-    // Avatar modes: narrative engine in bottom bar (2 lines)
+    // Avatar modes: narrative engine in bottom bar (2 lines, inverted, typing on newest)
     if (mode == PorkchopMode::IDLE ||
         mode == PorkchopMode::OINK_MODE ||
         mode == PorkchopMode::DNH_MODE ||
@@ -1366,20 +1361,32 @@ void Display::drawBottomBar() {
         mode == PorkchopMode::PIGGYBLUES_MODE ||
         mode == PorkchopMode::BACON_MODE) {
         NarrativeEngine::update((uint8_t)mode);
-        bool flash = NarrativeEngine::isFlashing();
+        NarrativeEngine::tick();
         bottomBar.fillSprite(bg);
-        bottomBar.setTextColor(fg);
         if (NarrativeEngine::hasContent()) {
             bottomBar.setTextSize(1);
             bottomBar.setTextDatum(TL_DATUM);
+            // Line2 (older) — fully revealed, inverted
             if (NarrativeEngine::getLine2()[0]) {
+                bottomBar.fillRect(0, 0, DISPLAY_W, 10, fg);
+                bottomBar.setTextColor(bg);
                 bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
             }
-            if (flash) {
-                bottomBar.fillRect(0, 10, DISPLAY_W, 10, fg);
-                bottomBar.setTextColor(bg);
+            // Line1 (newest) — typing reveal, inverted
+            bottomBar.fillRect(0, 10, DISPLAY_W, 10, fg);
+            bottomBar.setTextColor(bg);
+            char buf[54] = {0};
+            uint8_t rev = NarrativeEngine::getReveal1();
+            if (rev > 0) {
+                memcpy(buf, NarrativeEngine::getLine1(), rev);
+                buf[rev] = '\0';
+                bottomBar.drawString(buf, 4, 10);
             }
-            bottomBar.drawString(NarrativeEngine::getLine1(), 4, 10);
+            // Blinking cursor while typing
+            if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
+                int cx = 4 + bottomBar.textWidth(buf);
+                bottomBar.fillRect(cx, 10, 6, 8, bg);
+            }
         }
         return;
     }

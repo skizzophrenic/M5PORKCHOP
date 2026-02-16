@@ -311,10 +311,13 @@ static char sLine1[54] = "";
 static char sLine2[54] = "";
 static char sLine3[54] = "";
 static uint32_t sLastUpdate = 0;
-static uint32_t sLastFlashMs = 0;
 static constexpr uint32_t UPDATE_INTERVAL_MS = 9000;
 static uint8_t sLastTplIdx = 255;
 static bool sReady = false;
+
+// Typing animation state (only line1 types in; line2/3 always fully revealed)
+static uint8_t sReveal1 = 0;
+static uint32_t sNextCharAt = 0;
 
 // Verse continuation — track last rhyme family for rolling verse
 static int8_t sLastRhymeFamily = -1;
@@ -482,7 +485,9 @@ static void generateLine(const char* const* tpls, uint8_t tplCount, bool useRhym
     memcpy(sLine2, sLine1, sizeof(sLine1));
     expand(tpls[tidx], sLine1, sizeof(sLine1), sWord, oWord, adj, roll);
 
-    sLastFlashMs = millis();
+    // Reset typing animation — new line1 types in from scratch
+    sReveal1 = 0;
+    sNextCharAt = 0;
     sReady = true;
 }
 
@@ -719,4 +724,30 @@ const char* NarrativeEngine::getLine1() { return sLine1; }
 const char* NarrativeEngine::getLine2() { return sLine2; }
 const char* NarrativeEngine::getLine3() { return sLine3; }
 bool NarrativeEngine::hasContent() { return sReady; }
-bool NarrativeEngine::isFlashing() { return sLastFlashMs > 0 && (millis() - sLastFlashMs) < 500; }
+
+// Typing animation — advance one char at a time with variable delay
+static uint32_t narrativeCharDelay(char c) {
+    uint32_t d = 18 + random(0, 28);
+    switch (c) {
+        case '.': case '!': case '?': case ':': d += 90 + random(0, 40); break;
+        case ',': case ';':                     d += 40 + random(0, 30); break;
+        case ' ':                               d += 10; break;
+    }
+    return d;
+}
+
+void NarrativeEngine::tick() {
+    uint8_t len = (uint8_t)strlen(sLine1);
+    if (sReveal1 >= len) return;
+
+    uint32_t now = millis();
+    if (sNextCharAt == 0) sNextCharAt = now;
+    if (now < sNextCharAt) return;
+
+    char c = sLine1[sReveal1];
+    sReveal1++;
+    sNextCharAt = now + narrativeCharDelay(c);
+}
+
+uint8_t NarrativeEngine::getReveal1() { return sReveal1; }
+bool NarrativeEngine::isTyping() { return sReveal1 < (uint8_t)strlen(sLine1); }
