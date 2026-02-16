@@ -223,11 +223,10 @@ void JanusHog::init() {
     c5GpsConfigSentMs = 0;
     pktPerSecond = 0;
 
-    // Core2 has no C5 coprocessor — skip PSRAM allocations and UART init
-    Serial.println("[C5] Core2: no C5 coprocessor, skipping"); Serial.flush();
-    return;
-
-    // --- Everything below is dead code on Core2 ---
+    if (!Config::c5().enabled) {
+        Serial.println("[C5] Disabled in config, skipping");
+        return;
+    }
 
     Serial.println("[C5] ps_calloc..."); Serial.flush();
     if (!scanCacheA) scanCacheA = (C5ScanEntry*)ps_calloc(SCAN_CACHE_MAX, sizeof(C5ScanEntry));

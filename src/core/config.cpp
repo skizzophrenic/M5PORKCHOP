@@ -229,8 +229,11 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     gps.rxPin = 33;   // PORT.A pin2 (GPS TX → ESP32 RX)
     gps.txPin = 32;   // PORT.A pin1 (GPS RX ← ESP32 TX)
 
-    // Core2: force C5 disabled — JanusHog coprocessor is Cardputer-only.
-    c5.enabled = false;
+    // Core2: force C5 UART to PORT.A pins (red Grove — only port on base Core2).
+    // C5 stays disabled by default; user enables via settings.
+    // When enabled, JanusHog auto-pauses local GPS (same pins) and uses GPS forwarding.
+    c5.uartTxPin = 32;  // PORT.A pin1
+    c5.uartRxPin = 33;  // PORT.A pin2
 
     wifi.channelHopInterval   = b.channelHopInterval;
     wifi.spectrumHopInterval  = b.spectrumHopInterval;

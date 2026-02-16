@@ -136,9 +136,9 @@ struct C5Config {
     bool enabled = false;           // Opt-in: disabled by default
     uint32_t baudRate = 115200;     // UART baud rate
     uint16_t scanIntervalMs = 30000; // Auto-scan interval (0 = manual only)
-    uint8_t uartTxPin = 14;  // PORT.C TXD2
+    uint8_t uartTxPin = 32;  // PORT.A pin1
 
-    uint8_t uartRxPin = 13;  // PORT.C RXD2
+    uint8_t uartRxPin = 33;  // PORT.A pin2
 };
 
 class Config {
