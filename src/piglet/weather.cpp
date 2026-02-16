@@ -386,7 +386,7 @@ static void updateRain(uint32_t now) {
     if (Avatar::isGrassMoving()) {
         uint16_t grassSpeedMs = Avatar::getGrassSpeed();
         if (grassSpeedMs == 0) grassSpeedMs = 1;
-        const float grassShiftPixels = (float)DISPLAY_W / 28.0f;  // screen width / grass pattern chars
+        const float grassShiftPixels = 8.0f;  // GRASS_STRIDE: pixels per scroll step
         float grassPixelsPerMs = grassShiftPixels / (float)grassSpeedMs;
         float grassPixelsPerUpdate = grassPixelsPerMs * (float)RAIN_SPEED_MS;
         horizontalDrift = grassPixelsPerUpdate * 0.4f;  // 40% of grass speed

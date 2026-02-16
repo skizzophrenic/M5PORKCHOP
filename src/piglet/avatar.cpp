@@ -80,7 +80,8 @@ bool Avatar::grassDirection = true;  // true = grass scrolls right
 bool Avatar::pendingGrassStart = false;  // Wait for transition before starting grass
 uint32_t Avatar::lastGrassUpdate = 0;
 uint16_t Avatar::grassSpeed = 80;  // Default fast for OINK
-char Avatar::grassPattern[32] = {0};
+Avatar::GrassBlade Avatar::grassBlades[GRASS_BLADE_COUNT] = {{0}};
+int16_t Avatar::grassOffset = 0;
 // Internal state for looking direction
 static bool facingRight = true;  // Default: pig looks right
 static uint32_t lastFlipTime = 0;
@@ -197,18 +198,19 @@ void Avatar::init() {
     lastLookTime = millis();
     lookInterval = random(3000, 8000);  // First look: 3-8s (let pig settle in)
     
-    // Init grass pattern - full screen width at size 2 (~24 chars)
+    // Init grass blade system
     grassMoving = false;
     grassDirection = true;
     pendingGrassStart = false;
     grassSpeed = 80;
     lastGrassUpdate = millis();
     lastGrassStopTime = 0;  // No cooldown on fresh init
-    for (int i = 0; i < 28; i++) {
-        // Random grass pattern /\/\\//\/ (28 chars covers 320px at textSize 2)
-        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
+    grassOffset = 0;
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        grassBlades[i].height = random(6, 15);
+        grassBlades[i].lean = random(-3, 4);
+        grassBlades[i].width = random(1, 4);
     }
-    grassPattern[28] = '\0';
 
     // Init star system, dormant until night
     starsActive = false;
@@ -218,8 +220,6 @@ void Avatar::init() {
     lastNightCheck = 0;
     cachedNightMode = false;
     initStarPositions();
-    
-    // Remove duplicate grass pattern initialization - already done earlier in init()
 }
 
 void Avatar::setState(AvatarState state) {
@@ -724,62 +724,82 @@ void Avatar::setGrassSpeed(uint16_t ms) {
     grassSpeed = ms;
 }
 
-void Avatar::setGrassPattern(const char* pattern) {
-    strncpy(grassPattern, pattern, 28);
-    grassPattern[28] = '\0';
-}
-
-void Avatar::resetGrassPattern() {
-    // Reset to random grass pattern /\/\\//\/ (28 chars for 320px)
-    for (int i = 0; i < 28; i++) {
-        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
+void Avatar::resetGrass() {
+    grassOffset = 0;
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        grassBlades[i].height = random(6, 15);
+        grassBlades[i].lean = random(-3, 4);
+        grassBlades[i].width = random(1, 4);
     }
-    grassPattern[28] = '\0';
 }
 
 void Avatar::updateGrass() {
     if (!grassMoving) return;
-    
+
     uint32_t now = millis();
-    if (now - lastGrassUpdate < grassSpeed) return;
+    // Pixel-level scroll: shift 1px every grassSpeed/GRASS_STRIDE ms
+    uint32_t pixelInterval = grassSpeed / GRASS_STRIDE;
+    if (pixelInterval < 1) pixelInterval = 1;
+    if (now - lastGrassUpdate < pixelInterval) return;
     lastGrassUpdate = now;
-    
-    // Shift pattern based on grassDirection (set when grass started)
-    // grassDirection=true: grass scrolls RIGHT (pig faces left, walking left through world)
-    // grassDirection=false: grass scrolls LEFT (pig faces right, walking right through world)
+
+    // Smooth pixel scroll
     if (grassDirection) {
-        // Shift right (grass scrolls right)
-        char last = grassPattern[27];
-        for (int i = 27; i > 0; i--) {
-            grassPattern[i] = grassPattern[i - 1];
+        grassOffset++;
+        if (grassOffset >= GRASS_STRIDE) {
+            grassOffset = 0;
+            // Rotate blade array right by 1
+            GrassBlade last = grassBlades[GRASS_BLADE_COUNT - 1];
+            for (int i = GRASS_BLADE_COUNT - 1; i > 0; i--) {
+                grassBlades[i] = grassBlades[i - 1];
+            }
+            grassBlades[0] = last;
         }
-        grassPattern[0] = last;
     } else {
-        // Shift left (grass scrolls left)
-        char first = grassPattern[0];
-        for (int i = 0; i < 27; i++) {
-            grassPattern[i] = grassPattern[i + 1];
+        grassOffset--;
+        if (grassOffset < 0) {
+            grassOffset = GRASS_STRIDE - 1;
+            // Rotate blade array left by 1
+            GrassBlade first = grassBlades[0];
+            for (int i = 0; i < GRASS_BLADE_COUNT - 1; i++) {
+                grassBlades[i] = grassBlades[i + 1];
+            }
+            grassBlades[GRASS_BLADE_COUNT - 1] = first;
         }
-        grassPattern[27] = first;
     }
 
-    // Occasionally mutate a character for variety
+    // ~3% mutation chance — randomize one blade for organic variety
     if (random(0, 30) == 0) {
-        int pos = random(0, 28);
-        grassPattern[pos] = (random(0, 2) == 0) ? '/' : '\\';
+        int idx = random(0, GRASS_BLADE_COUNT);
+        grassBlades[idx].height = random(6, 15);
+        grassBlades[idx].lean = random(-3, 4);
+        grassBlades[idx].width = random(1, 4);
     }
 }
 
 void Avatar::drawGrass(M5Canvas& canvas) {
     updateGrass();
-    
-    canvas.setTextSize(2);  // Same as menu items
-    canvas.setTextColor(getDrawColor());  // Thunder-aware color
-    canvas.setTextDatum(top_left);
-    
-    // Draw at bottom of avatar area, full screen width
-    int grassY = 91;  // Below the pig face (mood bar removed, shifted up 14px)
-    canvas.drawString(grassPattern, 0, grassY);
+
+    uint16_t color = getDrawColor();  // Thunder-aware color
+    const int16_t baseY = 107;  // Ground line (info panel starts at 108)
+
+    // Solid ground line
+    canvas.fillRect(0, 106, 320, 2, color);
+
+    // Draw triangle blades
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        int16_t cx = i * GRASS_STRIDE + grassOffset;
+        // Wrap for seamless scrolling
+        if (cx < -GRASS_STRIDE) cx += 320 + GRASS_STRIDE;
+        if (cx > 320) continue;
+
+        const GrassBlade& b = grassBlades[i];
+        int16_t tipX = cx + b.lean;
+        int16_t tipY = baseY - b.height;
+        int16_t leftX = cx - b.width;
+        int16_t rightX = cx + b.width;
+        canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, color);
+    }
 }
 
 // --- Night sky star system ---

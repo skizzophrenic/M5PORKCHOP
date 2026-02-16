@@ -56,8 +56,7 @@ public:
     static bool isGrassDirectionRight() { return grassDirection; }
     static uint16_t getGrassSpeed() { return grassSpeed; }
     static void setGrassSpeed(uint16_t ms);  // Speed in ms per shift (lower = faster)
-    static void setGrassPattern(const char* pattern);  // Custom pattern (max 26 chars)
-    static void resetGrassPattern();  // Reset to random binary pattern
+    static void resetGrass();  // Re-randomize blade array
     
 private:
     // Star system state
@@ -112,7 +111,17 @@ private:
     static bool onRightSide;  // Track which side of screen pig is on
     static uint32_t lastGrassUpdate;
     static uint16_t grassSpeed;  // ms per shift
-    static char grassPattern[32];  // Wider for full screen coverage
+
+    // Grass blade system (triangle primitives)
+    struct GrassBlade {
+        uint8_t height;  // 6-14 px
+        int8_t  lean;    // tip offset: -3 to +3
+        uint8_t width;   // base half-width: 1-3
+    };
+    static constexpr uint8_t GRASS_BLADE_COUNT = 40;
+    static constexpr int16_t GRASS_STRIDE = 8;  // px spacing (320/40)
+    static GrassBlade grassBlades[GRASS_BLADE_COUNT];
+    static int16_t grassOffset;  // smooth scroll pixel offset
     
     static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink = false, bool faceRight = true, bool sniff = false);
     static void drawGrass(M5Canvas& canvas);

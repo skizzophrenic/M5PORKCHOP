@@ -654,7 +654,7 @@ void PiggyBluesMode::stop() {
     setAdvertisingNow(false);
     
     Avatar::setGrassMoving(false);
-    Avatar::resetGrassPattern();
+    Avatar::resetGrass();
     
     bool doReboot = (random(0, 100) < REBOOT_CHANCE_PERCENT);
     if (doReboot) {
