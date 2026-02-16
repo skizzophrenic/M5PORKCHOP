@@ -372,7 +372,7 @@ static bool c5BackgroundActive = false;
 static uint8_t c5BackgroundBssid[6] = {0};
 static char c5BackgroundSSID[33] = {0};
 static uint32_t c5BackgroundStartTime = 0;
-static const uint32_t C5_BACKGROUND_TIMEOUT = 45000;  // 45s max per 5GHz target
+static const uint32_t C5_BACKGROUND_TIMEOUT = 120000;  // 120s — scan overhead eats 20s+
 
 // Last pwned network SSID for display
 static char lastPwnedSSID[33] = "";
