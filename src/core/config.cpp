@@ -223,11 +223,11 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     gps.powerSave      = b.gpsPowerSave != 0;
     gps.timezoneOffset = b.gpsTimezoneOffset;
 
-    // Core2: force GROVE source with PORT.C pins regardless of stale config.
-    // CAP_LORA is Cardputer-only hardware that doesn't exist on Core2.
+    // Core2: force GROVE source with PORT.A pins (red Grove — only port on base Core2).
+    // PORT.C (GPIO13/14) only exists on M5Go2 Bottom expansion.
     gps.source = GPSSource::GROVE;
-    gps.rxPin = 13;   // PORT.C RXD2
-    gps.txPin = 14;   // PORT.C TXD2
+    gps.rxPin = 33;   // PORT.A pin2 (GPS TX → ESP32 RX)
+    gps.txPin = 32;   // PORT.A pin1 (GPS RX ← ESP32 TX)
 
     // Core2: force C5 disabled — JanusHog coprocessor is Cardputer-only.
     c5.enabled = false;

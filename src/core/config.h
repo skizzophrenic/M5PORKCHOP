@@ -32,11 +32,11 @@ namespace CapLoraPins {
 // GPS power management settings
 struct GPSConfig {
     bool enabled = true;
-    GPSSource source = GPSSource::GROVE;   // Core2: treat GROVE as PORT.C UART by default (see docs/ports/core2/10_pinmap.md)
+    GPSSource source = GPSSource::GROVE;   // Core2: PORT.A (red Grove, GPIO32/33)
 
-    uint8_t rxPin = 13;  // PORT.C RXD2
+    uint8_t rxPin = 33;  // PORT.A pin2 (GPS TX → ESP32 RX)
 
-    uint8_t txPin = 14;  // PORT.C TXD2
+    uint8_t txPin = 32;  // PORT.A pin1 (GPS RX ← ESP32 TX)
 
     uint32_t baudRate = 9600;       // AT6668 (ATGM336H) default baud
     uint16_t updateInterval = 5;        // Seconds between GPS updates
