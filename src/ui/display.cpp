@@ -886,11 +886,9 @@ void Display::update() {
                       mainCanvas.drawString("MONITORING...", 4, y);
                       y += 10;
                   } else {
-                      mainCanvas.drawString("[S]SCAN  [C]CHVIEW", 4, y);
+                      mainCanvas.drawString("[A]SCAN  [B]CHVIEW", 4, y);
                       y += 10;
-                      mainCanvas.drawString("[I]IMPORT  [X]STOP", 4, y);
-                      y += 10;
-                      mainCanvas.drawString("[;]EXIT", 4, y);
+                      mainCanvas.drawString("[C]IMPORT  HOLD=BACK", 4, y);
                       y += 10;
                   }
 
@@ -3135,7 +3133,7 @@ void Display::drawModeInfo(M5Canvas& canvas, PorkchopMode mode) {
         uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
         uint32_t deauthCnt = OinkMode::getDeauthCount();
         char stats[48];
-        snprintf(stats, sizeof(stats), "N:%03d HS:%02d D:%04lu [ESC]=STOP", 
+        snprintf(stats, sizeof(stats), "N:%03d HS:%02d D:%04lu HOLD=BACK",
                  (int)networks.size(), hsCount, deauthCnt);
         canvas.drawString(stats, 2, MAIN_H - 12);
     } else if (mode == PorkchopMode::WARHOG_MODE) {
@@ -3277,7 +3275,7 @@ void Display::drawAboutScreen(M5Canvas& canvas) {
 
     // Easter egg hint
     canvas.setTextColor(COLOR_ACCENT);
-    canvas.drawString("[ENTER] ???", DISPLAY_W / 2, MAIN_H - 12);
+    canvas.drawString("[B] ???", DISPLAY_W / 2, MAIN_H - 12);
 }
 
 void Display::drawFileTransferScreen(M5Canvas& canvas) {

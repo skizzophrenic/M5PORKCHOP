@@ -3136,12 +3136,12 @@ const char* PHRASES_DEAUTH[] = {
 
 // Idle phrases - mode hints and hacker personality
 const char* PHRASES_MENU_IDLE[] = {
-    "[O] truffle hunt",
-    "[W] hog out",
-    "[B] spam the ether",
-    "[H] peek the spectrum",
+    "go truffle hunt",
+    "time to hog out",
+    "spam the ether",
+    "peek the spectrum",
     "pick ur poison",
-    "press key or perish",
+    "tap or perish",
     "awaiting chaos",
     "idle hooves...",
     "root or reboot",

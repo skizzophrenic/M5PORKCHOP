@@ -259,7 +259,7 @@ void BountyMenu::drawEmpty(M5Canvas& canvas) {
     canvas.setTextDatum(MC_DATUM);
     
     canvas.drawString("N0 B0UNT13S Y3T!", canvas.width() / 2, boxY + 15);
-    canvas.drawString("RUN W4RH0G [W] T0 HUNT", canvas.width() / 2, boxY + 35);
+    canvas.drawString("START W4RH0G T0 HUNT", canvas.width() / 2, boxY + 35);
     
     // Reset text state
     canvas.setTextDatum(TL_DATUM);

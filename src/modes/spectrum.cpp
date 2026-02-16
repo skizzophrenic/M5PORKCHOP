@@ -2223,7 +2223,7 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
     canvas.drawString(position, centerX, boxY + 52);
     
     // Line 5: Dismiss hint
-    canvas.drawString("[ANY KEY] CLOSE", centerX, boxY + 64);
+    canvas.drawString("[ANY] CLOSE", centerX, boxY + 64);
     
     // Reset datum
     canvas.setTextDatum(top_left);
@@ -2820,7 +2820,7 @@ void SpectrumMode::getSelectedInfo(char* out, size_t len) {
         snprintf(out, len, "SCANNING...");
         return;
     }
-    snprintf(out, len, "PRESS ENTER TO SELECT");
+    snprintf(out, len, "PRESS [B] TO SELECT");
 }
 
 // Packet callback - extract beacon info for visualization

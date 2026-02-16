@@ -437,7 +437,7 @@ void TracksMenu::formatTime(char* out, size_t len, time_t t) {
 
 void TracksMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
-    snprintf(out, len, "B=DET HOLD-A=SYNC");
+    snprintf(out, len, "A=SYNC B=DET C=DEL");
 }
 
 void TracksMenu::update() {
@@ -492,9 +492,9 @@ void TracksMenu::draw(M5Canvas& canvas) {
             canvas.setCursor(4, 36);
             canvas.print("NO WIGLE FILES");
             canvas.setCursor(4, 52);
-            canvas.print("PRESS [W] FOR WARHOG");
+            canvas.print("START WARHOG TO HUNT");
             canvas.setCursor(4, 68);
-            canvas.print("[S] TO SYNC");
+            canvas.print("[A] TO SYNC");
         }
         return;
     }
@@ -636,7 +636,7 @@ void TracksMenu::drawDetailView(M5Canvas& canvas) {
     canvas.drawString(statusText, boxX + boxW / 2, boxY + 40);
     
     // Action hint
-    canvas.drawString("PRESS [S] TO SYNC", boxX + boxW / 2, boxY + 56);
+    canvas.drawString("PRESS [A] TO SYNC", boxX + boxW / 2, boxY + 56);
     
     canvas.setTextDatum(top_left);
 }
@@ -908,7 +908,7 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
         // Error state
         canvas.drawString("!! ERROR !!", centerX, boxY + 24);
         canvas.drawString(syncError, centerX, boxY + 42);
-        canvas.drawString("[ENTER] CLOSE", centerX, boxY + 68);
+        canvas.drawString("[B] CLOSE", centerX, boxY + 68);
     } else if (syncState == WigleSyncState::COMPLETE) {
         // Complete state
         canvas.drawString("SYNC COMPLETE", centerX, boxY + 24);
@@ -922,7 +922,7 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
         const char* statsMsg = syncStatsFetched ? "STATS UPDATED" : "STATS FAILED";
         canvas.drawString(statsMsg, centerX, boxY + 54);
         
-        canvas.drawString("[ENTER] CLOSE", centerX, boxY + 68);
+        canvas.drawString("[B] CLOSE", centerX, boxY + 68);
     } else {
         // In progress
         canvas.drawString(syncStatusText, centerX, boxY + 24);
@@ -955,7 +955,7 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
             canvas.drawString(heapText, centerX, boxY + 42);
         }
         
-        canvas.drawString("[ESC] CANCEL", centerX, boxY + 68);
+        canvas.drawString("[A] CANCEL", centerX, boxY + 68);
     }
     
     canvas.setTextDatum(top_left);

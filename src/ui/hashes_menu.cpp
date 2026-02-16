@@ -688,7 +688,7 @@ void HashesMenu::draw(M5Canvas& canvas) {
             canvas.setCursor(4, 36);
             canvas.print("NO CAPTURES FOUND");
             canvas.setCursor(4, 52);
-            canvas.print("PRESS [O] FOR OINK");
+            canvas.print("START OINK TO CAPTURE");
             canvas.setCursor(4, 68);
             canvas.print("SYNC VIA COMMANDER");
         }
@@ -1089,13 +1089,13 @@ void HashesMenu::drawDetailView(M5Canvas& canvas) {
         // Fallback if no .22000 parseable
         if (cap.status == CaptureStatus::UPLOADED) {
             canvas.drawString("UPLOADED - PENDING CRACK", centerX, boxY + 34);
-            canvas.drawString("PRESS [S] TO CHECK", centerX, boxY + 50);
+            canvas.drawString("PRESS [A] TO CHECK", centerX, boxY + 50);
         } else if (cap.isPMKID) {
             canvas.drawString("PMKID - LOCAL CRACK ONLY", centerX, boxY + 34);
             canvas.drawString("hashcat -m 22000", centerX, boxY + 50);
         } else {
             canvas.drawString("NOT UPLOADED YET", centerX, boxY + 34);
-            canvas.drawString("PRESS [S] TO SYNC", centerX, boxY + 50);
+            canvas.drawString("PRESS [A] TO SYNC", centerX, boxY + 50);
         }
     }
 }
@@ -1278,7 +1278,7 @@ void HashesMenu::drawSyncModal(M5Canvas& canvas) {
         // Error state
         canvas.drawString("!! ERROR !!", centerX, boxY + 24);
         canvas.drawString(syncError, centerX, boxY + 42);
-        canvas.drawString("[ENTER] CLOSE", centerX, boxY + 68);
+        canvas.drawString("[B] CLOSE", centerX, boxY + 68);
     } else if (syncState == SyncState::COMPLETE) {
         // Complete state
         canvas.drawString("SYNC COMPLETE", centerX, boxY + 24);
@@ -1292,7 +1292,7 @@ void HashesMenu::drawSyncModal(M5Canvas& canvas) {
             canvas.drawString(syncError, centerX, boxY + 54);
         }
         
-        canvas.drawString("[ENTER] CLOSE", centerX, boxY + 68);
+        canvas.drawString("[B] CLOSE", centerX, boxY + 68);
     } else {
         // In progress
         canvas.drawString(syncStatusText, centerX, boxY + 24);
@@ -1325,6 +1325,6 @@ void HashesMenu::drawSyncModal(M5Canvas& canvas) {
             canvas.drawString(heapText, centerX, boxY + 42);
         }
         
-        canvas.drawString("[ESC] CANCEL", centerX, boxY + 68);
+        canvas.drawString("[A] CANCEL", centerX, boxY + 68);
     }
 }

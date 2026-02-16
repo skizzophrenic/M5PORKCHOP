@@ -1843,7 +1843,7 @@ void PigSyncMode::getStatusMessage(char* buffer, size_t bufferSize) {
                     snprintf(buffer, bufferSize, "SCANNING... %d device(s) found", devices.size());
                 }
             } else {
-                snprintf(buffer, bufferSize, "READY - Press C to connect");
+                snprintf(buffer, bufferSize, "READY - [B] to scan");
             }
             break;
 

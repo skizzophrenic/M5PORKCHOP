@@ -131,7 +131,7 @@ size_t BoarBrosMenu::getCount() {
 void BoarBrosMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
     if (bros.empty()) {
-        snprintf(out, len, "[B] ADD FROM OINK MODE");
+        snprintf(out, len, "USE OINK TO ADD BROS");
         return;
     }
     if (selectedIndex < bros.size()) {
@@ -255,7 +255,7 @@ void BoarBrosMenu::draw(M5Canvas& canvas) {
         canvas.setCursor(4, 35);
         canvas.print("NO BOAR BROS YET!");
         canvas.setCursor(4, 50);
-        canvas.print("PRESS [B] IN OINK MODE");
+        canvas.print("EXCLUDE IN OINK MODE");
         canvas.setCursor(4, 65);
         canvas.print("TO EXCLUDE A NETWORK.");
         return;
