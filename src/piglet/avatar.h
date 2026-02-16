@@ -38,7 +38,11 @@ public:
     
     // Attack shake (visual feedback for captures)
     static void setAttackShake(bool active, bool strong);
-    
+
+    // Attack hop (multi-hop pounce animation for captures)
+    static void attackHop();
+    static bool isAttackHopping();
+
     // Thunder flash (invert colors for weather effect)
     static void setThunderFlash(bool active);
     static bool isThunderFlashing();
@@ -94,7 +98,17 @@ private:
     static uint32_t jumpStartTime;
     static constexpr uint16_t JUMP_DURATION_MS = 400;  // Total jump time (up + down)
     static constexpr int JUMP_HEIGHT = 8;  // Pixels to jump up
-    
+
+    // Attack hop animation state (multi-hop pounce for captures)
+    static bool attackHopActive;
+    static uint32_t attackHopStartTime;
+    static uint8_t attackHopIndex;          // current hop (0-based)
+    static uint8_t attackHopTotal;          // total hops (3-5)
+    static int16_t attackHopOriginX;        // X before attack started
+    static int16_t attackHopTargets[5];     // pre-computed X targets
+    static constexpr uint16_t ATTACK_HOP_MS = 250;      // ms per hop
+    static constexpr int16_t ATTACK_HOP_HEIGHT = 10;     // pixels up
+
     // Walk transition animation
     static bool transitioning;
     static uint32_t transitionStartTime;

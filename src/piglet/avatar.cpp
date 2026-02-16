@@ -17,6 +17,14 @@ int Avatar::moodIntensity = 0;  // Phase 8: -100 to 100
 bool Avatar::jumpActive = false;
 uint32_t Avatar::jumpStartTime = 0;
 
+// Attack hop state (multi-hop pounce for captures)
+bool Avatar::attackHopActive = false;
+uint32_t Avatar::attackHopStartTime = 0;
+uint8_t Avatar::attackHopIndex = 0;
+uint8_t Avatar::attackHopTotal = 0;
+int16_t Avatar::attackHopOriginX = 0;
+int16_t Avatar::attackHopTargets[5] = {0};
+
 // Walk transition state
 bool Avatar::transitioning = false;
 uint32_t Avatar::transitionStartTime = 0;
@@ -239,7 +247,7 @@ bool Avatar::isOnRightSide() {
 }
 
 bool Avatar::isTransitioning() {
-    return transitioning;
+    return transitioning || attackHopActive;
 }
 
 int Avatar::getCurrentX() {
@@ -266,6 +274,36 @@ void Avatar::cuteJump() {
     // Trigger a cute celebratory jump - higher and slower than walk bounce
     jumpActive = true;
     jumpStartTime = millis();
+}
+
+void Avatar::attackHop() {
+    // Multi-hop pounce animation for capture events
+    attackHopActive = true;
+    attackHopStartTime = millis();
+    attackHopIndex = 0;
+    attackHopOriginX = currentX;
+    attackHopTotal = random(3, 6);  // 3-5 hops
+
+    int16_t prevX = currentX;
+    for (uint8_t i = 0; i < attackHopTotal; i++) {
+        if (i == attackHopTotal - 1) {
+            // Last hop returns home
+            attackHopTargets[i] = attackHopOriginX;
+        } else {
+            // Random ±25–55px from previous position, clamped to [10, 200]
+            int16_t offset = random(25, 56);
+            if (random(0, 2) == 0) offset = -offset;
+            int16_t target = prevX + offset;
+            if (target < 10) target = 10;
+            if (target > 200) target = 200;
+            attackHopTargets[i] = target;
+        }
+        prevX = attackHopTargets[i];
+    }
+}
+
+bool Avatar::isAttackHopping() {
+    return attackHopActive;
 }
 
 void Avatar::draw(M5Canvas& canvas) {
@@ -357,8 +395,8 @@ void Avatar::draw(M5Canvas& canvas) {
     uint32_t maxLook = (uint32_t)(15000 * flipMod);   // Look timer: 15s base
     
     // === ORGANIC RANDOM BEHAVIORS ===
-    // Disable all movement while grass is moving (treadmill mode)
-    if (!transitioning && !grassMoving && !pendingGrassStart) {
+    // Disable all movement while grass is moving (treadmill mode) or attack hopping
+    if (!transitioning && !grassMoving && !pendingGrassStart && !attackHopActive) {
         
         // --- LOOK BEHAVIOR: Random glances with personality ---
         if (now - lastLookTime > lookInterval) {
@@ -456,7 +494,7 @@ void Avatar::draw(M5Canvas& canvas) {
     }
 
     // === GRASS WANDER: Random roaming toward center while treadmill runs ===
-    if (!transitioning && grassMoving) {
+    if (!transitioning && grassMoving && !attackHopActive) {
         if (now - grassWanderTimer > grassWanderInterval) {
             int homeX = grassDirection ? 180 : 25;
             int centerX = DISPLAY_W / 2;  // 160 = screen center limit
@@ -544,9 +582,44 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         jumpActive = false;
     }
     
+    // === Attack hop animation update ===
+    if (attackHopActive) {
+        uint32_t hopElapsed = now - attackHopStartTime;
+        uint32_t totalHopTime = (uint32_t)attackHopTotal * ATTACK_HOP_MS;
+
+        if (hopElapsed >= totalHopTime) {
+            // Animation complete - return to origin
+            attackHopActive = false;
+            currentX = attackHopOriginX;
+        } else {
+            // Determine current hop index
+            uint8_t hopIdx = hopElapsed / ATTACK_HOP_MS;
+            if (hopIdx >= attackHopTotal) hopIdx = attackHopTotal - 1;
+            attackHopIndex = hopIdx;
+
+            // Interpolate X: smooth-step from previous position to target
+            float hopT = (float)(hopElapsed - hopIdx * ATTACK_HOP_MS) / (float)ATTACK_HOP_MS;
+            // Smooth step: 3t^2 - 2t^3
+            float smoothT = hopT * hopT * (3.0f - 2.0f * hopT);
+            int16_t fromX = (hopIdx == 0) ? attackHopOriginX : attackHopTargets[hopIdx - 1];
+            int16_t toX = attackHopTargets[hopIdx];
+            currentX = fromX + (int)((toX - fromX) * smoothT);
+
+            // Face hop direction
+            facingRight = (toX > fromX);
+        }
+    }
+
     // Calculate vertical shake/jump offset
     int shakeY = 0;
-    if (jumpActive) {
+    if (attackHopActive) {
+        // Attack hop: parabolic arc per hop
+        uint32_t hopElapsed = now - attackHopStartTime;
+        uint32_t hopLocal = hopElapsed - (uint32_t)attackHopIndex * ATTACK_HOP_MS;
+        float t = (float)hopLocal / (float)ATTACK_HOP_MS;
+        float arc = 4.0f * t * (1.0f - t);  // 0 → 1 → 0
+        shakeY = -(int)(arc * ATTACK_HOP_HEIGHT);
+    } else if (jumpActive) {
         // Cute jump: smooth arc up and down (sine-like)
         // First half: go up, second half: come down
         uint32_t elapsed = now - jumpStartTime;
@@ -566,10 +639,10 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         int phase = (now / 80) % 4;
         shakeY = bouncePattern[phase];
     }
-    
+
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
-    int startY = 23 + shakeY;  // Apply shake offset (mood bar removed, content shifted up 14px)
+    int startY = 40 + shakeY;  // Pig sits in grass, 1px above info panel (Y=108)
     int lineHeight = 22;
     
     for (uint8_t i = 0; i < lines; i++) {
@@ -907,8 +980,8 @@ void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
 
     int boxX = currentX - 25;
     int boxW = 155;  // covers tail + 7 chars + margin
-    int boxY = 11;   // base y (23) minus jump headroom (12)
-    int boxH = 84;   // stops above grass near y95
+    int boxY = 28;   // base y (40) minus jump headroom (12)
+    int boxH = 79;   // covers Y=28–107, stops at ground line
 
     // Clamp to screen
     if (boxX < 0) { boxW += boxX; boxX = 0; }
