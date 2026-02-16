@@ -61,8 +61,12 @@ static uint32_t thunderMaxInterval = 90000;
 struct WindParticle {
     float x;
     float y;
-    float speed;
+    float speed;        // px per update tick
+    float spawnX;       // X at birth (for distance calc)
+    float maxTravel;    // distance before vanishing (180-280px, randomized)
+    uint8_t baseSize;   // initial pixel radius 1-3
     bool active;
+    bool dirRight;      // true = moves right, false = moves left
 };
 static WindParticle windParticles[6] = {{0}};
 static bool windActive = false;
@@ -451,51 +455,70 @@ static void updateThunder(uint32_t now) {
 }
 
 static void updateWind(uint32_t now) {
+    // Suppress wind during rain
+    if (rainActive) {
+        if (windActive) {
+            windActive = false;
+            for (int i = 0; i < 6; i++) windParticles[i].active = false;
+        }
+        lastWindGust = now;  // Reset so gust doesn't fire immediately after rain stops
+        return;
+    }
+
     // Check for new wind gust
     if (!windActive && now - lastWindGust > windGustInterval) {
-        // 30% chance of wind gust
-        if (random(0, 100) < 30) {
+        bool grassOn = Avatar::isGrassMoving();
+        int spawnChance = grassOn ? 70 : 20;
+
+        if ((int)random(0, 100) < spawnChance) {
             windActive = true;
-            windGustDuration = random(2000, 4000);  // 2-4 second gust
+            windGustDuration = random(2000, 4000);
             lastWindGust = now;
-            
-            // Spawn wind particles
+
+            bool goRight = grassOn ? Avatar::isGrassDirectionRight() : (random(0, 2) == 0);
+
             for (int i = 0; i < 6; i++) {
-                windParticles[i].x = -10.0f - random(0, 50);  // Off-screen left
-                windParticles[i].y = (float)random(20, 90);
-                windParticles[i].speed = (float)random(3, 6);
+                float spawnX = goRight
+                    ? (-5.0f - random(0, 40))
+                    : ((float)DISPLAY_W + 5.0f + random(0, 40));
+                windParticles[i].x = spawnX;
+                windParticles[i].spawnX = spawnX;
+                windParticles[i].y = (float)random(20, 95);
+                windParticles[i].speed = 2.0f + (float)random(0, 30) / 10.0f;  // 2.0-5.0
+                windParticles[i].maxTravel = (float)random(180, 281);
+                windParticles[i].baseSize = random(1, 4);  // 1-3 px radius
                 windParticles[i].active = true;
+                windParticles[i].dirRight = goRight;
             }
         } else {
-            // Reset interval for next check
-            windGustInterval = random(15000, 30000);
+            windGustInterval = grassOn ? random(3000, 8000) : random(15000, 30000);
             lastWindGust = now;
         }
     }
-    
+
     // Update active wind particles
     if (windActive) {
         if (now - lastWindGust > windGustDuration) {
             // Gust finished
             windActive = false;
-            windGustInterval = random(15000, 30000);
+            windGustInterval = Avatar::isGrassMoving() ? random(3000, 8000) : random(15000, 30000);
             for (int i = 0; i < 6; i++) {
                 windParticles[i].active = false;
             }
         } else {
-            // Animate particles
-            if (now - lastWindUpdate > 50) {  // ~20fps
+            // Animate particles with directional movement
+            if (now - lastWindUpdate > 50) {
                 lastWindUpdate = now;
                 for (int i = 0; i < 6; i++) {
-                    if (windParticles[i].active) {
-                        windParticles[i].x += windParticles[i].speed;
-                        // Add slight vertical wobble
-                        windParticles[i].y += (random(0, 3) - 1) * 0.5f;
-                        
-                        // Deactivate when off-screen right
-                        if (windParticles[i].x > (float)(DISPLAY_W + 10)) {
-                            windParticles[i].active = false;
-                        }
+                    if (!windParticles[i].active) continue;
+                    float dir = windParticles[i].dirRight ? 1.0f : -1.0f;
+                    windParticles[i].x += windParticles[i].speed * dir;
+                    windParticles[i].y += (random(0, 3) - 1) * 0.5f;  // vertical wobble
+
+                    float dist = windParticles[i].x - windParticles[i].spawnX;
+                    if (dist < 0) dist = -dist;
+                    if (dist >= windParticles[i].maxTravel) {
+                        windParticles[i].active = false;
                     }
                 }
             }
@@ -561,19 +584,23 @@ void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
         }
     }
     
-    // Draw wind particles (ASCII dots)
+    // Draw wind particles (shrinking filled circles)
     if (windActive) {
-        canvas.setTextSize(2);
-        canvas.setTextColor(drawColor);
         for (int i = 0; i < 6; i++) {
-            if (windParticles[i].active) {
-                int x = (int)windParticles[i].x;
-                int y = (int)windParticles[i].y;
-                if (x >= 0 && x < DISPLAY_W) {
-                    // Draw as ASCII dot for consistency
-                    canvas.drawChar('.', x, y);
-                }
-            }
+            if (!windParticles[i].active) continue;
+            int x = (int)windParticles[i].x;
+            int y = (int)windParticles[i].y;
+            if (x < -3 || x > DISPLAY_W + 3) continue;
+
+            // Size shrinks to 0 over maxTravel distance
+            float dist = windParticles[i].x - windParticles[i].spawnX;
+            if (dist < 0) dist = -dist;
+            float progress = dist / windParticles[i].maxTravel;
+            if (progress > 1.0f) progress = 1.0f;
+            int r = (int)((float)windParticles[i].baseSize * (1.0f - progress) + 0.5f);
+            if (r < 1) continue;
+
+            canvas.fillCircle(x, y, r, drawColor);
         }
     }
 }
