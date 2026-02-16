@@ -1367,18 +1367,17 @@ void Display::drawBottomBar() {
         mode == PorkchopMode::BACON_MODE) {
         NarrativeEngine::update((uint8_t)mode);
         bool flash = NarrativeEngine::isFlashing();
-        if (flash) {
-            bottomBar.fillSprite(fg);
-            bottomBar.setTextColor(bg);
-        } else {
-            bottomBar.fillSprite(bg);
-            bottomBar.setTextColor(fg);
-        }
+        bottomBar.fillSprite(bg);
+        bottomBar.setTextColor(fg);
         if (NarrativeEngine::hasContent()) {
             bottomBar.setTextSize(1);
             bottomBar.setTextDatum(TL_DATUM);
             if (NarrativeEngine::getLine2()[0]) {
                 bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
+            }
+            if (flash) {
+                bottomBar.fillRect(0, 10, DISPLAY_W, 10, fg);
+                bottomBar.setTextColor(bg);
             }
             bottomBar.drawString(NarrativeEngine::getLine1(), 4, 10);
         }

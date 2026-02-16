@@ -10,8 +10,6 @@ enum NarrativeEvent : uint8_t {
     EVT_NONE = 0,
     EVT_HANDSHAKE,       // Handshake captured
     EVT_PMKID,           // PMKID captured
-    EVT_DEAUTH_CRIT,     // D20 nat 20 on deauth
-    EVT_DEAUTH_FUMBLE,   // D20 nat 1
     EVT_LOW_BATTERY,     // Battery < 15%
     EVT_GPS_LOCK,        // GPS fix acquired
 };

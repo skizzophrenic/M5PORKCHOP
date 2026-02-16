@@ -148,6 +148,11 @@ static const char* const PHRASES_TIME_EARLY_OINK[] = {
     "5am. pig respects madness.",
     "breakfast hack innit"
 };
+static const char* const PHRASES_TIME_EARLY_CD[] = {
+    "early rise blessed",
+    "dawn patrol irie",
+    "jah wake di pig"
+};
 static const char* const PHRASES_TIME_EARLY_WARHOG[] = {
     "zero dark thirty sir",
     "morning recon active",
@@ -160,11 +165,13 @@ static const char* const PHRASES_TIME_LATENIGHT_OINK[] = {
 };
 static const char* const PHRASES_TIME_LATENIGHT_CD[] = {
     "midnight irie vibes",
-    "jah blesses di late shift"
+    "jah blesses di late shift",
+    "late night inna session"
 };
 static const char* const PHRASES_TIME_LATENIGHT_WARHOG[] = {
     "graveyard shift active",
-    "0300 watch. radio quiet."
+    "0300 watch. radio quiet.",
+    "night ops. maintaining."
 };
 static const char* const PHRASES_TIME_SPECIAL[] = {
     "13:37. pig approves.",
@@ -215,16 +222,38 @@ static const char* const PHRASES_GPS_STILL[] = {
     "oi. we parked or what",
     "truffles dont walk here mate"
 };
-static const char* const PHRASES_GPS_WALK_OINK[] = { "trotting nicely", "good pace bruv" };
-static const char* const PHRASES_GPS_WALK_WARHOG[] = { "steady patrol sir", "foot mobile" };
-static const char* const PHRASES_GPS_FAST[] = {
+static const char* const PHRASES_GPS_WALK_OINK[] = { "trotting nicely", "good pace bruv", "legs moving. proper.", "on the trot bruv" };
+static const char* const PHRASES_GPS_WALK_CD[] = { "easy trod bredren", "walking di path seen", "irie pace mon", "strolling blessed" };
+static const char* const PHRASES_GPS_WALK_WARHOG[] = { "steady patrol sir", "foot mobile", "patrol pace maintained", "ground recon active" };
+static const char* const PHRASES_GPS_FAST_OINK[] = {
     "PIG GOING FAST",
     "snout in the wind bruv",
-    "mobile recon activated"
+    "proper speed innit"
 };
-static const char* const PHRASES_GPS_VFAST[] = {
+static const char* const PHRASES_GPS_FAST_CD[] = {
+    "moving quick bredren",
+    "speed blessed seen",
+    "fast pon di road"
+};
+static const char* const PHRASES_GPS_FAST_WARHOG[] = {
+    "mobile recon activated",
+    "convoy speed sir",
+    "rapid deployment active"
+};
+static const char* const PHRASES_GPS_VFAST_OINK[] = {
     "pig requests seatbelt",
-    "motorway truffle sweep"
+    "motorway truffle sweep",
+    "absolute speed demon"
+};
+static const char* const PHRASES_GPS_VFAST_CD[] = {
+    "highway vibes bredren",
+    "fast lane blessed",
+    "jah guide di wheel"
+};
+static const char* const PHRASES_GPS_VFAST_WARHOG[] = {
+    "highway ops. full speed.",
+    "tactical transport active",
+    "max velocity sir"
 };
 static const char* const PHRASES_GPS_BADFIX[] = {
     "satellites ghosting me",
@@ -234,6 +263,55 @@ static const char* const PHRASES_GPS_BADFIX[] = {
 static const char* const PHRASES_GPS_FIXBACK[] = {
     "found the sky again",
     "sats locked. pig oriented."
+};
+
+// GPS fix/lost personality phrases
+static const char* const PHRASES_GPS_FIX_OINK[] = {
+    "gps locked n loaded bruv",
+    "satellites sorted innit",
+    "position locked. proper."
+};
+static const char* const PHRASES_GPS_FIX_CD[] = {
+    "jah show di way",
+    "gps blessed bredren",
+    "satellites align irie"
+};
+static const char* const PHRASES_GPS_FIX_WARHOG[] = {
+    "gps lock confirmed sir",
+    "position acquired. grid set.",
+    "satellites tracked. oscar mike."
+};
+static const char* const PHRASES_GPS_LOST_OINK[] = {
+    "gps went dark innit",
+    "lost the signal bruv",
+    "satellites ghosted us"
+};
+static const char* const PHRASES_GPS_LOST_CD[] = {
+    "gps gone silent seen",
+    "lost di way briefly",
+    "satellites rest easy"
+};
+static const char* const PHRASES_GPS_LOST_WARHOG[] = {
+    "gps signal lost sir",
+    "position unknown. standby.",
+    "satellite link severed"
+};
+
+// Low battery personality phrases
+static const char* const PHRASES_LOWBAT_OINK[] = {
+    "battery proper dead bruv",
+    "juice is done mate",
+    "running on fumes innit"
+};
+static const char* const PHRASES_LOWBAT_CD[] = {
+    "piggy need di charge",
+    "battery low bredren",
+    "energy fading seen"
+};
+static const char* const PHRASES_LOWBAT_WARHOG[] = {
+    "power critical sir",
+    "battery depleted. rtb.",
+    "low power. conserve energy."
 };
 
 // Idea 6: Session fatigue phrases
@@ -254,13 +332,19 @@ static const char* const PHRASES_ENC_WEP[] = {
 };
 static const char* const PHRASES_ENC_WPA3[] = {
     "WPA3. tough nut this one.",
-    "WPA3 spotted. grudging respect."
+    "WPA3 spotted. grudging respect.",
+    "SAE handshake. pig impressed."
 };
 static const char* const PHRASES_ENC_OPEN[] = {
     "open network. absolute madlad.",
-    "free wifi. pig suspicious."
+    "free wifi. pig suspicious.",
+    "no password. audacious."
 };
-static const char* const PHRASES_ENC_MANY_OPEN = "open nets everywhere. chaos.";
+static const char* const PHRASES_ENC_MANY_OPEN[] = {
+    "open nets everywhere. chaos.",
+    "open buffet. pig concerned.",
+    "so many open. why tho."
+};
 
 // Idea 8: Buff/debuff awareness phrases
 static const char* const PHRASES_BUFF_GAINED[] = {
@@ -273,7 +357,11 @@ static const char* const PHRASES_DEBUFF_GAINED[] = {
     "pig sluggish. numbers dropping.",
     "debuffed proper. pig suffers."
 };
-static const char* const PHRASES_BUFF_LOST = "modifier expired. pig baseline.";
+static const char* const PHRASES_BUFF_LOST[] = {
+    "modifier expired. pig baseline.",
+    "buff gone. back to normal.",
+    "boost faded. pig unmodified."
+};
 
 // Weather awareness phrases (Idea 10/11: weather-mood-gamification integration)
 static const char* const PHRASES_WEATHER_RAIN_OINK[] = {
@@ -313,17 +401,42 @@ static const char* const PHRASES_WEATHER_CLEAR_WARHOG[] = {
     "visibility green sir"
 };
 
-// Idea 9: Charging state phrases
-static const char* const PHRASES_CHARGING_ON[] = {
+// Idea 9: Charging state phrases (personality-split)
+static const char* const PHRASES_CHARGING_ON_OINK[] = {
     "plugged in. pig goes idle.",
     "on mains. trough refilling.",
     "USB feeding. pig content."
 };
-static const char* const PHRASES_CHARGING_OFF[] = {
-    "unplugged. clock ticking.",
-    "on battery now. finite pig."
+static const char* const PHRASES_CHARGING_ON_CD[] = {
+    "charging blessed bredren",
+    "power flowing irie",
+    "juice a come seen"
 };
-static const char* const PHRASES_CHARGING_OFF_LOW = "unplugged at %d%%. bold move.";
+static const char* const PHRASES_CHARGING_ON_WARHOG[] = {
+    "power connected sir",
+    "charging station active",
+    "battery resupply engaged"
+};
+static const char* const PHRASES_CHARGING_OFF_OINK[] = {
+    "unplugged. clock ticking.",
+    "on battery now. finite pig.",
+    "power cable gone. tick tock."
+};
+static const char* const PHRASES_CHARGING_OFF_CD[] = {
+    "unplugged seen",
+    "battery time bredren",
+    "no more juice flow"
+};
+static const char* const PHRASES_CHARGING_OFF_WARHOG[] = {
+    "power severed sir",
+    "on battery. conserve.",
+    "disconnected from supply"
+};
+static const char* const PHRASES_CHARGING_OFF_LOW[] = {
+    "unplugged at %d%%. bold move.",
+    "pulled plug at %d%%. risky.",
+    "%d%% and unplugged. brave."
+};
 
 // Idea 10: Return-session phrases
 static const char* const PHRASES_RETURN_QUICK[] = {
@@ -339,6 +452,38 @@ static const char* const PHRASES_RETURN_LONG[] = {
     "gone ages. pig coped. barely.",
     "pig was lonely. pig lies.",
     "long absence. heap survived."
+};
+
+// Return-session personality phrases (high/low mood)
+static const char* const PHRASES_RETURN_HIGH_OINK[] = {
+    "missed me piggy?",
+    "the hog returns innit",
+    "back for the snout bruv"
+};
+static const char* const PHRASES_RETURN_HIGH_CD[] = {
+    "pig return blessed",
+    "back pon di frequency",
+    "irie reunion bredren"
+};
+static const char* const PHRASES_RETURN_HIGH_WARHOG[] = {
+    "reporting for duty sir",
+    "soldier returned. morale high.",
+    "back in the AO sir"
+};
+static const char* const PHRASES_RETURN_LOW_OINK[] = {
+    "back for more..",
+    "here we go again bruv",
+    "couldnt stay away"
+};
+static const char* const PHRASES_RETURN_LOW_CD[] = {
+    "back again seen",
+    "cycle continue bredren",
+    "pig persist inna struggle"
+};
+static const char* const PHRASES_RETURN_LOW_WARHOG[] = {
+    "back in the grind sir",
+    "re-engaging. morale low.",
+    "returning to post. reluctant."
 };
 
 static char bubblePhraseRaw[128] = "";
@@ -793,16 +938,42 @@ static bool tryQueueRiddle() {
     return true;
 }
 
-// Completion celebration phrases - when all 3 challenges done
-const char* PHRASES_CHALLENGE_COMPLETE[] = {
+// Completion celebration phrases - personality split
+const char* PHRASES_CHALLENGE_COMPLETE_OINK[] = {
     "THREE TRIALS CONQUERED",
-    "PIG IS PLEASED",
-    "WORTHY SACRIFICE",
-    "DEMANDS MET. RESPECT.",
-    "CHALLENGE LEGEND",
-    "FULL SWEEP ACHIEVED"
+    "DEMANDS MET BRUV!",
+    "FULL SWEEP. PROPER.",
+    "CHALLENGE LEGEND INNIT"
 };
-static const int PHRASES_CHALLENGE_COMPLETE_COUNT = 6;
+const char* PHRASES_CHALLENGE_COMPLETE_CD[] = {
+    "TRIALS COMPLETE BLESSED",
+    "JAH REWARD DI WORTHY",
+    "ALL THREE DONE IRIE",
+    "CHALLENGES CONQUERED SEEN"
+};
+const char* PHRASES_CHALLENGE_COMPLETE_WARHOG[] = {
+    "MISSION ACCOMPLISHED SIR",
+    "ALL OBJECTIVES COMPLETE",
+    "FULL SWEEP CONFIRMED",
+    "THREE FOR THREE. HOOAH."
+};
+
+// Level-up celebration phrases - personality split
+static const char* const PHRASES_LEVELUP_OINK[] = {
+    "LEVELED UP BRUV!",
+    "NEW RANK UNLOCKED MATE!",
+    "PIG ASCENDS INNIT!"
+};
+static const char* const PHRASES_LEVELUP_CD[] = {
+    "NEW LEVEL BLESSED!",
+    "PIG RISE UP IRIE!",
+    "HIGHER GROUND BREDREN!"
+};
+static const char* const PHRASES_LEVELUP_WARHOG[] = {
+    "PROMOTION CONFIRMED!",
+    "RANK ADVANCED SIR!",
+    "NEW PAY GRADE. HOOAH!"
+};
 
 // Buffer for formatted dynamic phrase
 static char dynamicPhraseBuf[48];
@@ -859,6 +1030,7 @@ enum class PhraseCategory : uint8_t {
     BORED,
     // Situational awareness categories
     SA_HEAP, SA_TIME, SA_DENSITY, SA_CHALLENGE, SA_GPS, SA_FATIGUE, SA_ENCRYPT, SA_BUFF, SA_CHARGING, SA_WEATHER,
+    SA_GPS_FIX, SA_GPS_LOST, SA_LOWBAT, SA_LEVELUP, SA_CHALLENGE_DONE,
     COUNT  // Must be last
 };
 
@@ -1102,22 +1274,32 @@ const char* PHRASES_SAD_WARHOG[] = {
     "need handshake. for morale."
 };
 
-// BORED phrases - pig has nothing to hack
-const char* PHRASES_BORED[] = {
+// BORED phrases - personality split
+const char* PHRASES_BORED_OINK[] = {
     "no bacon here",
     "this place sucks",
-    "grass tastes bad",
     "wifi desert mode",
     "empty spectrum",
     "bored outta mind",
-    "where da APs at",
-    "sniff sniff nada",
+    "sod all out here",
+    "not even a printer",
+    "absolute dead zone bruv"
+};
+const char* PHRASES_BORED_CD[] = {
+    "airwaves quiet seen",
+    "patience inna silence",
+    "nothing stir bredren",
+    "spectrum empty mon",
+    "no signal fi find",
+    "radio rest easy"
+};
+const char* PHRASES_BORED_WARHOG[] = {
+    "no contacts sir",
+    "sector clear. zero targets.",
+    "dead zone confirmed",
     "0 targets found",
-    "radio silence",
-    "tumbleweed.exe",
-    "802.11 wasteland",
-    "where horse at",
-    "barn too quiet"
+    "area swept. nothing.",
+    "radio silence confirmed"
 };
 
 // WARHOG wardriving phrases - US Army Sergeant on recon patrol
@@ -1321,9 +1503,23 @@ void Mood::init() {
             // Quick return (<1 hour session time saved = recent)
             SET_PHRASE(currentPhrase, PHRASES_RETURN_QUICK[random(0, 3)]);
         } else if (savedMood > 60) {
-            SET_PHRASE(currentPhrase, "missed me piggy?");
+            PorkchopMode mode = porkchop.getMode();
+            bool isCD = (mode == PorkchopMode::DNH_MODE);
+            bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+            const char* const* rPhrases;
+            if (isCD) { rPhrases = PHRASES_RETURN_HIGH_CD; }
+            else if (isWarhog) { rPhrases = PHRASES_RETURN_HIGH_WARHOG; }
+            else { rPhrases = PHRASES_RETURN_HIGH_OINK; }
+            SET_PHRASE(currentPhrase, rPhrases[random(0, 3)]);
         } else if (savedMood < -20) {
-            SET_PHRASE(currentPhrase, "back for more..");
+            PorkchopMode mode = porkchop.getMode();
+            bool isCD = (mode == PorkchopMode::DNH_MODE);
+            bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+            const char* const* rPhrases;
+            if (isCD) { rPhrases = PHRASES_RETURN_LOW_CD; }
+            else if (isWarhog) { rPhrases = PHRASES_RETURN_LOW_WARHOG; }
+            else { rPhrases = PHRASES_RETURN_LOW_OINK; }
+            SET_PHRASE(currentPhrase, rPhrases[random(0, 3)]);
         } else {
             SET_PHRASE(currentPhrase, PHRASES_RETURN_NORMAL[random(0, 2)]);
         }
@@ -1838,22 +2034,62 @@ void Mood::onGPSFix() {
     if (!sess.gpsLockAwarded) {
         XP::addXP(XPEvent::GPS_LOCK);
     }
-    
-    SET_PHRASE(currentPhrase, "gps locked n loaded");
+
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    const char* const* phrases;
+    if (isCD) { phrases = PHRASES_GPS_FIX_CD; }
+    else if (isWarhog) { phrases = PHRASES_GPS_FIX_WARHOG; }
+    else { phrases = PHRASES_GPS_FIX_OINK; }
+    int idx = pickPhraseIdx(PhraseCategory::SA_GPS_FIX, 3);
+    SET_PHRASE(currentPhrase, phrases[idx]);
     lastPhraseChange = millis();
 }
 
 void Mood::onGPSLost() {
     happiness = max(happiness - 5, -100);  // Small permanent dip
     applyMomentumBoost(-15);  // Temporary sadness
-    SET_PHRASE(currentPhrase, "gps lost sad piggy");
+
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    const char* const* phrases;
+    if (isCD) { phrases = PHRASES_GPS_LOST_CD; }
+    else if (isWarhog) { phrases = PHRASES_GPS_LOST_WARHOG; }
+    else { phrases = PHRASES_GPS_LOST_OINK; }
+    int idx = pickPhraseIdx(PhraseCategory::SA_GPS_LOST, 3);
+    SET_PHRASE(currentPhrase, phrases[idx]);
     lastPhraseChange = millis();
 }
 
 void Mood::onLowBattery() {
-    SET_PHRASE(currentPhrase, "piggy needs juice");
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    const char* const* phrases;
+    if (isCD) { phrases = PHRASES_LOWBAT_CD; }
+    else if (isWarhog) { phrases = PHRASES_LOWBAT_WARHOG; }
+    else { phrases = PHRASES_LOWBAT_OINK; }
+    int idx = pickPhraseIdx(PhraseCategory::SA_LOWBAT, 3);
+    SET_PHRASE(currentPhrase, phrases[idx]);
     lastPhraseChange = millis();
     NarrativeEngine::pushEvent(EVT_LOW_BATTERY);
+}
+
+void Mood::onLevelUp(uint8_t newLevel) {
+    (void)newLevel;
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    const char* const* phrases;
+    if (isCD) { phrases = PHRASES_LEVELUP_CD; }
+    else if (isWarhog) { phrases = PHRASES_LEVELUP_WARHOG; }
+    else { phrases = PHRASES_LEVELUP_OINK; }
+    int idx = pickPhraseIdx(PhraseCategory::SA_LEVELUP, 3);
+    SET_PHRASE(currentPhrase, phrases[idx]);
+    lastPhraseChange = millis();
+    applyMomentumBoost(20);
 }
 
 // === SITUATIONAL AWARENESS IMPLEMENTATIONS ===
@@ -1943,7 +2179,9 @@ bool Mood::pickTimePhraseIfDue(uint32_t now) {
 
     // Early morning (5-8am)
     if (hour >= 5 && hour < 8) {
-        if (isWarhog) {
+        if (isCD) {
+            SET_PHRASE(currentPhrase, PHRASES_TIME_EARLY_CD[random(0, 3)]);
+        } else if (isWarhog) {
             SET_PHRASE(currentPhrase, PHRASES_TIME_EARLY_WARHOG[random(0, 3)]);
         } else {
             SET_PHRASE(currentPhrase, PHRASES_TIME_EARLY_OINK[random(0, 3)]);
@@ -1954,9 +2192,9 @@ bool Mood::pickTimePhraseIfDue(uint32_t now) {
     // Late night (midnight-4am)
     if (hour >= 1 && hour < 4) {
         if (isCD) {
-            SET_PHRASE(currentPhrase, PHRASES_TIME_LATENIGHT_CD[random(0, 2)]);
+            SET_PHRASE(currentPhrase, PHRASES_TIME_LATENIGHT_CD[random(0, 3)]);
         } else if (isWarhog) {
-            SET_PHRASE(currentPhrase, PHRASES_TIME_LATENIGHT_WARHOG[random(0, 2)]);
+            SET_PHRASE(currentPhrase, PHRASES_TIME_LATENIGHT_WARHOG[random(0, 3)]);
         } else {
             SET_PHRASE(currentPhrase, PHRASES_TIME_LATENIGHT_OINK[random(0, 3)]);
         }
@@ -1968,7 +2206,7 @@ bool Mood::pickTimePhraseIfDue(uint32_t now) {
 
 // Idea 3: Network density awareness
 bool Mood::pickDensityPhraseIfDue(uint32_t now) {
-    if (now - lastDensityPhraseMs < 120000) return false;  // Max 1 per 2 min
+    if (now - lastDensityPhraseMs < 90000) return false;  // Max 1 per 90s
 
     uint16_t count = NetworkRecon::getNetworkCount();
     if (densityTrackStartMs == 0) {
@@ -2016,6 +2254,30 @@ bool Mood::pickChallengePhraseIfDue(uint32_t now) {
     if (now - lastChallengeCheckMs < 30000) return false;
     lastChallengeCheckMs = now;
 
+    // Check if all 3 challenges are completed
+    uint8_t completedCount = 0;
+    for (uint8_t i = 0; i < 3; i++) {
+        ActiveChallenge ch;
+        if (Challenges::getSnapshot(i, ch) && ch.completed) completedCount++;
+    }
+    static bool allThreeCelebrated = false;
+    if (completedCount == 3 && !allThreeCelebrated) {
+        allThreeCelebrated = true;
+        PorkchopMode mode = porkchop.getMode();
+        bool isCD = (mode == PorkchopMode::DNH_MODE);
+        bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+        const char* const* ccPhrases;
+        if (isCD) { ccPhrases = PHRASES_CHALLENGE_COMPLETE_CD; }
+        else if (isWarhog) { ccPhrases = PHRASES_CHALLENGE_COMPLETE_WARHOG; }
+        else { ccPhrases = PHRASES_CHALLENGE_COMPLETE_OINK; }
+        int idx = pickPhraseIdx(PhraseCategory::SA_CHALLENGE_DONE, 4);
+        SET_PHRASE(currentPhrase, ccPhrases[idx]);
+        applyMomentumBoost(30);
+        lastPhraseChange = now;
+        return true;
+    }
+    if (completedCount < 3) allThreeCelebrated = false;
+
     for (uint8_t i = 0; i < 3; i++) {
         ActiveChallenge ch;
         if (!Challenges::getSnapshot(i, ch)) continue;
@@ -2046,17 +2308,18 @@ bool Mood::pickChallengePhraseIfDue(uint32_t now) {
 
 // Idea 5: GPS movement commentary
 bool Mood::pickGPSPhraseIfDue(uint32_t now) {
-    if (now - lastGPSPhraseMs < 180000) return false;  // Max 1 per 3 min
+    if (now - lastGPSPhraseMs < 120000) return false;  // Max 1 per 2 min
     if (!Config::gps().enabled) return false;
 
     GPSData gps = GPS::getData();
 
     PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
     bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
 
     // Bad GPS fix
     if (gps.fix && (gps.satellites < 4 || gps.hdop > 500)) {
-        int idx = random(0, 3);
+        int idx = pickPhraseIdx(PhraseCategory::SA_GPS, 3);
         SET_PHRASE(currentPhrase, PHRASES_GPS_BADFIX[idx]);
         lastGPSPhraseMs = now;
         lastPhraseChange = now;
@@ -2073,7 +2336,7 @@ bool Mood::pickGPSPhraseIfDue(uint32_t now) {
             standingStillSinceMs = now;
             wasStandingStill = true;
         } else if (now - standingStillSinceMs > 300000) {  // 5 min
-            int idx = random(0, 3);
+            int idx = pickPhraseIdx(PhraseCategory::SA_GPS, 3);
             SET_PHRASE(currentPhrase, PHRASES_GPS_STILL[idx]);
             lastGPSPhraseMs = now;
             lastPhraseChange = now;
@@ -2084,19 +2347,29 @@ bool Mood::pickGPSPhraseIfDue(uint32_t now) {
         wasStandingStill = false;
 
         if (speedKmh > 60.0f) {
-            // Highway speed
-            int idx = random(0, 2);
-            SET_PHRASE(currentPhrase, PHRASES_GPS_VFAST[idx]);
+            // Highway speed - personality split
+            const char* const* vfPhrases;
+            if (isCD) { vfPhrases = PHRASES_GPS_VFAST_CD; }
+            else if (isWarhog) { vfPhrases = PHRASES_GPS_VFAST_WARHOG; }
+            else { vfPhrases = PHRASES_GPS_VFAST_OINK; }
+            int idx = pickPhraseIdx(PhraseCategory::SA_GPS, 3);
+            SET_PHRASE(currentPhrase, vfPhrases[idx]);
         } else if (speedKmh > 20.0f) {
-            // Car/bike speed
-            int idx = random(0, 3);
-            SET_PHRASE(currentPhrase, PHRASES_GPS_FAST[idx]);
+            // Car/bike speed - personality split
+            const char* const* fPhrases;
+            if (isCD) { fPhrases = PHRASES_GPS_FAST_CD; }
+            else if (isWarhog) { fPhrases = PHRASES_GPS_FAST_WARHOG; }
+            else { fPhrases = PHRASES_GPS_FAST_OINK; }
+            int idx = pickPhraseIdx(PhraseCategory::SA_GPS, 3);
+            SET_PHRASE(currentPhrase, fPhrases[idx]);
         } else if (speedKmh >= 1.0f && speedKmh <= 6.0f) {
-            // Walking speed
-            if (isWarhog) {
-                SET_PHRASE(currentPhrase, PHRASES_GPS_WALK_WARHOG[random(0, 2)]);
+            // Walking speed - personality split
+            if (isCD) {
+                SET_PHRASE(currentPhrase, PHRASES_GPS_WALK_CD[pickPhraseIdx(PhraseCategory::SA_GPS, 4)]);
+            } else if (isWarhog) {
+                SET_PHRASE(currentPhrase, PHRASES_GPS_WALK_WARHOG[pickPhraseIdx(PhraseCategory::SA_GPS, 4)]);
             } else {
-                SET_PHRASE(currentPhrase, PHRASES_GPS_WALK_OINK[random(0, 2)]);
+                SET_PHRASE(currentPhrase, PHRASES_GPS_WALK_OINK[pickPhraseIdx(PhraseCategory::SA_GPS, 4)]);
             }
         } else {
             return false;  // Bike speed (7-20) not special enough to comment on
@@ -2165,16 +2438,16 @@ bool Mood::pickEncryptionPhraseIfDue(uint32_t now) {
         triggered = true;
     } else if (hasWPA3 && !firstWPA3Seen) {
         firstWPA3Seen = true;
-        int idx = random(0, 2);
+        int idx = random(0, 3);
         SET_PHRASE(currentPhrase, PHRASES_ENC_WPA3[idx]);
         triggered = true;
     } else if (openCount > 0 && !firstOpenSeen) {
         firstOpenSeen = true;
-        int idx = random(0, 2);
+        int idx = random(0, 3);
         SET_PHRASE(currentPhrase, PHRASES_ENC_OPEN[idx]);
         triggered = true;
     } else if (openCount > 5 && openNetCount <= 5) {
-        SET_PHRASE(currentPhrase, PHRASES_ENC_MANY_OPEN);
+        SET_PHRASE(currentPhrase, PHRASES_ENC_MANY_OPEN[random(0, 3)]);
         triggered = true;
     }
 
@@ -2204,7 +2477,7 @@ bool Mood::pickBuffPhraseIfDue(uint32_t now) {
     }
     // Buff lost
     else if (bs.buffs == 0 && lastBuffFlags != 0) {
-        SET_PHRASE(currentPhrase, PHRASES_BUFF_LOST);
+        SET_PHRASE(currentPhrase, PHRASES_BUFF_LOST[random(0, 3)]);
         triggered = true;
     }
     // Debuff gained
@@ -2282,21 +2555,31 @@ bool Mood::pickChargingPhraseIfDue(uint32_t now) {
 
     bool triggered = false;
 
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+
     if (charging && !lastChargingState) {
-        // Just plugged in
-        int idx = random(0, 3);
-        SET_PHRASE(currentPhrase, PHRASES_CHARGING_ON[idx]);
+        // Just plugged in - personality split
+        const char* const* onPhrases;
+        if (isCD) { onPhrases = PHRASES_CHARGING_ON_CD; }
+        else if (isWarhog) { onPhrases = PHRASES_CHARGING_ON_WARHOG; }
+        else { onPhrases = PHRASES_CHARGING_ON_OINK; }
+        SET_PHRASE(currentPhrase, onPhrases[random(0, 3)]);
         triggered = true;
     } else if (!charging && lastChargingState) {
         // Just unplugged
         int batt = M5.Power.getBatteryLevel();
         if (batt >= 0 && batt < 20) {
             char buf[40];
-            snprintf(buf, sizeof(buf), PHRASES_CHARGING_OFF_LOW, batt);
+            snprintf(buf, sizeof(buf), PHRASES_CHARGING_OFF_LOW[random(0, 3)], batt);
             SET_PHRASE(currentPhrase, buf);
         } else {
-            int idx = random(0, 2);
-            SET_PHRASE(currentPhrase, PHRASES_CHARGING_OFF[idx]);
+            const char* const* offPhrases;
+            if (isCD) { offPhrases = PHRASES_CHARGING_OFF_CD; }
+            else if (isWarhog) { offPhrases = PHRASES_CHARGING_OFF_WARHOG; }
+            else { offPhrases = PHRASES_CHARGING_OFF_OINK; }
+            SET_PHRASE(currentPhrase, offPhrases[random(0, 3)]);
         }
         triggered = true;
     }
@@ -2959,23 +3242,30 @@ void Mood::onIdle() {
 void Mood::onBored(uint16_t networkCount) {
     // Pig is bored - no valid targets to attack
     // Don't update lastActivityTime - we WANT to trigger idle effects
-    
+
     // Set bored flag so updateAvatarState() shows SLEEPY instead of HUNTING
     isBoredState = true;
-    
+
     // Decrease happiness slightly (but not too much)
     happiness = max(happiness - 1, -50);
-    
-    int idx = pickPhraseIdx(PhraseCategory::BORED, sizeof(PHRASES_BORED) / sizeof(PHRASES_BORED[0]));
-    
+
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    const char* const* boredPhrases; int boredCount;
+    if (isCD) { boredPhrases = PHRASES_BORED_CD; boredCount = 6; }
+    else if (isWarhog) { boredPhrases = PHRASES_BORED_WARHOG; boredCount = 6; }
+    else { boredPhrases = PHRASES_BORED_OINK; boredCount = 8; }
+    int idx = pickPhraseIdx(PhraseCategory::BORED, boredCount);
+
     if (networkCount > 0) {
         // Networks exist but all exhausted/protected
         char buf[48];
-        snprintf(buf, sizeof(buf), "%s (%d pwned)", PHRASES_BORED[idx], networkCount);
+        snprintf(buf, sizeof(buf), "%s (%d pwned)", boredPhrases[idx], networkCount);
         SET_PHRASE(currentPhrase, buf);
     } else {
         // No networks at all
-        SET_PHRASE(currentPhrase, PHRASES_BORED[idx]);
+        SET_PHRASE(currentPhrase, boredPhrases[idx]);
     }
     lastPhraseChange = millis();
     

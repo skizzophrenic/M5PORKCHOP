@@ -14,7 +14,7 @@
 // of unique RHYMING lines from ~8KB flash. The pig is a bard.
 // ============================================================
 
-// --- Rhyme families (14 families, ~89 words) ---
+// --- Rhyme families (19 families, ~89 words) ---
 // Words within each family rhyme. Pick S and O from same family
 // and any template placing both produces algorithmic verse.
 // Each family mixes pig/farm, D&D, tech, and comedy contexts.
@@ -75,7 +75,7 @@ static const char* const LORE_NOUNS[] = {
 };
 static constexpr uint8_t LORE_NOUN_COUNT = 20;
 
-// --- Adjective pool (20 words — D&D + pork preparation) ---
+// --- Adjective pool (35 words — D&D + pork preparation) ---
 static const char* const ADJECTIVES[] = {
     "FERAL",    "HOLY",     "CURSED",   "HAUNTED",
     "ANCIENT",  "UNDEAD",   "SACRED",   "ARCANE",
@@ -543,14 +543,6 @@ static void generateEventLine() {
             tpls = TPL_WIN;
             tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
             break;
-        case EVT_DEAUTH_CRIT:
-            tpls = TPL_D20_CRIT;
-            tplCount = sizeof(TPL_D20_CRIT) / sizeof(TPL_D20_CRIT[0]);
-            break;
-        case EVT_DEAUTH_FUMBLE:
-            tpls = TPL_D20_FUMBLE;
-            tplCount = sizeof(TPL_D20_FUMBLE) / sizeof(TPL_D20_FUMBLE[0]);
-            break;
         case EVT_LOW_BATTERY:
         case EVT_GPS_LOCK:
             tpls = TPL_AWARE;
@@ -646,6 +638,42 @@ void NarrativeEngine::update(uint8_t mode) {
             tplCount = sizeof(TPL_FAIL) / sizeof(TPL_FAIL[0]);
         }
         useRhyme = true;
+    } else if (mode == 4) {
+        // PIGGYBLUES: BLE notification spam — predatory scanning flavor
+        uint8_t sub = esp_random() % 100;
+        if (sub < 50) {
+            tpls = TPL_HUNT;
+            tplCount = sizeof(TPL_HUNT) / sizeof(TPL_HUNT[0]);
+            useRhyme = true;
+        } else if (sub < 80) {
+            tpls = TPL_WIN;
+            tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
+            useRhyme = true;
+        } else {
+            tpls = TPL_TAUNT;
+            tplCount = sizeof(TPL_TAUNT) / sizeof(TPL_TAUNT[0]);
+            useRhyme = false;  // TAUNT uses lore nouns / SSIDs
+        }
+    } else if (mode == 21) {
+        // BACON: beacon broadcaster — hide-and-seek deception
+        uint8_t sub = esp_random() % 100;
+        if (sub < 40) {
+            tpls = TPL_HUNT;
+            tplCount = sizeof(TPL_HUNT) / sizeof(TPL_HUNT[0]);
+            useRhyme = true;
+        } else if (sub < 70) {
+            tpls = TPL_LORE;
+            tplCount = sizeof(TPL_LORE) / sizeof(TPL_LORE[0]);
+            useRhyme = false;
+        } else if (sub < 90) {
+            tpls = TPL_META;
+            tplCount = sizeof(TPL_META) / sizeof(TPL_META[0]);
+            useRhyme = true;
+        } else {
+            tpls = TPL_WIN;
+            tplCount = sizeof(TPL_WIN) / sizeof(TPL_WIN[0]);
+            useRhyme = true;
+        }
     } else {
         // Idle, menu, charging, etc.
         uint8_t sub = esp_random() % 100;

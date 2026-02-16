@@ -176,6 +176,7 @@ void Porkchop::init() {
     XP::setLevelUpCallback([](uint8_t oldLevel, uint8_t newLevel) {
         Display::showLevelUp(oldLevel, newLevel);
         Avatar::cuteJump();  // Celebratory jump on level up!
+        Mood::onLevelUp(newLevel);
         
         // Check if class tier changed (every 5 levels: 6, 11, 16, 21, 26, 31, 36)
         PorkClass oldClass = XP::getClassForLevel(oldLevel);

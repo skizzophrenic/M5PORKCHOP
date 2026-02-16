@@ -22,6 +22,7 @@ public:
     static void onGPSFix();
     static void onGPSLost();
     static void onLowBattery();
+    static void onLevelUp(uint8_t newLevel);
     
     // Context-aware mood updates
     static void onSniffing(uint16_t networkCount, uint8_t channel);
