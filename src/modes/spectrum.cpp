@@ -168,6 +168,17 @@ static inline uint8_t fastNoise() {
     return (uint8_t)(noiseState & 0x07);  // 0-7 range for subtle jitter
 }
 
+// Shared dithering function — same 5-tier pattern used by both waterfall and carriers.
+// Uses absolute screen coords so patterns align seamlessly across regions.
+static inline bool ditherPixel(uint8_t intensity, int x, int y) {
+    if (intensity <= 20) return false;
+    if (intensity > 200) return true;
+    if (intensity > 150) return ((x + y) % 2) == 0;
+    if (intensity > 100) return ((x % 2) == 0) && ((y % 2) == 0);
+    if (intensity > 50)  return ((x % 3) == 0) && ((y % 2) == 0);
+    return ((x % 4) == 0) && ((y % 3) == 0);
+}
+
 // Forward declaration for sinc amplitude helper
 static float getSincAmplitude(float dist);
 
@@ -1986,28 +1997,8 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas, uint16_t fg) {
         for (int x = 0; x < SPECTRUM_WIDTH; x++) {
             uint8_t intensity = waterfallBuffer[bufRow][x];
             
-            // Only draw if above noise threshold (intensity > 20 means signal present)
-            if (intensity > 20) {
-                // Dithering for monochrome display:
-                // Higher intensity = more pixels filled
-                // Use position-based pattern for clean look
-                bool drawPixel = false;
-                
-                if (intensity > 200) {
-                    drawPixel = true;  // Full brightness - always draw
-                } else if (intensity > 150) {
-                    drawPixel = ((x + row) % 2) == 0;  // 50% checkerboard
-                } else if (intensity > 100) {
-                    drawPixel = ((x % 2) == 0) && ((row % 2) == 0);  // 25% grid
-                } else if (intensity > 50) {
-                    drawPixel = ((x % 3) == 0) && ((row % 2) == 0);  // ~16% sparse
-                } else {
-                    drawPixel = ((x % 4) == 0) && ((row % 3) == 0);  // ~8% very sparse
-                }
-                
-                if (drawPixel) {
-                    canvas.drawPixel(SPECTRUM_LEFT + x, screenY, fg);
-                }
+            if (ditherPixel(intensity, SPECTRUM_LEFT + x, screenY)) {
+                canvas.drawPixel(SPECTRUM_LEFT + x, screenY, fg);
             }
         }
     }
@@ -2449,7 +2440,7 @@ static float getGaussianAmplitude(float dist) {
 }
 
 void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
-                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed, uint16_t fg) {
+                                     int8_t rssi, bool selected, uint16_t activityPps, uint8_t seed, uint16_t fg) {
     // Sinc-based carrier wave rendering with visible side lobes
     // Real RF signals have sinc shape: main lobe + decaying side lobes
     // Extended range to ±22MHz to show side lobes like a real spectrum analyzer
@@ -2508,66 +2499,48 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
     if (lobeHeightMod < 1) lobeHeightMod = 1;
     if (lobeHeightMod > maxHeight) lobeHeightMod = maxHeight;
 
-    // Activity-weighted fill shimmer (selected network only)
-    uint8_t shimmerMod = 1;
-    uint8_t shimmerPhase = 0;
-    if (filled) {
-        // Lower activity = sparser fill, higher activity = solid
-        shimmerMod = 1 + (uint8_t)((1.0f - activityRatio) * 2.0f);  // 1..3
-        if (shimmerMod < 1) shimmerMod = 1;
-        if (shimmerMod > 3) shimmerMod = 3;
-        uint32_t shimmerTick = (millis() / 60u) + seed;
-        shimmerPhase = (uint8_t)(shimmerTick % shimmerMod);
+    // Base intensity from RSSI (same formula as waterfall)
+    int baseIntensity = (int)((rssi - RSSI_MIN) * 255 / (RSSI_MAX - RSSI_MIN));
+    if (baseIntensity < 0) baseIntensity = 0;
+    if (baseIntensity > 255) baseIntensity = 255;
+
+    // Selected carrier gets ~30% intensity boost
+    if (selected) {
+        baseIntensity = min(255, (int)(baseIntensity * 1.3f));
     }
-    
-    // Draw carrier wave as connected line segments (1 pixel step)
-    int prevX = leftX;
-    int prevY = baseY;
-    bool prevValid = false;
-    
+
+    // Draw waterfall-textured fill for each column
     for (int x = leftX; x <= rightX; x++) {
-        // Convert X back to frequency (use effective width for mapping)
+        // Convert X back to frequency
         float freq = viewCenterMHz - viewWidthMHz / 2 +
                     (float)(x - SPECTRUM_LEFT) * viewWidthMHz / effectiveWidth;
         float dist = freq - center;
-        
+
         // Get sinc amplitude (includes side lobes)
         float amp = getSincAmplitude(dist);
-        
-        // Calculate Y with activity jitter
-        int y = baseY - (int)(lobeHeightMod * amp) + jitterOffset;
-        y = constrain(y, SPECTRUM_TOP, baseY);
-        
-        if (filled) {
-            // Filled: draw vertical line from baseline to curve
-            if (y < baseY) {
-                if (shimmerMod == 1 || ((uint8_t)(x + shimmerPhase) % shimmerMod) == 0) {
-                    canvas.drawFastVLine(x, y, baseY - y, fg);
+
+        // Calculate top Y with activity jitter
+        int topY = baseY - (int)(lobeHeightMod * amp) + jitterOffset;
+        topY = constrain(topY, SPECTRUM_TOP, baseY);
+
+        if (topY >= baseY) continue;
+
+        // Column intensity = base intensity scaled by sinc amplitude
+        int colIntensity = (int)(baseIntensity * amp);
+        if (colIntensity > 255) colIntensity = 255;
+
+        uint8_t ci = (uint8_t)colIntensity;
+
+        // Fast path: solid column for strong signals
+        if (ci > 200) {
+            canvas.drawFastVLine(x, topY, baseY - topY, fg);
+        } else {
+            // Dithered fill pixel-by-pixel
+            for (int y = topY; y < baseY; y++) {
+                if (ditherPixel(ci, x, y)) {
+                    canvas.drawPixel(x, y, fg);
                 }
             }
-        } else {
-            // Outline: connect to previous point
-            if (prevValid && (prevY < baseY || y < baseY)) {
-                canvas.drawLine(prevX, prevY, x, y, fg);
-            }
-        }
-        
-        prevX = x;
-        prevY = y;
-        prevValid = true;
-    }
-    
-    // For outline mode: connect to baseline at edges
-    if (!filled) {
-        // Left edge
-        int leftEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(startFreq - center));
-        if (leftEdgeY < baseY) {
-            canvas.drawLine(leftX, baseY, leftX, leftEdgeY, fg);
-        }
-        // Right edge
-        int rightEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(endFreq - center));
-        if (rightEdgeY < baseY) {
-            canvas.drawLine(rightX, rightEdgeY, rightX, baseY, fg);
         }
     }
 }

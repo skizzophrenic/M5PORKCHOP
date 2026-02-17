@@ -350,7 +350,7 @@ void Avatar::draw(M5Canvas& canvas) {
                 grassMoving = true;
                 pendingGrassStart = false;
                 facingRight = !grassDirection;  // Face opposite to grass movement
-            } else {
+            } else if (!grassMoving) {
                 // === POST-WALK RANDOM BEHAVIOR ===
                 // After arriving somewhere, pig might do something interesting
                 int arrivalRoll = random(0, 100);
@@ -606,6 +606,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
             // Animation complete - return to origin
             attackHopActive = false;
             currentX = attackHopOriginX;
+            if (grassMoving) facingRight = !grassDirection;
         } else {
             // Determine current hop index
             uint8_t hopIdx = hopElapsed / ATTACK_HOP_MS;
