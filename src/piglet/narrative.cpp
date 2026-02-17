@@ -311,6 +311,12 @@ static char sLine1[54] = "";
 static char sLine2[54] = "";
 static char sLine3[54] = "";
 static uint32_t sLastUpdate = 0;
+
+// Scrollback ring buffer — stores lines that scrolled past sLine3
+static const int SCROLLBACK_SIZE = 21;
+static char scrollback[SCROLLBACK_SIZE][54] = {{""}};
+static int scrollbackHead = 0;   // next write slot
+static int scrollbackCount = 0;  // filled entries (max SCROLLBACK_SIZE)
 static constexpr uint32_t UPDATE_INTERVAL_MS = 9000;
 static uint8_t sLastTplIdx = 255;
 static bool sReady = false;
@@ -479,6 +485,13 @@ static void generateLine(const char* const* tpls, uint8_t tplCount, bool useRhym
 
     const char* adj = ADJECTIVES[esp_random() % ADJ_COUNT];
     uint8_t roll = 1 + (esp_random() % 20);
+
+    // Save outgoing sLine3 to scrollback before it's overwritten
+    if (sLine3[0]) {
+        memcpy(scrollback[scrollbackHead], sLine3, 54);
+        scrollbackHead = (scrollbackHead + 1) % SCROLLBACK_SIZE;
+        if (scrollbackCount < SCROLLBACK_SIZE) scrollbackCount++;
+    }
 
     // Scroll: line1 → line2 → line3, generate new line1
     memcpy(sLine3, sLine2, sizeof(sLine2));
@@ -751,3 +764,10 @@ void NarrativeEngine::tick() {
 
 uint8_t NarrativeEngine::getReveal1() { return sReveal1; }
 bool NarrativeEngine::isTyping() { return sReveal1 < (uint8_t)strlen(sLine1); }
+
+int NarrativeEngine::getScrollbackCount() { return scrollbackCount; }
+const char* NarrativeEngine::getScrollbackLine(int idx) {
+    if (idx < 0 || idx >= scrollbackCount) return "";
+    int pos = (scrollbackHead - 1 - idx + SCROLLBACK_SIZE * 2) % SCROLLBACK_SIZE;
+    return scrollback[pos];
+}

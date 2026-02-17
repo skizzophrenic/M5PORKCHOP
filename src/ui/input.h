@@ -32,5 +32,8 @@ bool swipeUp();
 bool swipeDown();
 bool tap(TapEvent& out);
 
+// Narrator toggle (center-bottom tap on avatar screens).
+bool narratorTap();
+
 }  // namespace Input
 

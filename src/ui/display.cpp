@@ -134,6 +134,9 @@ char Display::uploadStatus[64] = {0};
 uint32_t Display::uploadStartTime = 0;
 
 
+// Expanded narrator state (full-screen narrative text toggle)
+static bool narratorExpanded = false;
+
 // PWNED banner state, persists until reboot
 static char lootSSID[20] = {0};
 
@@ -145,6 +148,9 @@ void Display::showLoot(const char* ssid) {
     strncpy(lootSSID, ssid, sizeof(lootSSID) - 1);
     lootSSID[sizeof(lootSSID) - 1] = '\0';
 }
+
+void Display::toggleNarratorExpanded() { narratorExpanded = !narratorExpanded; }
+bool Display::isNarratorExpanded() { return narratorExpanded; }
 
 extern Porkchop porkchop;
 
@@ -1006,6 +1012,63 @@ void Display::update() {
     if (!barsHidden) {
         drawBottomBar();
     }
+
+    // Expanded narrator: fill from grass line down (info panel area + bottomBar)
+    // Top bar and avatar/grass/weather stay visible — only the lower portion expands
+    if (narratorExpanded && useAvatarWeather) {
+        const int expandY = 108;  // Info panel start (just below grass ground line)
+
+        // Fill info panel area in mainCanvas with inverted background
+        mainCanvas.fillRect(0, expandY, DISPLAY_W, MAIN_H - expandY, fg);
+        mainCanvas.setTextColor(bg);
+        mainCanvas.setTextSize(1);
+        mainCanvas.setTextDatum(TL_DATUM);
+        mainCanvas.setFont(&fonts::Font0);
+
+        // Fill bottomBar with inverted background
+        bottomBar.fillSprite(fg);
+        bottomBar.setTextColor(bg);
+        bottomBar.setTextSize(1);
+        bottomBar.setTextDatum(TL_DATUM);
+        bottomBar.setFont(&fonts::Font0);
+
+        // bottomBar (20px): Line1 at y=10, Line2 at y=0
+        if (NarrativeEngine::getLine2()[0]) {
+            bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
+        }
+        {
+            char buf[54] = {0};
+            uint8_t rev = NarrativeEngine::getReveal1();
+            if (rev > 0) {
+                memcpy(buf, NarrativeEngine::getLine1(), rev);
+                buf[rev] = '\0';
+                bottomBar.drawString(buf, 4, 11);
+            }
+            if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
+                int cx = 4 + bottomBar.textWidth(buf);
+                bottomBar.fillRect(cx, 11, 6, 8, bg);
+            }
+        }
+
+        // mainCanvas below grass: Line3 at bottom, scrollback lines above it
+        // Available space: Y=108 to Y=199 = 92px → 9 lines of 10px
+        // Line3 at Y=190, scrollback[0] at Y=180, ... scrollback[7] at Y=110
+        if (NarrativeEngine::getLine3()[0]) {
+            mainCanvas.drawString(NarrativeEngine::getLine3(), 4, 191);
+        }
+        int sbCount = NarrativeEngine::getScrollbackCount();
+        int maxSb = 8;  // lines that fit: Y=180,170,160,150,140,130,120,110
+        for (int i = 0; i < maxSb && i < sbCount; i++) {
+            const char* line = NarrativeEngine::getScrollbackLine(i);
+            if (line[0]) {
+                mainCanvas.drawString(line, 4, 181 - i * 10);
+            }
+        }
+    } else if (narratorExpanded) {
+        // Mode left avatar screens — auto-collapse
+        narratorExpanded = false;
+    }
+
     pushAll();
 
     // Frame pacing: yield unused CPU time to RTOS scheduler.

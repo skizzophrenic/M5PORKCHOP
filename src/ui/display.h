@@ -130,6 +130,10 @@ public:
     static bool isDimmed() { return dimmed; }
     static void toggleScreenPower(); // Toggle screen on/off
 
+    // Expanded narrator (full-screen narrative text toggle)
+    static void toggleNarratorExpanded();
+    static bool isNarratorExpanded();
+
     // Nav button blink hint (shows user where to press on menu enter)
     static void startNavBlink();
 

@@ -739,8 +739,33 @@ void Porkchop::handleInput() {
         return;
     }
 
+    // --- Expanded narrator: any input collapses (IDLE + active avatar modes) ---
+    bool isAvatarMode = (currentMode == PorkchopMode::IDLE ||
+                         currentMode == PorkchopMode::OINK_MODE ||
+                         currentMode == PorkchopMode::DNH_MODE ||
+                         currentMode == PorkchopMode::WARHOG_MODE ||
+                         currentMode == PorkchopMode::PIGGYBLUES_MODE ||
+                         currentMode == PorkchopMode::BACON_MODE);
+    if (isAvatarMode && Display::isNarratorExpanded()) {
+        Input::TapEvent t;
+        if (Input::narratorTap() || Input::tap(t) || Input::select() ||
+            Input::up() || Input::down() || Input::back() ||
+            Input::swipeLeft() || Input::swipeRight() ||
+            Input::swipeUp() || Input::swipeDown() || Input::doubleClick()) {
+            Display::toggleNarratorExpanded();
+            Display::resetDimTimer();
+        }
+        return;  // Consume the frame
+    }
+
     // IDLE: BtnB double-click opens spectrum, BtnB click opens menu.
     if (currentMode == PorkchopMode::IDLE) {
+        // Narrator tap toggle (before select check)
+        if (Input::narratorTap()) {
+            Display::toggleNarratorExpanded();
+            Display::resetDimTimer();
+            return;
+        }
         if (Input::doubleClick()) {
             Display::resetDimTimer();
             setMode(PorkchopMode::SPECTRUM_MODE);
@@ -762,6 +787,13 @@ void Porkchop::handleInput() {
                 Mood::adjustHappiness(3);
             }
         }
+        return;
+    }
+
+    // Active avatar modes: narrator tap toggle
+    if (isAvatarMode && Input::narratorTap()) {
+        Display::toggleNarratorExpanded();
+        Display::resetDimTimer();
         return;
     }
 

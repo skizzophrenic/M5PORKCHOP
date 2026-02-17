@@ -35,4 +35,8 @@ public:
 
     // D20 roll accumulator — batches rapid rolls into single narrative line
     static void pushD20Roll(uint8_t roll, uint16_t xp);
+
+    // Scrollback ring buffer — stores lines that scrolled past sLine3
+    static int getScrollbackCount();
+    static const char* getScrollbackLine(int idx);  // 0=newest scrollback, higher=older
 };

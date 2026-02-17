@@ -16,6 +16,7 @@ static bool evBack = false;
 static bool evScreenshot = false;
 static bool evDoubleClick = false;
 static bool evPowerShort = false;
+static bool evNarratorTap = false;
 
 // Hold detection (Core2 touch buttons are still exposed as Button_Class)
 static bool backFired = false;
@@ -56,6 +57,7 @@ static void clearFrameEvents() {
     evUp = evDown = evSelect = evBack = evScreenshot = evDoubleClick = evPowerShort = false;
     evSwipeLeft = evSwipeRight = evSwipeUp = evSwipeDown = false;
     evTap = false;
+    evNarratorTap = false;
     tapEv = {};
 }
 
@@ -121,7 +123,7 @@ void update() {
             if (t.y >= kNavBarY) {
                 if (t.x < kNavBtnW) evUp = true;
                 else if (t.x >= kNavBtnW * 2) evDown = true;
-                else evSelect = true;
+                else evNarratorTap = true;  // Center-bottom → narrator toggle
             } else {
                 evTap = true;
                 tapEv.x = t.x;
@@ -138,7 +140,7 @@ void update() {
 
     // Haptic tick for any input event (centralized — no per-file tick calls needed)
     if (evUp || evDown || evSelect || evBack || evScreenshot || evDoubleClick ||
-        evSwipeLeft || evSwipeRight || evSwipeUp || evSwipeDown || evTap)
+        evSwipeLeft || evSwipeRight || evSwipeUp || evSwipeDown || evTap || evNarratorTap)
         Haptic::tick();
 }
 
@@ -160,5 +162,7 @@ bool tap(TapEvent& out) {
     tapEv = {};
     return true;
 }
+
+bool narratorTap() { bool v = evNarratorTap; evNarratorTap = false; return v; }
 
 }  // namespace Input

@@ -90,6 +90,21 @@ uint32_t Avatar::lastGrassUpdate = 0;
 uint16_t Avatar::grassSpeed = 80;  // Default fast for OINK
 Avatar::GrassBlade Avatar::grassBlades[GRASS_BLADE_COUNT] = {{0}};
 int16_t Avatar::grassOffset = 0;
+// Trail particle system (dust kicked up by running pig)
+struct TrailParticle {
+    float x, y;
+    float vx, vy;
+    float startX;
+    float maxDist;     // 30-60px travel before vanishing
+    uint8_t baseSize;  // 1-2 px radius
+    bool active;
+};
+static const int TRAIL_COUNT = 10;
+static TrailParticle trailParticles[TRAIL_COUNT] = {{0}};
+static uint32_t lastTrailSpawn = 0;
+static uint32_t lastTrailUpdate = 0;
+static int trailSpawnIdx = 0;
+
 // Internal state for looking direction
 static bool facingRight = true;  // Default: pig looks right
 static uint32_t lastFlipTime = 0;
@@ -859,6 +874,14 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     // Solid ground line
     canvas.fillRect(0, 106, 320, 2, color);
 
+    // Pig body footprint for grass bending (6 chars × 18px at text size 3)
+    // Inset 18px from each edge — bend under the 4 inner spaces, not the parens
+    bool pigOnGround = !jumpActive && !attackHopActive;
+    int pigLeft  = currentX + 18;   // skip '('
+    int pigRight = currentX + 90;   // stop before ')'
+    int pigCenter = (pigLeft + pigRight) / 2;
+    int pigHalf  = (pigRight - pigLeft) / 2;  // 36px
+
     // Draw triangle blades
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
         int16_t cx = i * GRASS_STRIDE + grassOffset;
@@ -867,11 +890,86 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         if (cx > 320) continue;
 
         const GrassBlade& b = grassBlades[i];
-        int16_t tipX = cx + b.lean;
-        int16_t tipY = baseY - b.height;
+        int16_t drawHeight = b.height;
+        int8_t drawLean = b.lean;
+
+        // Bend grass under pig body
+        if (pigOnGround && cx >= pigLeft && cx <= pigRight) {
+            int distFromCenter = cx - pigCenter;
+            if (distFromCenter < 0) distFromCenter = -distFromCenter;
+            // 1.0 at center, 0.0 at edges
+            float bend = 1.0f - (float)distFromCenter / (float)pigHalf;
+            // Flatten: up to 70% shorter at center
+            drawHeight = b.height - (int16_t)((float)b.height * 0.7f * bend);
+            if (drawHeight < 2) drawHeight = 2;
+            // Lean away from pig center
+            int8_t leanPush = (int8_t)(4.0f * bend);
+            drawLean = (cx < pigCenter) ? (b.lean - leanPush) : (b.lean + leanPush);
+        }
+
+        int16_t tipX = cx + drawLean;
+        int16_t tipY = baseY - drawHeight;
         int16_t leftX = cx - b.width;
         int16_t rightX = cx + b.width;
         canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, color);
+    }
+
+    // === Trail particles (dust from running pig) ===
+    uint32_t now = millis();
+    bool isRunning = transitioning || grassMoving;
+
+    // Spawn one particle per ~70ms while pig is moving on the ground
+    if (isRunning && pigOnGround && now - lastTrailSpawn > 70) {
+        lastTrailSpawn = now;
+        TrailParticle& p = trailParticles[trailSpawnIdx];
+        trailSpawnIdx = (trailSpawnIdx + 1) % TRAIL_COUNT;
+
+        // Spawn at pig's trailing edge near the feet
+        if (facingRight) {
+            p.x = (float)(currentX + random(0, 20));
+            p.vx = -(1.0f + (float)random(0, 20) / 10.0f);
+        } else {
+            p.x = (float)(currentX + 88 + random(0, 20));
+            p.vx = 1.0f + (float)random(0, 20) / 10.0f;
+        }
+        p.y = (float)(97 + random(0, 10));
+        p.vy = -(0.2f + (float)random(0, 10) / 20.0f);  // slight upward drift
+        p.startX = p.x;
+        p.maxDist = 30.0f + (float)random(0, 31);  // 30-60px
+        p.baseSize = random(1, 3);  // 1-2 px radius
+        p.active = true;
+    }
+
+    // Update trail particles
+    if (now - lastTrailUpdate > 50) {
+        lastTrailUpdate = now;
+        for (int i = 0; i < TRAIL_COUNT; i++) {
+            if (!trailParticles[i].active) continue;
+            trailParticles[i].x += trailParticles[i].vx;
+            trailParticles[i].y += trailParticles[i].vy;
+            float dx = trailParticles[i].x - trailParticles[i].startX;
+            if (dx < 0) dx = -dx;
+            if (dx >= trailParticles[i].maxDist) {
+                trailParticles[i].active = false;
+            }
+        }
+    }
+
+    // Draw trail particles (shrinking circles, same as wind)
+    for (int i = 0; i < TRAIL_COUNT; i++) {
+        if (!trailParticles[i].active) continue;
+        int px = (int)trailParticles[i].x;
+        int py = (int)trailParticles[i].y;
+        if (px < 0 || px >= 320) continue;
+
+        float dx = trailParticles[i].x - trailParticles[i].startX;
+        if (dx < 0) dx = -dx;
+        float progress = dx / trailParticles[i].maxDist;
+        if (progress > 1.0f) progress = 1.0f;
+        int r = (int)((float)trailParticles[i].baseSize * (1.0f - progress) + 0.5f);
+        if (r < 1) continue;
+
+        canvas.fillCircle(px, py, r, color);
     }
 }
 
