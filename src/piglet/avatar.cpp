@@ -230,7 +230,7 @@ void Avatar::init() {
     lastGrassStopTime = 0;  // No cooldown on fresh init
     grassOffset = 0;
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
-        grassBlades[i].height = random(6, 15);
+        grassBlades[i].height = random(6, 20);
         grassBlades[i].lean = random(-3, 4);
         grassBlades[i].width = random(1, 4);
     }
@@ -816,7 +816,7 @@ void Avatar::setGrassSpeed(uint16_t ms) {
 void Avatar::resetGrass() {
     grassOffset = 0;
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
-        grassBlades[i].height = random(6, 15);
+        grassBlades[i].height = random(6, 20);
         grassBlades[i].lean = random(-3, 4);
         grassBlades[i].width = random(1, 4);
     }
@@ -860,7 +860,7 @@ void Avatar::updateGrass() {
     // ~3% mutation chance — randomize one blade for organic variety
     if (random(0, 30) == 0) {
         int idx = random(0, GRASS_BLADE_COUNT);
-        grassBlades[idx].height = random(6, 15);
+        grassBlades[idx].height = random(6, 20);
         grassBlades[idx].lean = random(-3, 4);
         grassBlades[idx].width = random(1, 4);
     }
@@ -869,6 +869,7 @@ void Avatar::updateGrass() {
 void Avatar::drawGrass(M5Canvas& canvas) {
     updateGrass();
 
+    uint32_t now = millis();
     uint16_t color = getDrawColor();  // Thunder-aware color
     const int16_t baseY = 107;  // Ground line (info panel starts at 108)
 
@@ -878,10 +879,10 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     // Pig body footprint for grass bending (6 chars × 18px at text size 3)
     // Inset 18px from each edge — bend under the 4 inner spaces, not the parens
     bool pigOnGround = !jumpActive && !attackHopActive;
-    int pigLeft  = currentX + 18;   // skip '('
-    int pigRight = currentX + 90;   // stop before ')'
+    int pigLeft  = currentX - 18;   // extend bend zone left of pig
+    int pigRight = currentX + 126;  // extend bend zone right of pig
     int pigCenter = (pigLeft + pigRight) / 2;
-    int pigHalf  = (pigRight - pigLeft) / 2;  // 36px
+    int pigHalf  = (pigRight - pigLeft) / 2;  // 72px
 
     // Draw triangle blades
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
@@ -893,6 +894,16 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         const GrassBlade& b = grassBlades[i];
         int16_t drawHeight = b.height;
         int8_t drawLean = b.lean;
+
+        // Ambient wind sway — triangle wave, ~2.5s period, per-blade phase
+        {
+            uint32_t phase = now + (uint32_t)i * 197;  // stagger per blade
+            int wave = (int)(phase % 2500);             // 0..2499
+            // Triangle wave: ramp up 0..1250, ramp down 1250..2500 → range -2..+2
+            int sway = (wave < 1250) ? (wave - 625) : (1875 - wave);
+            sway = sway / 312;  // scale to ±2
+            drawLean += (int8_t)sway;
+        }
 
         // Bend grass under pig body
         if (pigOnGround && cx >= pigLeft && cx <= pigRight) {
@@ -916,7 +927,6 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     }
 
     // === Trail particles (dust from running pig) ===
-    uint32_t now = millis();
     bool isRunning = transitioning || grassMoving;
 
     // Spawn one particle per ~70ms while pig is moving on the ground
