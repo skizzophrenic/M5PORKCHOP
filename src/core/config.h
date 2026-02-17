@@ -11,23 +11,12 @@
 
 // GPS module source selection
 enum class GPSSource : uint8_t {
-    GROVE = 0,      // Grove port GPS (G1/G2) - works on all Cardputer models
-    CAP_LORA = 1,   // Cap LoRa868 GPS (G15/G13) - Cardputer ADV only
-    CUSTOM = 2      // Custom pins - user-configured
+    GROVE = 0,      // PORT.A Grove (GPIO 33/32)
+    CUSTOM = 1,     // Custom pins - user-configured
+    MBUS = 2        // Stackable module via M-Bus (RX=G34, TX=G14) — GPS Module v2.1
 };
 
 static constexpr uint8_t GPS_SOURCE_COUNT = 3;
-
-// CapLoRa868 module pins (M5Stack Cardputer ADV EXT header)
-// LoRa SPI shares MOSI/MISO/SCK with SD card - only CS differs
-namespace CapLoraPins {
-    static constexpr uint8_t LORA_CS    = 5;   // SX1262 NSS (chip select)
-    static constexpr uint8_t LORA_RESET = 3;   // SX1262 NRESET
-    static constexpr uint8_t LORA_DIO1  = 4;   // SX1262 DIO1 (interrupt)
-    static constexpr uint8_t LORA_BUSY  = 6;   // SX1262 BUSY
-    static constexpr uint8_t GPS_RX     = 15;  // GPS UART RX
-    static constexpr uint8_t GPS_TX     = 13;  // GPS UART TX (default FSPIQ IOMUX!)
-}
 
 // GPS power management settings
 struct GPSConfig {
@@ -152,7 +141,6 @@ public:
     static bool loadWpaSecKeyFromFile();  // Load key from /m5porkchop/wpa-sec/wpasec_key.txt (legacy /wpasec_key.txt)
     static bool loadWigleKeyFromFile();   // Load keys from /m5porkchop/wigle/wigle_key.txt (legacy /wigle_key.txt)
     static void prepareSDBus();           // Prepare SPI bus for raw SD access
-    static void prepareCapLoraGpio();     // Quiesce SX1262 and clear G13 IOMUX before GPS UART
     static SPIClass& sdSpi();             // Access SD SPI bus
     static int sdCsPin();                 // Access SD chip-select pin
     

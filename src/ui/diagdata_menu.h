@@ -1,4 +1,4 @@
-// DiagData Menu - System status snapshot
+// DiagData Menu - System diagnostics & GPS raw data (paged)
 #pragma once
 
 #include <Arduino.h>
@@ -20,10 +20,14 @@ private:
     static uint16_t cachedWigleUploaded;
     static uint32_t lastStatRefreshMs;
     static uint32_t statRefreshIntervalMs;
+    static uint8_t currentPage;
+    static constexpr uint8_t PAGE_COUNT = 2;
+
     static void saveSnapshot();
     static void resetWiFi();
-    static void logHeapSnapshot();
     static void collectGarbage();
     static void refreshStats();
+    static void drawSystemPage(M5Canvas& canvas);
+    static void drawGPSPage(M5Canvas& canvas);
     static void drawWiFiResetConfirm(M5Canvas& canvas);
 };

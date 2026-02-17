@@ -330,6 +330,11 @@ uint32_t GPS::getLastFixTime() {
     return 0; // Return safe value if mutex unavailable
 }
 
+uint32_t GPS::getCharsProcessed()  { return gps.charsProcessed(); }
+uint32_t GPS::getSentencesWithFix() { return gps.sentencesWithFix(); }
+uint32_t GPS::getFailedChecksum()  { return gps.failedChecksum(); }
+uint32_t GPS::getPassedChecksum()  { return gps.passedChecksum(); }
+
 void GPS::maybeSyncSystemTime(uint32_t gpsDate, uint32_t gpsTime) {
     if (gpsTimeSynced) return;
     if (gpsDate == 0 || gpsTime == 0) return;

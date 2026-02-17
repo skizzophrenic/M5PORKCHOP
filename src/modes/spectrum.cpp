@@ -1894,18 +1894,43 @@ void SpectrumMode::drawNoiseFloor(M5Canvas& canvas, uint16_t fg) {
         int noiseUp = noise / 2;               // 0-3 pixels up
         uint8_t intensity = 60 + noise * 17;   // 60-179, maps across dither tiers
 
-        // Dithered column upward from baseline
-        for (int dy = 0; dy < noiseUp; dy++) {
-            int y = baseY - 1 - dy;
-            if (ditherPixel(intensity, x, y)) {
-                canvas.drawPixel(x, y, fg);
+        // Dithered column upward from baseline — inlined tier check
+        // intensity range 60-179 spans tiers: >150 (checkerboard), >100 (25%), >50 (~16%)
+        if (noiseUp > 0) {
+            if (intensity > 150) {
+                // Checkerboard: draw pixels where (x+y)%2==0
+                for (int dy = 0; dy < noiseUp; dy++) {
+                    int y = baseY - 1 - dy;
+                    if (((x + y) & 1) == 0) canvas.drawPixel(x, y, fg);
+                }
+            } else if (intensity > 100) {
+                // 25%: even-x only, even-y only
+                if ((x & 1) == 0) {
+                    for (int dy = 0; dy < noiseUp; dy++) {
+                        int y = baseY - 1 - dy;
+                        if ((y & 1) == 0) canvas.drawPixel(x, y, fg);
+                    }
+                }
+            } else {
+                // ~16%: x%3==0 only, even-y only (intensity 60-100)
+                if ((x % 3) == 0) {
+                    for (int dy = 0; dy < noiseUp; dy++) {
+                        int y = baseY - 1 - dy;
+                        if ((y & 1) == 0) canvas.drawPixel(x, y, fg);
+                    }
+                }
             }
         }
 
-        // Sparse sub-baseline dot (retained, also dithered)
+        // Sparse sub-baseline dot (intensity/2 range: 30-89)
         if ((noise / 4) > 0 && (x % 3) == 0) {
-            if (ditherPixel(intensity / 2, x, baseY + 1)) {
-                canvas.drawPixel(x, baseY + 1, fg);
+            uint8_t halfInt = intensity / 2;
+            if (halfInt > 50) {
+                // x%3==0 && y%2==0 tier
+                if ((baseY + 1) % 2 == 0) canvas.drawPixel(x, baseY + 1, fg);
+            } else if (halfInt > 20) {
+                // x%4==0 && y%3==0 tier
+                if ((x & 3) == 0 && (baseY + 1) % 3 == 0) canvas.drawPixel(x, baseY + 1, fg);
             }
         }
     }
@@ -1999,12 +2024,22 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas, uint16_t fg) {
         int bufRow = (waterfallWriteRow + row) % WATERFALL_ROWS;
         int screenY = WATERFALL_TOP + row;
         
-        // Draw each pixel in this row
+        // Draw each pixel in this row using tier-specific strides
         for (int x = 0; x < SPECTRUM_WIDTH; x++) {
             uint8_t intensity = waterfallBuffer[bufRow][x];
-            
-            if (ditherPixel(intensity, SPECTRUM_LEFT + x, screenY)) {
-                canvas.drawPixel(SPECTRUM_LEFT + x, screenY, fg);
+            int sx = SPECTRUM_LEFT + x;
+
+            if (intensity <= 20) continue;
+            if (intensity > 200) {
+                canvas.drawPixel(sx, screenY, fg);
+            } else if (intensity > 150) {
+                if (((sx + screenY) & 1) == 0) canvas.drawPixel(sx, screenY, fg);
+            } else if (intensity > 100) {
+                if ((sx & 1) == 0 && (screenY & 1) == 0) canvas.drawPixel(sx, screenY, fg);
+            } else if (intensity > 50) {
+                if ((sx % 3) == 0 && (screenY & 1) == 0) canvas.drawPixel(sx, screenY, fg);
+            } else {
+                if ((sx & 3) == 0 && (screenY % 3) == 0) canvas.drawPixel(sx, screenY, fg);
             }
         }
     }
@@ -2537,15 +2572,36 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
 
         uint8_t ci = (uint8_t)colIntensity;
 
-        // Fast path: solid column for strong signals
+        // Tier-specific fast paths matching ditherPixel() patterns
+        // Skips entire columns and uses y-strides instead of per-pixel checks
         if (ci > 200) {
             canvas.drawFastVLine(x, topY, baseY - topY, fg);
-        } else {
-            // Dithered fill pixel-by-pixel
-            for (int y = topY; y < baseY; y++) {
-                if (ditherPixel(ci, x, y)) {
+        } else if (ci > 150) {
+            // Checkerboard: every other pixel where (x+y)%2==0
+            int startY = topY + ((x + topY) & 1);
+            for (int y = startY; y < baseY; y += 2)
+                canvas.drawPixel(x, y, fg);
+        } else if (ci > 100) {
+            // 25%: even-x only, even-y only
+            if ((x & 1) == 0) {
+                int startY = topY + (topY & 1);
+                for (int y = startY; y < baseY; y += 2)
                     canvas.drawPixel(x, y, fg);
-                }
+            }
+        } else if (ci > 50) {
+            // ~16%: x%3==0 only, even-y only
+            if ((x % 3) == 0) {
+                int startY = topY + (topY & 1);
+                for (int y = startY; y < baseY; y += 2)
+                    canvas.drawPixel(x, y, fg);
+            }
+        } else if (ci > 20) {
+            // ~8%: x%4==0 only, y%3==0 only
+            if ((x & 3) == 0) {
+                int rem = topY % 3;
+                int startY = topY + (rem == 0 ? 0 : 3 - rem);
+                for (int y = startY; y < baseY; y += 3)
+                    canvas.drawPixel(x, y, fg);
             }
         }
     }

@@ -45,7 +45,13 @@ public:
     // Statistics
     static uint32_t getFixCount();
     static uint32_t getLastFixTime();
-    
+
+    // Raw TinyGPSPlus counters (for diagnostics)
+    static uint32_t getCharsProcessed();
+    static uint32_t getSentencesWithFix();
+    static uint32_t getFailedChecksum();
+    static uint32_t getPassedChecksum();
+
 private:
     static TinyGPSPlus gps;
     static HardwareSerial* serial;

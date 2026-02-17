@@ -223,11 +223,25 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     gps.powerSave      = b.gpsPowerSave != 0;
     gps.timezoneOffset = b.gpsTimezoneOffset;
 
-    // Core2: force GROVE source with PORT.A pins (red Grove — only port on base Core2).
-    // PORT.C (GPIO13/14) only exists on M5Go2 Bottom expansion.
-    gps.source = GPSSource::GROVE;
-    gps.rxPin = 33;   // PORT.A pin2 (GPS TX → ESP32 RX)
-    gps.txPin = 32;   // PORT.A pin1 (GPS RX ← ESP32 TX)
+    // Sanitise source: stale blobs may have CAP_LORA (1) from Cardputer era;
+    // after enum change CUSTOM is now 1, so only clamp truly out-of-range values.
+    if (static_cast<uint8_t>(gps.source) >= GPS_SOURCE_COUNT) {
+        gps.source = GPSSource::GROVE;
+    }
+    // GROVE = PORT.A (GPIO 33/32); MBUS = stackable (GPIO 13/14); CUSTOM keeps saved pins
+    if (gps.source == GPSSource::GROVE) {
+        gps.rxPin = 33;   // PORT.A pin2 (GPS TX → ESP32 RX)
+        gps.txPin = 32;   // PORT.A pin1 (GPS RX ← ESP32 TX)
+    } else if (gps.source == GPSSource::MBUS) {
+        gps.rxPin = 34;   // GPS Module v2.1 DIP: GPS_TX → G34 (input-only, receives NMEA)
+        gps.txPin = 14;   // GPS Module v2.1 DIP: GPS_RX ← G14
+    }
+    // Validate CUSTOM pins — GPIO 34-39 are input-only, can't be TX
+    if (gps.source == GPSSource::CUSTOM && (gps.txPin >= 34 || gps.txPin == 0)) {
+        gps.source = GPSSource::GROVE;
+        gps.rxPin = 33;
+        gps.txPin = 32;
+    }
 
     // Core2: force C5 UART to PORT.A pins (red Grove — only port on base Core2).
     // C5 stays disabled by default; user enables via settings.
@@ -426,10 +440,6 @@ int Config::sdCsPin() {
     return SD_CS_PIN;
 }
 
-void Config::prepareCapLoraGpio() {
-    // No-op on Core2 — CapLoRa868 is Cardputer-only hardware.
-}
-
 bool Config::reinitSD() {
     // Quick check: SD still accessible? Skip destructive reinit if so.
     if (sdAvailable && SD.exists("/")) {
@@ -526,11 +536,18 @@ bool Config::applyJson(const JsonDocument& doc) {
         gpsConfig.enabled = doc["gps"]["enabled"] | true;
         gpsConfig.source = static_cast<GPSSource>(doc["gps"]["gpsSource"] | 0);
 
-        // Core2: force GROVE source with PORT.C pins.
-        // CAP_LORA is Cardputer-only hardware.
-        gpsConfig.source = GPSSource::GROVE;
-        gpsConfig.rxPin = 13;  // Core2 PORT.C RXD2
-        gpsConfig.txPin = 14;  // Core2 PORT.C TXD2
+        // Clamp out-of-range source to GROVE
+        if (static_cast<uint8_t>(gpsConfig.source) >= GPS_SOURCE_COUNT) {
+            gpsConfig.source = GPSSource::GROVE;
+        }
+        // GROVE = PORT.A (GPIO 33/32); MBUS = stackable (GPIO 13/14); CUSTOM keeps JSON pins
+        if (gpsConfig.source == GPSSource::GROVE) {
+            gpsConfig.rxPin = 33;
+            gpsConfig.txPin = 32;
+        } else if (gpsConfig.source == GPSSource::MBUS) {
+            gpsConfig.rxPin = 34;
+            gpsConfig.txPin = 14;
+        }
 
         gpsConfig.baudRate = doc["gps"]["baudRate"] | 9600;
         gpsConfig.updateInterval = doc["gps"]["updateInterval"] | 5;

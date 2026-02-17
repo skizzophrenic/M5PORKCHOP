@@ -150,12 +150,12 @@ static const EntryData kRadioEntries[] = {
 
 static const EntryData kGpsEntries[] = {
     {SET_GPS_ENABLED, "GPS", SettingType::TOGGLE, 0, 1, 1, "", "POSITION TRACKING"},
-    {SET_GPS_SOURCE, "GPS SRC", SettingType::VALUE, 0, (int)GPS_SOURCE_COUNT - 1, 1, "", "GROVE / LORACAP / CUSTOM"},
+    {SET_GPS_SOURCE, "GPS SRC", SettingType::VALUE, 0, (int)GPS_SOURCE_COUNT - 1, 1, "", "GROVE / MBUS / CUSTOM"},
     {SET_GPS_PWRSAVE, "PWR SAVE", SettingType::TOGGLE, 0, 1, 1, "", "SLEEP WHEN NOT HUNTING"},
     {SET_GPS_SCAN_INTV, "SCAN INTV", SettingType::VALUE, 1, 30, 1, "S", "WARHOG SCAN FREQUENCY"},
     {SET_GPS_BAUD, "GPS BAUD", SettingType::VALUE, 0, 3, 1, "", "MATCH YOUR GPS MODULE"},
-    {SET_GPS_RX, "GPS RX PIN", SettingType::VALUE, 1, 46, 1, "", "G1=GROVE, G15=LORACAP"},
-    {SET_GPS_TX, "GPS TX PIN", SettingType::VALUE, 1, 46, 1, "", "G2=GROVE, G13=LORACAP"},
+    {SET_GPS_RX, "GPS RX PIN", SettingType::VALUE, 1, 46, 1, "", "G33=GROVE (PORT.A)"},
+    {SET_GPS_TX, "GPS TX PIN", SettingType::VALUE, 1, 46, 1, "", "G32=GROVE (PORT.A)"},
     {SET_GPS_TZ, "TZ OFFSET", SettingType::VALUE, -12, 14, 1, "H", "TZ OFFSET"}
 };
 
@@ -199,8 +199,8 @@ static const uint32_t kGpsBaudRates[] = {9600, 38400, 57600, 115200};
 
 static const char* const kGpsSourceLabels[GPS_SOURCE_COUNT] = {
     "GROVE",
-    "LORACAP",
-    "CUSTOM"
+    "CUSTOM",
+    "MBUS"
 };
 
 static int clampValue(int value, int minVal, int maxVal) {
@@ -761,11 +761,11 @@ static bool setSettingValue(SettingId id, int value) {
             Config::gps().source = newSource;
             // Auto-set pins based on source selection
             if (newSource == GPSSource::GROVE) {
-                Config::gps().rxPin = 1;
-                Config::gps().txPin = 2;
-            } else if (newSource == GPSSource::CAP_LORA) {
-                Config::gps().rxPin = CapLoraPins::GPS_RX;
-                Config::gps().txPin = CapLoraPins::GPS_TX;
+                Config::gps().rxPin = 33;
+                Config::gps().txPin = 32;
+            } else if (newSource == GPSSource::MBUS) {
+                Config::gps().rxPin = 34;
+                Config::gps().txPin = 14;
             }
             // CUSTOM: leave pins as-is
             return true;
@@ -1000,15 +1000,7 @@ void SettingsMenu::saveIfDirty(bool showToast) {
             origGpsBaud = Config::gps().baudRate;
             origGpsSource = curSource;
             if (Config::gps().enabled) {
-                // Prepare CapLoRa hardware before GPS UART init
-                if (Config::gps().source == GPSSource::CAP_LORA) {
-                    Config::prepareCapLoraGpio();
-                }
                 GPS::reinit(origGpsRxPin, origGpsTxPin, origGpsBaud);
-                // Re-verify SD after CapLoRa GPS UART init
-                if (Config::gps().source == GPSSource::CAP_LORA) {
-                    Config::reinitSD();
-                }
                 if (showToast) {
                     Display::notify(NoticeKind::STATUS, "GPS REINIT");
                 }

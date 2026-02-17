@@ -1,4 +1,5 @@
-// DiagData Menu - System status snapshot
+// DiagData Menu - System diagnostics & GPS raw data (paged)
+// Core2 layout: inverted section headers, two-column grid, swipe/BtnC pages
 
 #include "diagdata_menu.h"
 #include <SD.h>
@@ -13,6 +14,7 @@
 #include "../core/heap_health.h"
 #include "../core/heap_policy.h"
 #include "../core/wifi_utils.h"
+#include "../gps/gps.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
@@ -24,13 +26,15 @@ bool DiagDataMenu::wifiResetConfirmActive = false;
 uint16_t DiagDataMenu::cachedWpaCracked = 0;
 uint16_t DiagDataMenu::cachedWigleUploaded = 0;
 uint32_t DiagDataMenu::lastStatRefreshMs = 0;
-uint32_t DiagDataMenu::statRefreshIntervalMs = 2000;  // tighter refresh interval
+uint32_t DiagDataMenu::statRefreshIntervalMs = 2000;
+uint8_t DiagDataMenu::currentPage = 0;
 
 void DiagDataMenu::show() {
     active = true;
-    keyWasPressed = true;  // Ignore the Enter that brought us here
+    keyWasPressed = true;
     wifiResetConfirmActive = false;
-    lastStatRefreshMs = 0; // force immediate refresh
+    lastStatRefreshMs = 0;
+    currentPage = 0;
     HeapHealth::setKnuthEnabled(true);
 }
 
@@ -38,7 +42,6 @@ void DiagDataMenu::hide() {
     active = false;
     wifiResetConfirmActive = false;
     HeapHealth::setKnuthEnabled(false);
-    // Release caches when leaving
     WPASec::freeCacheMemory();
     WiGLE::freeUploadedListMemory();
 }
@@ -46,12 +49,11 @@ void DiagDataMenu::hide() {
 void DiagDataMenu::update() {
     if (!active) return;
 
-    // Periodically refresh stats (e.g., every 2 seconds)
     if (millis() - lastStatRefreshMs > statRefreshIntervalMs) {
         refreshStats();
     }
 
-    // Local "GC" gesture: hold BtnA.
+    // Hold BtnA = GC
     static uint32_t aPressStartMs = 0;
     static bool gcFired = false;
     constexpr uint32_t kGcHoldMs = 900;
@@ -67,7 +69,7 @@ void DiagDataMenu::update() {
         gcFired = false;
     }
 
-    // Confirm modal for WiFi reset (dangerous).
+    // WiFi reset confirm modal
     if (wifiResetConfirmActive) {
         if (Input::select()) {
             resetWiFi();
@@ -82,32 +84,378 @@ void DiagDataMenu::update() {
     // BtnA = Save snapshot
     if (Input::up()) {
         saveSnapshot();
-        Display::setTopBarMessage("DIAG SNAPSHOT SAVED", 3000);
+        Display::setTopBarMessage("SNAPSHOT SAVED", 3000);
         return;
     }
 
-    // BtnB = WiFi reset (with confirm)
+    // BtnB = context action (WiFi reset on SYS page)
     if (Input::select()) {
-        wifiResetConfirmActive = true;
+        if (currentPage == 0) {
+            wifiResetConfirmActive = true;
+        }
         return;
     }
 
-    // BtnC = Heap log
+    // BtnC = next page
     if (Input::down()) {
-        logHeapSnapshot();
-        Display::setTopBarMessage("HEAP LOGGED", 3000);
+        currentPage = (currentPage + 1) % PAGE_COUNT;
+        return;
+    }
+
+    // Swipe left/right = page switch
+    if (Input::swipeLeft()) {
+        currentPage = (currentPage + 1) % PAGE_COUNT;
+        return;
+    }
+    if (Input::swipeRight()) {
+        currentPage = (currentPage > 0) ? currentPage - 1 : PAGE_COUNT - 1;
         return;
     }
 }
 
+// ---------------------------------------------------------------------------
+// Draw
+// ---------------------------------------------------------------------------
+
+void DiagDataMenu::draw(M5Canvas& canvas) {
+    if (!active) return;
+
+    canvas.fillSprite(COLOR_BG);
+    canvas.setTextSize(1);
+
+    switch (currentPage) {
+        case 0: drawSystemPage(canvas); break;
+        case 1: drawGPSPage(canvas); break;
+    }
+
+    if (wifiResetConfirmActive) {
+        drawWiFiResetConfirm(canvas);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Page 1/2 — System: memory, network, power, storage
+// ---------------------------------------------------------------------------
+
+void DiagDataMenu::drawSystemPage(M5Canvas& canvas) {
+    const uint16_t fg = COLOR_FG;
+    const uint16_t bg = COLOR_BG;
+    const int ROW_H = 9;
+    const int col1 = 4, col2 = 158, col3 = 164, col4 = DISPLAY_W - 4;
+    int y = 0;
+    char buf[32];
+
+    auto drawSection = [&](const char* title) {
+        canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+        canvas.setTextColor(bg);
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(title, 4, y + 1);
+        canvas.setTextColor(fg);
+        y += 11;
+    };
+
+    auto drawRow = [&](const char* label, const char* value, int lx, int rx) {
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(label, lx, y);
+        canvas.setTextDatum(TR_DATUM);
+        canvas.drawString(value, rx, y);
+    };
+
+    // ---- M3M0RY ----
+    canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+    canvas.setTextColor(bg);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.drawString("M3M0RY", 4, y + 1);
+    snprintf(buf, sizeof(buf), "%d/%d", currentPage + 1, PAGE_COUNT);
+    canvas.setTextDatum(TR_DATUM);
+    canvas.drawString(buf, DISPLAY_W - 4, y + 1);
+    canvas.setTextColor(fg);
+    y += 11;
+
+    // HEAP | PSRAM
+    snprintf(buf, sizeof(buf), "%u", (unsigned)ESP.getFreeHeap());
+    drawRow("HEAP:", buf, col1, col2);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)ESP.getFreePsram());
+    drawRow("PSRAM:", buf, col3, col4);
+    y += ROW_H;
+
+    // MIN FREE | PRESSURE
+    snprintf(buf, sizeof(buf), "%u", (unsigned)ESP.getMinFreeHeap());
+    drawRow("MIN:", buf, col1, col2);
+    {
+        static const char* const pressureLabels[] = {"NORMAL", "CAUTION", "WARNING", "CRITICAL"};
+        uint8_t pl = static_cast<uint8_t>(HeapHealth::getPressureLevel());
+        drawRow("PRESSURE:", pl < 4 ? pressureLabels[pl] : "?", col3, col4);
+    }
+    y += ROW_H;
+
+    // KNUTH | MIN LARGEST
+    snprintf(buf, sizeof(buf), "%.2f", HeapHealth::getKnuthRatio());
+    drawRow("KNUTH:", buf, col1, col2);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)HeapHealth::getMinLargest());
+    drawRow("MIN LRG:", buf, col3, col4);
+    y += ROW_H;
+
+    // Previous session watermarks (conditional row)
+    {
+        uint32_t pmf = HeapHealth::getPrevMinFree();
+        uint32_t pml = HeapHealth::getPrevMinLargest();
+        if (pmf > 0 || pml > 0) {
+            snprintf(buf, sizeof(buf), "%u", pmf);
+            drawRow("PREV MIN:", buf, col1, col2);
+            snprintf(buf, sizeof(buf), "%u", pml);
+            drawRow("PREV LRG:", buf, col3, col4);
+            y += ROW_H;
+        }
+    }
+
+    // ---- N3TW0RK ----
+    drawSection("N3TW0RK");
+
+    bool wifiUp = WiFi.status() == WL_CONNECTED;
+    drawRow("WIFI:", wifiUp ? "CONNECTED" : "DOWN", col1, col2);
+    if (wifiUp) {
+        IPAddress ip = WiFi.localIP();
+        snprintf(buf, sizeof(buf), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+        drawRow("IP:", buf, col3, col4);
+    }
+    y += ROW_H;
+
+    if (wifiUp) {
+        char ssidBuf[33] = "-";
+        wifi_config_t conf;
+        if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK && conf.sta.ssid[0]) {
+            strncpy(ssidBuf, reinterpret_cast<const char*>(conf.sta.ssid), sizeof(ssidBuf) - 1);
+            ssidBuf[sizeof(ssidBuf) - 1] = '\0';
+        }
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString("SSID:", col1, y);
+        canvas.drawString(ssidBuf, 40, y);
+        y += ROW_H;
+    }
+
+    // ---- P0W3R & ST0R4G3 ----
+    drawSection("P0W3R & ST0R4G3");
+
+    // BATT | SD
+    snprintf(buf, sizeof(buf), "%d%% %.2fV",
+             M5.Power.getBatteryLevel(),
+             M5.Power.getBatteryVoltage() / 1000.0f);
+    drawRow("BATT:", buf, col1, col2);
+    if (Config::isSDAvailable()) {
+        uint64_t cardSize = SD.cardSize();
+        uint64_t cardFree = SD.totalBytes() > SD.usedBytes()
+                          ? SD.totalBytes() - SD.usedBytes() : 0;
+        uint32_t mb     = (uint32_t)(cardSize / (1024ULL * 1024ULL));
+        uint32_t freeMb = (uint32_t)(cardFree / (1024ULL * 1024ULL));
+        snprintf(buf, sizeof(buf), "%u/%uMB", freeMb, mb);
+        drawRow("SD:", buf, col3, col4);
+    } else {
+        drawRow("SD:", "MISSING", col3, col4);
+    }
+    y += ROW_H;
+
+    // WPA-SEC | WIGLE
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cachedWpaCracked);
+    drawRow("WPA-SEC:", buf, col1, col2);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cachedWigleUploaded);
+    drawRow("WIGLE:", buf, col3, col4);
+    y += ROW_H;
+
+    // CHARGING | UPTIME
+    drawRow("CHARGING:", M5.Power.isCharging() ? "YES" : "NO", col1, col2);
+    {
+        uint32_t uptimeSec = millis() / 1000;
+        uint32_t hrs  = uptimeSec / 3600;
+        uint32_t mins = (uptimeSec % 3600) / 60;
+        snprintf(buf, sizeof(buf), "%uh%02um", hrs, mins);
+        drawRow("UPTIME:", buf, col3, col4);
+    }
+    y += ROW_H;
+
+    // ---- Controls ----
+    y += 3;
+    canvas.drawFastHLine(4, y - 1, DISPLAY_W - 8, fg);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.drawString("A:SAVE  B:WIFI RST  C:PAGE>", 4, y);
+    y += ROW_H;
+    canvas.drawString("HOLD A:GC  SWIPE:PAGE", 4, y);
+}
+
+// ---------------------------------------------------------------------------
+// Page 2/2 — GPS: status, position, raw NMEA stats
+// ---------------------------------------------------------------------------
+
+void DiagDataMenu::drawGPSPage(M5Canvas& canvas) {
+    const uint16_t fg = COLOR_FG;
+    const uint16_t bg = COLOR_BG;
+    const int ROW_H = 9;
+    const int col1 = 4, col2 = 158, col3 = 164, col4 = DISPLAY_W - 4;
+    int y = 0;
+    char buf[32];
+
+    auto drawSection = [&](const char* title) {
+        canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+        canvas.setTextColor(bg);
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(title, 4, y + 1);
+        canvas.setTextColor(fg);
+        y += 11;
+    };
+
+    auto drawRow = [&](const char* label, const char* value, int lx, int rx) {
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString(label, lx, y);
+        canvas.setTextDatum(TR_DATUM);
+        canvas.drawString(value, rx, y);
+    };
+
+    GPSData gpsData = GPS::getData();
+    bool gpsActive = GPS::isActive();
+
+    // ---- GPS ----
+    canvas.fillRect(0, y, DISPLAY_W, 10, fg);
+    canvas.setTextColor(bg);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.drawString("GPS", 4, y + 1);
+    snprintf(buf, sizeof(buf), "%d/%d", currentPage + 1, PAGE_COUNT);
+    canvas.setTextDatum(TR_DATUM);
+    canvas.drawString(buf, DISPLAY_W - 4, y + 1);
+    canvas.setTextColor(fg);
+    y += 11;
+
+    if (!gpsActive && !Config::gps().enabled) {
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString("GPS DISABLED IN CONFIG", col1, y);
+        y += ROW_H * 2;
+    } else {
+        // FIX | SATS
+        drawRow("FIX:", gpsData.fix ? "YES" : (gpsActive ? "NO" : "SLEEP"), col1, col2);
+        snprintf(buf, sizeof(buf), "%d", gpsData.satellites);
+        drawRow("SATS:", buf, col3, col4);
+        y += ROW_H;
+
+        // HDOP | AGE
+        snprintf(buf, sizeof(buf), "%.1f", gpsData.hdop / 100.0f);
+        drawRow("HDOP:", buf, col1, col2);
+        if (gpsData.age > 99999) {
+            drawRow("AGE:", ">99s", col3, col4);
+        } else {
+            snprintf(buf, sizeof(buf), "%lums", (unsigned long)gpsData.age);
+            drawRow("AGE:", buf, col3, col4);
+        }
+        y += ROW_H;
+
+        // SPEED | COURSE
+        snprintf(buf, sizeof(buf), "%.1fkm/h", gpsData.speed);
+        drawRow("SPEED:", buf, col1, col2);
+        snprintf(buf, sizeof(buf), "%.1f", gpsData.course);
+        drawRow("COURSE:", buf, col3, col4);
+        y += ROW_H;
+    }
+
+    // ---- P0S1T10N ----
+    drawSection("P0S1T10N");
+
+    if (gpsData.fix) {
+        // LAT | LON
+        snprintf(buf, sizeof(buf), "%.6f", gpsData.latitude);
+        drawRow("LAT:", buf, col1, col2);
+        snprintf(buf, sizeof(buf), "%.6f", gpsData.longitude);
+        drawRow("LON:", buf, col3, col4);
+        y += ROW_H;
+
+        // ALT
+        snprintf(buf, sizeof(buf), "%.1fm", gpsData.altitude);
+        drawRow("ALT:", buf, col1, col2);
+        y += ROW_H;
+    } else {
+        canvas.setTextDatum(TL_DATUM);
+        canvas.drawString("AWAITING FIX", col1, y);
+        y += ROW_H;
+    }
+
+    // DATE | TIME (raw GPS values)
+    if (gpsData.date > 0) {
+        uint8_t day    = gpsData.date / 10000;
+        uint8_t month  = (gpsData.date / 100) % 100;
+        uint8_t year2  = gpsData.date % 100;
+        snprintf(buf, sizeof(buf), "%02d/%02d/%02d", day, month, year2);
+        drawRow("DATE:", buf, col1, col2);
+    } else {
+        drawRow("DATE:", "--/--/--", col1, col2);
+    }
+    if (gpsData.time > 0) {
+        uint8_t hour   = gpsData.time / 1000000;
+        uint8_t minute = (gpsData.time / 10000) % 100;
+        uint8_t second = (gpsData.time / 100) % 100;
+        snprintf(buf, sizeof(buf), "%02d:%02d:%02d", hour, minute, second);
+        drawRow("TIME:", buf, col3, col4);
+    } else {
+        drawRow("TIME:", "--:--:--", col3, col4);
+    }
+    y += ROW_H;
+
+    // ---- R4W ----
+    drawSection("R4W");
+
+    // CHARS | FIXES
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)GPS::getCharsProcessed());
+    drawRow("CHARS:", buf, col1, col2);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)GPS::getFixCount());
+    drawRow("FIXES:", buf, col3, col4);
+    y += ROW_H;
+
+    // SENT/FIX | CK-FAIL
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)GPS::getSentencesWithFix());
+    drawRow("SENT/FIX:", buf, col1, col2);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)GPS::getFailedChecksum());
+    drawRow("CK-FAIL:", buf, col3, col4);
+    y += ROW_H;
+
+    // CK-PASS | ACTIVE
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)GPS::getPassedChecksum());
+    drawRow("CK-PASS:", buf, col1, col2);
+    drawRow("ACTIVE:", gpsActive ? "YES" : "NO", col3, col4);
+    y += ROW_H;
+
+    // ---- Controls ----
+    y += 3;
+    canvas.drawFastHLine(4, y - 1, DISPLAY_W - 8, fg);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.drawString("A:SAVE  C:<PAGE  SWIPE:PAGE", 4, y);
+}
+
+// ---------------------------------------------------------------------------
+// WiFi Reset Confirm Modal
+// ---------------------------------------------------------------------------
+
+void DiagDataMenu::drawWiFiResetConfirm(M5Canvas& canvas) {
+    const int boxW = 190;
+    const int boxH = 55;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2 - 5;
+
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+
+    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextDatum(top_center);
+    canvas.drawString("RESET WIFI STACK?", boxX + boxW / 2, boxY + 12);
+    canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 34);
+    canvas.setTextDatum(top_left);
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
 void DiagDataMenu::saveSnapshot() {
-    // Create a diagnostic snapshot with system information
     if (!SD.exists("/")) {
         Display::notify(NoticeKind::WARNING, "NO SD CARD");
         return;
     }
 
-    // Generate filename with timestamp
     time_t now = time(nullptr);
     struct tm* timeinfo = localtime(&now);
     char filename[64];
@@ -128,15 +476,24 @@ void DiagDataMenu::saveSnapshot() {
         return;
     }
 
-    // Write system diagnostics
     file.printf("=== PORKCHOP DIAGNOSTICS SNAPSHOT ===\n");
-    file.printf("Timestamp: %04d-%02d-%02d %02d:%02d:%02d\n",
+    file.printf("Timestamp: %04d-%02d-%02d %02d:%02d:%02d\n\n",
                 timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
                 timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-    file.printf("\n");
 
-    // WiFi Status
-    file.printf("WIFI STATUS:\n");
+    // Memory
+    file.printf("MEMORY:\n");
+    file.printf("  Free Heap: %u\n", (unsigned)ESP.getFreeHeap());
+    file.printf("  Min Free Heap: %u\n", (unsigned)ESP.getMinFreeHeap());
+    if (psramFound()) {
+        file.printf("  PSRAM Size: %u\n", (unsigned)ESP.getPsramSize());
+        file.printf("  PSRAM Free: %u\n", (unsigned)ESP.getFreePsram());
+    }
+    file.printf("  Pressure: %d\n", (int)HeapHealth::getPressureLevel());
+    file.printf("  Knuth: %.2f\n\n", HeapHealth::getKnuthRatio());
+
+    // WiFi
+    file.printf("WIFI:\n");
     file.printf("  Mode: %s\n", WiFi.getMode() == 0 ? "NULL" : WiFi.getMode() == 1 ? "STA" : WiFi.getMode() == 2 ? "AP" : "AP_STA");
     file.printf("  Status: %s\n", WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
     if (WiFi.status() == WL_CONNECTED) {
@@ -146,82 +503,53 @@ void DiagDataMenu::saveSnapshot() {
     }
     file.printf("\n");
 
-    // Memory Status
-    file.printf("MEMORY STATUS:\n");
-    file.printf("  Free Heap: %u bytes\n", (unsigned int)ESP.getFreeHeap());
-    file.printf("  Largest Block: %u bytes\n", (unsigned int)ESP.getFreeHeap());
-    file.printf("  Min Free Heap: %u bytes\n", (unsigned int)ESP.getMinFreeHeap());
-    if (psramFound()) {
-        file.printf("  PSRAM Size: %u bytes\n", (unsigned int)ESP.getPsramSize());
-        file.printf("  PSRAM Free: %u bytes\n", (unsigned int)ESP.getFreePsram());
+    // GPS
+    file.printf("GPS:\n");
+    file.printf("  Active: %s\n", GPS::isActive() ? "YES" : "NO");
+    GPSData gd = GPS::getData();
+    file.printf("  Fix: %s\n", gd.fix ? "YES" : "NO");
+    file.printf("  Satellites: %d\n", gd.satellites);
+    file.printf("  HDOP: %.1f\n", gd.hdop / 100.0f);
+    file.printf("  Age: %lu ms\n", (unsigned long)gd.age);
+    if (gd.fix) {
+        file.printf("  Lat: %.6f\n", gd.latitude);
+        file.printf("  Lon: %.6f\n", gd.longitude);
+        file.printf("  Alt: %.1f m\n", gd.altitude);
+        file.printf("  Speed: %.1f km/h\n", gd.speed);
+        file.printf("  Course: %.1f\n", gd.course);
     }
-    file.printf("\n");
+    file.printf("  Chars Processed: %lu\n", (unsigned long)GPS::getCharsProcessed());
+    file.printf("  Sentences w/Fix: %lu\n", (unsigned long)GPS::getSentencesWithFix());
+    file.printf("  Checksum Pass: %lu\n", (unsigned long)GPS::getPassedChecksum());
+    file.printf("  Checksum Fail: %lu\n\n", (unsigned long)GPS::getFailedChecksum());
 
-    // System Info
-    file.printf("SYSTEM INFO:\n");
-    file.printf("  SDK Version: %s\n", ESP.getSdkVersion());
-    file.printf("  Chip Model: %s\n", ESP.getChipModel());
-    file.printf("  Chip Cores: %d\n", ESP.getChipCores());
-    file.printf("  CPU Freq: %d MHz\n", ESP.getCpuFreqMHz());
-    file.printf("  Flash Size: %u MB\n", (unsigned int)(ESP.getFlashChipSize() / (1024 * 1024)));
-    file.printf("\n");
+    // System
+    file.printf("SYSTEM:\n");
+    file.printf("  SDK: %s\n", ESP.getSdkVersion());
+    file.printf("  Chip: %s\n", ESP.getChipModel());
+    file.printf("  Cores: %d\n", ESP.getChipCores());
+    file.printf("  CPU: %d MHz\n", ESP.getCpuFreqMHz());
+    file.printf("  Flash: %u MB\n\n", (unsigned)(ESP.getFlashChipSize() / (1024 * 1024)));
 
-    // Battery Status
-    file.printf("POWER STATUS:\n");
-    file.printf("  Battery Voltage: %.2f V\n", M5.Power.getBatteryVoltage() / 1000.0f);
-    file.printf("  Battery Level: %d%%\n", M5.Power.getBatteryLevel());
-    file.printf("  Is Charging: %s\n", M5.Power.isCharging() ? "YES" : "NO");
-    file.printf("\n");
+    // Power
+    file.printf("POWER:\n");
+    file.printf("  Battery: %d%% (%.2f V)\n", M5.Power.getBatteryLevel(), M5.Power.getBatteryVoltage() / 1000.0f);
+    file.printf("  Charging: %s\n", M5.Power.isCharging() ? "YES" : "NO");
 
     file.close();
 }
 
 void DiagDataMenu::resetWiFi() {
-    // Avoid driver teardown to prevent esp_wifi_init 257 on fragmented heap.
     WiFiUtils::hardReset();
 }
 
-void DiagDataMenu::logHeapSnapshot() {
-    if (!Config::isSDAvailable()) {
-        Display::setTopBarMessage("NO SD CARD", 2000);
-        return;
-    }
-    const char* heapPath = SDLayout::heapLogPath();
-    const char* diagDir = SDLayout::diagnosticsDir();
-    if (strcmp(diagDir, "/") != 0 && !SD.exists(diagDir)) {
-        SD.mkdir(diagDir);
-    }
-    File f = SD.open(heapPath, FILE_APPEND);
-    if (!f) {
-        Display::setTopBarMessage("LOG FAILED", 2000);
-        return;
-    }
-    time_t now = time(nullptr);
-    struct tm* t = localtime(&now);
-    f.printf("%04d-%02d-%02d %02d:%02d:%02d free=%u largest=%u min=%u min_largest=%u hmin_free=%u\n",
-             t ? t->tm_year + 1900 : 0,
-             t ? t->tm_mon + 1 : 0,
-             t ? t->tm_mday : 0,
-             t ? t->tm_hour : 0,
-             t ? t->tm_min : 0,
-             t ? t->tm_sec : 0,
-             (unsigned int)ESP.getFreeHeap(),
-             (unsigned int)ESP.getFreeHeap(),
-             (unsigned int)ESP.getMinFreeHeap(),
-             (unsigned int)HeapHealth::getMinLargest(),
-             (unsigned int)HeapHealth::getMinFree());
-    f.close();
-}
-
 void DiagDataMenu::collectGarbage() {
-    // Free optional caches to claw back heap
     WPASec::freeCacheMemory();
     WiGLE::freeUploadedListMemory();
     yield();
 }
 
 void DiagDataMenu::refreshStats() {
-    // Skip refresh if network ops are busy to avoid heap churn
     if (!WPASec::isBusy()) {
         cachedWpaCracked = WPASec::getCrackedCount();
     }
@@ -231,163 +559,4 @@ void DiagDataMenu::refreshStats() {
     WPASec::freeCacheMemory();
     WiGLE::freeUploadedListMemory();
     lastStatRefreshMs = millis();
-}
-
-void DiagDataMenu::draw(M5Canvas& canvas) {
-    if (!active) return;
-
-    canvas.fillSprite(COLOR_BG);
-    canvas.setTextColor(COLOR_FG);
-    canvas.setTextSize(1);
-
-    int y = 2;
-    int lineH = 14;
-
-    // Heap
-    canvas.drawString("HEAP:", 4, y);
-    char heapBuf[16];
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreeHeap());
-    canvas.drawString(heapBuf, 80, y);
-    y += lineH;
-    canvas.drawString("PSRAM:", 4, y);
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getFreePsram());
-    canvas.drawString(heapBuf, 80, y);
-    y += lineH;
-    canvas.drawString("MIN FREE:", 4, y);
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getMinFreeHeap());
-    canvas.drawString(heapBuf, 80, y);
-    y += lineH;
-    canvas.drawString("MIN LRG:", 4, y);
-    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)HeapHealth::getMinLargest());
-    canvas.drawString(heapBuf, 80, y);
-    y += lineH;
-
-    // Pressure level
-    {
-        static const char* const pressureLabels[] = {"NORMAL", "CAUTION", "WARNING", "CRITICAL"};
-        uint8_t pl = static_cast<uint8_t>(HeapHealth::getPressureLevel());
-        canvas.drawString("PRESSURE:", 4, y);
-        canvas.drawString(pl < 4 ? pressureLabels[pl] : "?", 80, y);
-        y += lineH;
-    }
-
-    // Knuth ratio (only meaningful when enabled via diagnostics)
-    {
-        char knBuf[16];
-        float kr = HeapHealth::getKnuthRatio();
-        snprintf(knBuf, sizeof(knBuf), "%.2f", kr);
-        canvas.drawString("KNUTH:", 4, y);
-        canvas.drawString(knBuf, 80, y);
-        y += lineH;
-    }
-
-    // Previous session watermarks
-    {
-        char prevBuf[16];
-        uint32_t pmf = HeapHealth::getPrevMinFree();
-        uint32_t pml = HeapHealth::getPrevMinLargest();
-        if (pmf > 0 || pml > 0) {
-            canvas.drawString("PREV MIN:", 4, y);
-            snprintf(prevBuf, sizeof(prevBuf), "%u", pmf);
-            canvas.drawString(prevBuf, 80, y);
-            y += lineH;
-            canvas.drawString("PREV LRG:", 4, y);
-            snprintf(prevBuf, sizeof(prevBuf), "%u", pml);
-            canvas.drawString(prevBuf, 80, y);
-            y += lineH;
-        }
-    }
-    y += 4;
-
-    // WiFi
-    bool wifiUp = WiFi.status() == WL_CONNECTED;
-    canvas.drawString("WIFI:", 4, y);
-    canvas.drawString(wifiUp ? "CONNECTED" : "DISCONNECTED", 80, y);
-    y += lineH;
-    canvas.drawString("SSID:", 4, y);
-    char ssidBuf[33];
-    strncpy(ssidBuf, "-", sizeof(ssidBuf) - 1);
-    ssidBuf[sizeof(ssidBuf) - 1] = '\0';
-    if (wifiUp) {
-        wifi_config_t conf;
-        if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK && conf.sta.ssid[0]) {
-            strncpy(ssidBuf, reinterpret_cast<const char*>(conf.sta.ssid), sizeof(ssidBuf) - 1);
-            ssidBuf[sizeof(ssidBuf) - 1] = '\0';
-        }
-    }
-    canvas.drawString(ssidBuf, 80, y);
-    y += lineH;
-    canvas.drawString("IP:", 4, y);
-    char ipBuf[20];
-    if (wifiUp) {
-        IPAddress ip = WiFi.localIP();
-        snprintf(ipBuf, sizeof(ipBuf), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-    } else {
-        strncpy(ipBuf, "-", sizeof(ipBuf) - 1);
-        ipBuf[sizeof(ipBuf) - 1] = '\0';
-    }
-    canvas.drawString(ipBuf, 80, y);
-    y += lineH + 4;
-
-    // SD status / size
-    canvas.drawString("SD:", 4, y);
-    if (Config::isSDAvailable()) {
-        uint64_t cardSize = SD.cardSize();
-        uint64_t cardFree = SD.totalBytes() > SD.usedBytes() ? SD.totalBytes() - SD.usedBytes() : 0;
-        uint32_t mb = (uint32_t)(cardSize / (1024ULL * 1024ULL));
-        uint32_t freeMb = (uint32_t)(cardFree / (1024ULL * 1024ULL));
-        char sdLine[24];
-        snprintf(sdLine, sizeof(sdLine), "%u/%uMB", freeMb, mb);
-        canvas.drawString(sdLine, 80, y);
-    } else {
-        canvas.drawString("MISSING", 80, y);
-    }
-    y += lineH + 4;
-
-    // Caches / uploads
-    canvas.drawString("WPA-SEC:", 4, y);
-    char cacheBuf[24];
-    snprintf(cacheBuf, sizeof(cacheBuf), "%u CRACKED", (unsigned)cachedWpaCracked);
-    canvas.drawString(cacheBuf, 80, y);
-    y += lineH;
-    canvas.drawString("WIGLE:", 4, y);
-    snprintf(cacheBuf, sizeof(cacheBuf), "%u UPLOADED", (unsigned)cachedWigleUploaded);
-    canvas.drawString(cacheBuf, 80, y);
-    y += lineH + 6;
-
-    // Power
-    canvas.drawString("BATT:", 4, y);
-    char batt[32];
-    snprintf(batt, sizeof(batt), "%d%% (%.2fV)", M5.Power.getBatteryLevel(), M5.Power.getBatteryVoltage() / 1000.0f);
-    canvas.drawString(batt, 80, y);
-    y += lineH;
-    canvas.drawString("CHARGING:", 4, y);
-    canvas.drawString(M5.Power.isCharging() ? "YES" : "NO", 80, y);
-    y += lineH + 6;
-
-    // Controls (compressed)
-    if (wifiResetConfirmActive) {
-        drawWiFiResetConfirm(canvas);
-        return;
-    }
-
-    canvas.drawString("A SAVE  B WIFI  C HEAP", 4, y);
-    y += lineH;
-    canvas.drawString("HOLD A: GC  HOLD B: BACK", 4, y);
-}
-
-void DiagDataMenu::drawWiFiResetConfirm(M5Canvas& canvas) {
-    const int boxW = 190;
-    const int boxH = 55;
-    const int boxX = (canvas.width() - boxW) / 2;
-    const int boxY = (canvas.height() - boxH) / 2 - 5;
-
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
-    canvas.setTextDatum(top_center);
-    canvas.drawString("RESET WIFI STACK?", boxX + boxW / 2, boxY + 12);
-    canvas.drawString("B=YES  A=NO", boxX + boxW / 2, boxY + 34);
-    canvas.setTextDatum(top_left);
 }
