@@ -1887,20 +1887,26 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas, uint16_t fg) {
 // Draw animated noise floor at spectrum baseline
 // Creates realistic "grass" effect like a real spectrum analyzer
 void SpectrumMode::drawNoiseFloor(M5Canvas& canvas, uint16_t fg) {
-    int baseY = SPECTRUM_BOTTOM;
+    const int baseY = SPECTRUM_BOTTOM;
 
-    // Draw noise floor line with random jitter
     for (int x = SPECTRUM_LEFT; x < SPECTRUM_RIGHT; x++) {
-        uint8_t noise = fastNoise();
+        uint8_t noise = fastNoise();           // 0-7
+        int noiseUp = noise / 2;               // 0-3 pixels up
+        uint8_t intensity = 60 + noise * 17;   // 60-179, maps across dither tiers
 
-        int noiseUp = noise / 2;      // 0-3 pixels up
-        int noiseDown = noise / 4;    // 0-1 pixels down
-
-        if (noiseUp > 0) {
-            canvas.drawFastVLine(x, baseY - noiseUp, noiseUp, fg);
+        // Dithered column upward from baseline
+        for (int dy = 0; dy < noiseUp; dy++) {
+            int y = baseY - 1 - dy;
+            if (ditherPixel(intensity, x, y)) {
+                canvas.drawPixel(x, y, fg);
+            }
         }
-        if (noiseDown > 0 && (x % 3) == 0) {
-            canvas.drawPixel(x, baseY + 1, fg);
+
+        // Sparse sub-baseline dot (retained, also dithered)
+        if ((noise / 4) > 0 && (x % 3) == 0) {
+            if (ditherPixel(intensity / 2, x, baseY + 1)) {
+                canvas.drawPixel(x, baseY + 1, fg);
+            }
         }
     }
 }
