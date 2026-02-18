@@ -841,71 +841,6 @@ void Display::update() {
             break;
     }
     
-    // Draw toast if active and not expired (show for 2 seconds)
-    if (toastActive && (millis() - toastStartTime < toastDurationMs)) {
-        // Count lines in message
-        int lineCount = 1;
-        for (size_t i = 0; toastMessage[i] != '\0'; i++) {
-            if (toastMessage[i] == '\n') lineCount++;
-        }
-
-        int lineH = 12;
-
-        // Measure longest line to size box dynamically
-        char measBuf[160];
-        strncpy(measBuf, toastMessage, sizeof(measBuf) - 1);
-        measBuf[sizeof(measBuf) - 1] = '\0';
-        mainCanvas.setTextSize(1);
-        mainCanvas.setFont(&fonts::Font0);
-        int maxLineW = 0;
-        char* mLine = strtok(measBuf, "\n");
-        while (mLine) {
-            int lw = mainCanvas.textWidth(mLine);
-            if (lw > maxLineW) maxLineW = lw;
-            mLine = strtok(nullptr, "\n");
-        }
-
-        int padH = 8;
-        int padW = 16;
-        int boxW = maxLineW + padW * 2;
-        if (boxW < 200) boxW = 200;
-        if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
-        int boxH = padH * 2 + lineCount * lineH;
-        int boxX = (DISPLAY_W - boxW) / 2;
-        int boxY = (MAIN_H - boxH) / 2;
-
-        // Inverted toast: fg border, bg fill, fg text
-        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
-        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, bg);
-
-        mainCanvas.setTextColor(fg, bg);
-        mainCanvas.setTextDatum(MC_DATUM);
-
-        // Draw each line centered
-        char buf[160];
-        strncpy(buf, toastMessage, sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
-
-        int totalTextH = lineCount * lineH;
-        int y = boxY + (boxH - totalTextH) / 2 + lineH / 2;
-        char* line = strtok(buf, "\n");
-        while (line) {
-            mainCanvas.drawString(line, DISPLAY_W / 2, y);
-            y += lineH;
-            line = strtok(nullptr, "\n");
-        }
-        mainCanvas.setTextDatum(TL_DATUM);
-
-        // Tap to dismiss toast early
-        Input::TapEvent tapDismiss;
-        if (Input::tap(tapDismiss)) {
-            toastActive = false;
-        }
-    } else if (toastActive) {
-        // Toast has expired, mark it as inactive
-        toastActive = false;
-    }
-
     if (!barsHidden) {
         drawBottomBar();
     }
@@ -1084,6 +1019,72 @@ void Display::update() {
                 }
             }
         }
+    }
+
+    // Draw toast LAST so it's always on top of all layers (narrator, avatar, etc.)
+    if (toastActive && (millis() - toastStartTime < toastDurationMs)) {
+        // Count lines in message
+        int lineCount = 1;
+        for (size_t i = 0; toastMessage[i] != '\0'; i++) {
+            if (toastMessage[i] == '\n') lineCount++;
+        }
+
+        int lineH = 12;
+
+        // Measure longest line to size box dynamically
+        char measBuf[160];
+        strncpy(measBuf, toastMessage, sizeof(measBuf) - 1);
+        measBuf[sizeof(measBuf) - 1] = '\0';
+        mainCanvas.setTextSize(1);
+        mainCanvas.setFont(&fonts::Font0);
+        int maxLineW = 0;
+        char* mLine = strtok(measBuf, "\n");
+        while (mLine) {
+            int lw = mainCanvas.textWidth(mLine);
+            if (lw > maxLineW) maxLineW = lw;
+            mLine = strtok(nullptr, "\n");
+        }
+
+        int padH = 8;
+        int padW = 16;
+        int boxW = maxLineW + padW * 2;
+        if (boxW < 200) boxW = 200;
+        if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
+        int boxH = padH * 2 + lineCount * lineH;
+        int boxX = (DISPLAY_W - boxW) / 2;
+        // Center in pig area (between top bar and grass line at y=108)
+        int boxY = (108 - boxH) / 2;
+
+        // Inverted toast: fg border, bg fill, fg text
+        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
+        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, bg);
+
+        mainCanvas.setTextColor(fg, bg);
+        mainCanvas.setTextDatum(MC_DATUM);
+
+        // Draw each line centered
+        char buf[160];
+        strncpy(buf, toastMessage, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+
+        int totalTextH = lineCount * lineH;
+        int y = boxY + (boxH - totalTextH) / 2 + lineH / 2;
+        char* line = strtok(buf, "\n");
+        while (line) {
+            mainCanvas.drawString(line, DISPLAY_W / 2, y);
+            y += lineH;
+            line = strtok(nullptr, "\n");
+        }
+        mainCanvas.setTextDatum(TL_DATUM);
+
+        // Tap to dismiss toast early
+        Input::TapEvent tapDismiss;
+        if (Input::tap(tapDismiss)) {
+            toastActive = false;
+        }
+    } else if (toastActive) {
+        // Toast has expired, mark it as inactive
+        toastActive = false;
     }
 
     prevNarratorVisual = narratorVisual;
