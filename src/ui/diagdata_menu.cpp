@@ -192,8 +192,8 @@ void DiagDataMenu::drawSystemPage(M5Canvas& canvas) {
     // KNUTH | MIN LARGEST
     snprintf(buf, sizeof(buf), "%.2f", HeapHealth::getKnuthRatio());
     drawRow("KNUTH:", buf, col1, col2);
-    snprintf(buf, sizeof(buf), "%u", (unsigned)HeapHealth::getMinLargest());
-    drawRow("MIN LRG:", buf, col3, col4);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)HeapHealth::getMinFree());
+    drawRow("MIN FREE:", buf, col3, col4);
     y += ROW_H;
 
     // Previous session watermarks (conditional row)

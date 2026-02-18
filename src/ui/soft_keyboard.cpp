@@ -3,9 +3,7 @@
 #include "soft_keyboard.h"
 
 #include "display.h"
-#include "haptic.h"
 #include "input.h"
-#include "../audio/sfx.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -176,7 +174,6 @@ void SoftKeyboard::update() {
         if (pointInRect(x, y, curX, y0, kw, rowH)) {
             if (strcmp(keys[i].label, "SHIFT") == 0) {
                 shift = !shift;
-                Haptic::play(Haptic::SNAP);
             } else if (strcmp(keys[i].label, "BKSP") == 0) {
                 backspace();
             } else if (strcmp(keys[i].label, "SPACE") == 0) {
@@ -184,8 +181,6 @@ void SoftKeyboard::update() {
             } else if (strcmp(keys[i].label, "OK") == 0) {
                 accepted = true;
                 done = true;
-                Haptic::play(Haptic::THUMP);
-                SFX::play(SFX::CLICK);
             } else if (strcmp(keys[i].label, "CANCEL") == 0) {
                 accepted = false;
                 done = true;

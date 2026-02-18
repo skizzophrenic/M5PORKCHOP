@@ -700,7 +700,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
             return result;
         }
         
-        Serial.printf("[WIGLE] Conditioning successful: largest=%u\n", 
+        Serial.printf("[WIGLE] Conditioning successful: free=%u\n",
                       (unsigned int)largestAfter);
     }
     
@@ -845,8 +845,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     freeUploadedListMemory();
     delay(100);
     
-    Serial.printf("[WIGLE] Heap before stats: %u largest=%u\n", 
-                  (unsigned int)ESP.getFreeHeap(),
+    Serial.printf("[WIGLE] Heap before stats: free=%u\n",
                   (unsigned int)ESP.getFreeHeap());
     
     // Attempt stats fetch if heap sufficient - no reconditioning, graceful skip if low

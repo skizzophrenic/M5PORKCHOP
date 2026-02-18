@@ -137,8 +137,7 @@ void loop() {
     static uint32_t lastHeapLog = 0;
     if (millis() - lastHeapLog > 5000) {
         lastHeapLog = millis();
-        Serial.printf("[DBG-HEAP-LOOP] free=%u largest=%u minFree=%u\n",
-                      (unsigned)ESP.getFreeHeap(),
+        Serial.printf("[DBG-HEAP-LOOP] free=%u minFree=%u\n",
                       (unsigned)ESP.getFreeHeap(),
                       (unsigned)ESP.getMinFreeHeap());
     }

@@ -202,12 +202,7 @@ void Display::init() {
 static void drawMoodBar(M5Canvas& canvas) {
     PorkchopMode mode = porkchop.getMode();
     // Avatar modes: no mood bar, space reclaimed for info panel
-    if (mode == PorkchopMode::IDLE ||
-        mode == PorkchopMode::OINK_MODE ||
-        mode == PorkchopMode::DNH_MODE ||
-        mode == PorkchopMode::WARHOG_MODE ||
-        mode == PorkchopMode::PIGGYBLUES_MODE ||
-        mode == PorkchopMode::BACON_MODE) {
+    if (isAvatarMode(mode)) {
         return;
     }
 
@@ -724,12 +719,7 @@ void Display::update() {
     }
 
     PorkchopMode mode = porkchop.getMode();
-    bool useAvatarWeather = (mode == PorkchopMode::IDLE ||
-        mode == PorkchopMode::OINK_MODE ||
-        mode == PorkchopMode::DNH_MODE ||
-        mode == PorkchopMode::WARHOG_MODE ||
-        mode == PorkchopMode::PIGGYBLUES_MODE ||
-        mode == PorkchopMode::BACON_MODE);
+    bool useAvatarWeather = isAvatarMode(mode);
 
     // Draw main content based on mode - reset all canvas state
     // Thunder flash inverts the background color, FG becomes BG
@@ -1181,14 +1171,9 @@ void Display::drawTopBar() {
     PorkchopMode mode = porkchop.getMode();
 
     // Mood fill for avatar modes — full-width bar behind text
-    bool isAvatarMode = (mode == PorkchopMode::IDLE ||
-                         mode == PorkchopMode::OINK_MODE ||
-                         mode == PorkchopMode::DNH_MODE ||
-                         mode == PorkchopMode::WARHOG_MODE ||
-                         mode == PorkchopMode::PIGGYBLUES_MODE ||
-                         mode == PorkchopMode::BACON_MODE);
+    bool avatarMode = isAvatarMode(mode);
     int moodFillW = 0;
-    if (isAvatarMode) {
+    if (avatarMode) {
         int moodVal = Mood::getEffectiveHappiness();  // -100 to +100
         moodFillW = ((moodVal + 100) * DISPLAY_W) / 200;
         if (moodFillW < 0) moodFillW = 0;
@@ -1348,7 +1333,7 @@ void Display::drawTopBar() {
     topBar.drawString(finalModeBuf, 2, 2);
 
     // Second row (y=11): mood stage label right of fill edge
-    if (isAvatarMode && moodFillW > 0) {
+    if (avatarMode && moodFillW > 0) {
         int moodVal2 = Mood::getEffectiveHappiness();
         const char* moodLabel;
         if (moodVal2 <= -50)      moodLabel = "S4D";
@@ -1440,12 +1425,7 @@ void Display::drawBottomBar() {
     }
 
     // Avatar modes: narrative engine in bottom bar (2 lines, inverted, typing on newest)
-    if (mode == PorkchopMode::IDLE ||
-        mode == PorkchopMode::OINK_MODE ||
-        mode == PorkchopMode::DNH_MODE ||
-        mode == PorkchopMode::WARHOG_MODE ||
-        mode == PorkchopMode::PIGGYBLUES_MODE ||
-        mode == PorkchopMode::BACON_MODE) {
+    if (isAvatarMode(mode)) {
         NarrativeEngine::update((uint8_t)mode);
         NarrativeEngine::tick();
         bottomBar.fillSprite(bg);

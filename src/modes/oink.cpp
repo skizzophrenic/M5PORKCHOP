@@ -388,8 +388,7 @@ void OinkMode::init() {
                   (unsigned)PENDING_HS_SLOTS,
                   (unsigned)sizeof(PendingHandshakeFrame));
     Serial.printf("[DBG-OINK] EAPOLFrame size: %u bytes\n", (unsigned)sizeof(EAPOLFrame));
-    Serial.printf("[DBG-OINK] Heap before init: free=%u largest=%u\n",
-                  (unsigned)ESP.getFreeHeap(),
+    Serial.printf("[DBG-OINK] Heap before init: free=%u\n",
                   (unsigned)ESP.getFreeHeap());
     // #endregion
     
@@ -484,8 +483,8 @@ void OinkMode::init() {
 void OinkMode::start() {
     if (running) return;
     
-    Serial.printf("[OINK] Starting... free=%u largest=%u\n",
-                  ESP.getFreeHeap(), ESP.getFreeHeap());
+    Serial.printf("[OINK] Starting... free=%u\n",
+                  ESP.getFreeHeap());
     
     // Ensure NetworkRecon is running (handles WiFi promiscuous mode)
     if (!NetworkRecon::isRunning()) {
@@ -630,9 +629,9 @@ void OinkMode::update() {
         
         // Log if this is first call or if heap changed significantly (>5KB)
         if (lastHeapLog == 0 || abs((int)currentLargest - (int)lastLargest) > 5000) {
-            Serial.printf("[OINK-UPDATE] t=%ums free=%u largest=%u delta=%+d pkts=%u nets=%u\n",
+            Serial.printf("[OINK-UPDATE] t=%ums free=%u delta=%+d pkts=%u nets=%u\n",
                           now - stateStartTime,
-                          currentFree, currentLargest,
+                          currentFree,
                           (int)currentLargest - (int)lastLargest,
                           packetCount.load(), networks().size());
         }

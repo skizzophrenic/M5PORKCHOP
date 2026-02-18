@@ -40,7 +40,8 @@ namespace HeapPolicy {
     static constexpr uint32_t kHealthToastSettleMs = 3000;
     static constexpr uint8_t kHealthConditionTriggerPct = 65;
     static constexpr uint8_t kHealthConditionClearPct = 75;
-    static constexpr float kHealthFragPenaltyScale = 0.60f;
+    // kHealthFragPenaltyScale removed — fragmentation tracking disabled on Core2
+    // (heap_caps_get_largest_free_block() hangs walking 4MB PSRAM via SPI)
 
     // Display EMA smoothing (asymmetric to absorb transient spikes)
     static constexpr float kDisplayEmaAlphaDown = 0.10f;  // Slow to drop (absorb transients)
@@ -62,9 +63,7 @@ namespace HeapPolicy {
     static constexpr size_t kPressureLevel1Free = 80000;    // Below = caution
     static constexpr size_t kPressureLevel2Free = 50000;    // Below = warning
     static constexpr size_t kPressureLevel3Free = 30000;    // Below = critical
-    static constexpr float kPressureLevel1Frag = 0.60f;     // Below = caution
-    static constexpr float kPressureLevel2Frag = 0.40f;     // Below = warning
-    static constexpr float kPressureLevel3Frag = 0.25f;     // Below = critical
+    // kPressureLevel*Frag removed — frag ratio always 1.0 on Core2 (see above)
     static constexpr uint32_t kPressureHysteresisMs = 3000;  // Min time before level decrease
 
     // Pressure level gates for expensive operations

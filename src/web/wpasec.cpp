@@ -473,9 +473,8 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
         if (lastError[0] == '\0') {
             strncpy(lastError, "UPLOAD REJECTED", sizeof(lastError) - 1);
         }
-        Serial.printf("[WPASEC] Upload error: %s (heap=%u largest=%u)\n",
-                      lastError, (unsigned)ESP.getFreeHeap(),
-                      (unsigned)ESP.getFreeHeap());
+        Serial.printf("[WPASEC] Upload error: %s (heap=%u)\n",
+                      lastError, (unsigned)ESP.getFreeHeap());
     }
     
     return success;
@@ -662,7 +661,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
             return result;
         }
         
-        Serial.printf("[WPASEC] Conditioning successful: largest=%u\n", 
+        Serial.printf("[WPASEC] Conditioning successful: free=%u\n",
                       (unsigned int)largestAfter);
     }
     
@@ -851,8 +850,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     freeCacheMemory();
     delay(100);
     
-    Serial.printf("[WPASEC] Heap before potfile: %u largest=%u\n", 
-                  (unsigned int)ESP.getFreeHeap(),
+    Serial.printf("[WPASEC] Heap before potfile: free=%u\n",
                   (unsigned int)ESP.getFreeHeap());
     
     uint16_t newCracks = 0;

@@ -30,7 +30,6 @@ namespace HeapHealth {
 
     // Watermarks (min observed values)
     uint32_t getMinFree();
-    uint32_t getMinLargest();
 
     // Knuth's Rule: free_blocks / allocated_blocks ratio.
     // By the Fifty Percent Rule, should be ~0.5 at steady state.

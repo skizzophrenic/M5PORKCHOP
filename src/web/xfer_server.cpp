@@ -113,17 +113,15 @@ static void logRequest(WebServer* srv, const char* label) {
 }
 
 static void logHeapStatus(const char* label) {
-    // Log current free heap and largest free block for debugging memory usage
+    // Log current free heap for debugging memory usage
     size_t freeHeap = ESP.getFreeHeap();
-    size_t largest = ESP.getFreeHeap();
-    FS_LOGF("[FILESERVER] %s heap free=%u largest=%u\n", label ? label : "heap", (unsigned int)freeHeap, (unsigned int)largest);
+    FS_LOGF("[FILESERVER] %s heap free=%u\n", label ? label : "heap", (unsigned int)freeHeap);
 }
 
 static void logHeapStatusIfLow(const char* label) {
     size_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < HeapPolicy::kXferServerLogThreshold) {
-        size_t largest = ESP.getFreeHeap();
-        FS_LOGF("[FILESERVER] %s low heap free=%u largest=%u\n", label ? label : "low heap", (unsigned int)freeHeap, (unsigned int)largest);
+        FS_LOGF("[FILESERVER] %s low heap free=%u\n", label ? label : "low heap", (unsigned int)freeHeap);
     }
 }
 
@@ -3494,7 +3492,7 @@ bool XferServer::start(const char* ssid, const char* password) {
     HeapGates::HeapSnapshot heapBefore = HeapGates::snapshot();
     size_t largestBefore = heapBefore.largestBlock;
     if (largestBefore < HeapPolicy::kMinContigForTls) {
-        FS_LOGF("[FILESERVER] Pre-start conditioning: largest=%u < %u\n",
+        FS_LOGF("[FILESERVER] Pre-start conditioning: free=%u < %u\n",
                       (unsigned)largestBefore, (unsigned)HeapPolicy::kMinContigForTls);
         size_t largestAfter = WiFiUtils::conditionHeapForTLS();
         FS_LOGF("[FILESERVER] Pre-start conditioning complete: %u -> %u (+%d)\n",
@@ -3533,8 +3531,8 @@ void XferServer::startServer() {
             HeapPolicy::kXferServerMinHeap,
             HeapPolicy::kXferServerMinLargest);
         if (gate.failure != HeapGates::TlsGateFailure::None) {
-            FS_LOGF("[FILESERVER] Low heap for WebServer: free=%u largest=%u\n",
-                          (unsigned)gate.freeHeap, (unsigned)gate.largestBlock);
+            FS_LOGF("[FILESERVER] Low heap for WebServer: free=%u\n",
+                          (unsigned)gate.freeHeap);
             snprintf(statusMessage, sizeof(statusMessage), "%s", "Low heap");
             MDNS.end();
             WiFiUtils::shutdown();
@@ -3625,8 +3623,7 @@ void XferServer::stop() {
             prevLargest = curLargest;
         }
 
-        FS_LOGF("[FILESERVER] LWIP cleanup: free=%u largest=%u (waited %ums)\n",
-                (unsigned)ESP.getFreeHeap(),
+        FS_LOGF("[FILESERVER] LWIP cleanup: free=%u (waited %ums)\n",
                 (unsigned)ESP.getFreeHeap(),
                 (unsigned)(millis() - waitStart));
     }
@@ -3763,10 +3760,9 @@ void XferServer::handleRoot() {
     }
     logHeapStatus("before /");
     size_t freeHeap = 0;
-    size_t largest = 0;
-    if (isUiHeapLow(&freeHeap, &largest)) {
-        FS_LOGF("[FILESERVER] Low heap for UI: free=%u largest=%u\n",
-                      (unsigned int)freeHeap, (unsigned int)largest);
+    if (isUiHeapLow(&freeHeap, nullptr)) {
+        FS_LOGF("[FILESERVER] Low heap for UI: free=%u\n",
+                      (unsigned int)freeHeap);
         size_t sent = sendProgmemResponse(server, 503, "text/html; charset=utf-8", LOW_HEAP_PAGE);
         sessionTxBytes += sent;
         return;
@@ -3783,10 +3779,9 @@ void XferServer::handleStyle() {
         return;
     }
     size_t freeHeap = 0;
-    size_t largest = 0;
-    if (isUiHeapLow(&freeHeap, &largest)) {
-        FS_LOGF("[FILESERVER] Low heap for CSS: free=%u largest=%u\n",
-                      (unsigned int)freeHeap, (unsigned int)largest);
+    if (isUiHeapLow(&freeHeap, nullptr)) {
+        FS_LOGF("[FILESERVER] Low heap for CSS: free=%u\n",
+                      (unsigned int)freeHeap);
         server->sendHeader("Connection", "close");
         server->send(503, "text/plain", "LOW HEAP");
         return;
@@ -3802,10 +3797,9 @@ void XferServer::handleScript() {
         return;
     }
     size_t freeHeap = 0;
-    size_t largest = 0;
-    if (isUiHeapLow(&freeHeap, &largest)) {
-        FS_LOGF("[FILESERVER] Low heap for JS: free=%u largest=%u\n",
-                      (unsigned int)freeHeap, (unsigned int)largest);
+    if (isUiHeapLow(&freeHeap, nullptr)) {
+        FS_LOGF("[FILESERVER] Low heap for JS: free=%u\n",
+                      (unsigned int)freeHeap);
         server->sendHeader("Connection", "close");
         server->send(503, "text/plain", "LOW HEAP");
         return;

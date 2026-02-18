@@ -79,6 +79,9 @@ static uint32_t bootGuardStartMs = 0;
 static const uint8_t BOOT_GUARD_THRESHOLD = 3;
 static const uint32_t BOOT_GUARD_WINDOW_MS = 60000;
 
+// ML config saved before WARHOG disables it, restored on exit
+static MLConfig savedMLConfig;
+
 static PorkchopMode bootModeToPorkchop(BootMode mode) {
     switch (mode) {
         case BootMode::OINK: return PorkchopMode::OINK_MODE;
@@ -307,9 +310,8 @@ void Porkchop::setMode(PorkchopMode mode) {
     // Store the mode we're leaving for cleanup
     PorkchopMode oldMode = currentMode;
 
-    Serial.printf("[MODE] EXIT %s free=%u largest=%u\n",
+    Serial.printf("[MODE] EXIT %s free=%u\n",
         modeToString(oldMode),
-        (unsigned)esp_get_free_heap_size(),
         (unsigned)ESP.getFreeHeap());
     
     // Save "real" modes as previous (not modal menus)
@@ -335,9 +337,8 @@ void Porkchop::setMode(PorkchopMode mode) {
     }
     currentMode = mode;
 
-    Serial.printf("[MODE] ENTER %s free=%u largest=%u\n",
+    Serial.printf("[MODE] ENTER %s free=%u\n",
         modeToString(currentMode),
-        (unsigned)esp_get_free_heap_size(),
         (unsigned)ESP.getFreeHeap());
     
     // Cleanup the mode we're actually leaving (oldMode), not previousMode
@@ -349,6 +350,7 @@ void Porkchop::setMode(PorkchopMode mode) {
             DoNoHamMode::stop();
             break;
         case PorkchopMode::WARHOG_MODE:
+            Config::setML(savedMLConfig);  // Restore ML config disabled on entry
             WarhogMode::stop();
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
@@ -440,9 +442,10 @@ void Porkchop::setMode(PorkchopMode mode) {
             Avatar::setState(AvatarState::EXCITED);
             Display::notify(NoticeKind::STATUS, "SNIFFING THE AIR", 5000, NoticeChannel::TOP_BAR);
             SDLog::log("PORK", "Mode: WARHOG");
-            // Disable ML/Enhanced features for heap savings
+            // Save ML config then disable for heap savings (restored on exit)
             {
-                auto mlCfg = Config::ml();
+                savedMLConfig = Config::ml();
+                auto mlCfg = savedMLConfig;
                 mlCfg.enabled = false;
                 mlCfg.collectionMode = MLCollectionMode::BASIC;
                 Config::setML(mlCfg);
@@ -453,10 +456,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             Avatar::setState(AvatarState::ANGRY);
             SDLog::log("PORK", "Mode: PIGGYBLUES");
             PiggyBluesMode::start();
-            // If user aborted warning dialog, return to menu
+            // If user aborted or BLE init failed, return to menu
             if (!PiggyBluesMode::isRunning()) {
-                currentMode = PorkchopMode::MENU;
-                Menu::show();
+                setMode(PorkchopMode::MENU);
             }
             break;
         case PorkchopMode::SPECTRUM_MODE:
@@ -742,13 +744,7 @@ void Porkchop::handleInput() {
     }
 
     // --- Expanded narrator: any input collapses (IDLE + active avatar modes) ---
-    bool isAvatarMode = (currentMode == PorkchopMode::IDLE ||
-                         currentMode == PorkchopMode::OINK_MODE ||
-                         currentMode == PorkchopMode::DNH_MODE ||
-                         currentMode == PorkchopMode::WARHOG_MODE ||
-                         currentMode == PorkchopMode::PIGGYBLUES_MODE ||
-                         currentMode == PorkchopMode::BACON_MODE);
-    if (isAvatarMode && Display::isNarratorExpanded()) {
+    if (isAvatarMode(currentMode) && Display::isNarratorExpanded()) {
         Input::TapEvent t;
         if (Input::narratorTap() || Input::tap(t) || Input::select() ||
             Input::up() || Input::down() || Input::back() ||
@@ -847,7 +843,6 @@ void Porkchop::updateMode() {
             break;
         case PorkchopMode::XFER:
             XferServer::update();
-            break;
             break;
         case PorkchopMode::DIAGDATA:
             DiagDataMenu::update();

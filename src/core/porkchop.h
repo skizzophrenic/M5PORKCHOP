@@ -19,7 +19,7 @@ enum class PorkchopMode : uint8_t {
     BADGES = 9,            // View achievements (UI: BADGES)
     ABOUT = 10,            // About screen
     XFER = 11,             // WiFi file transfer mode (UI: TRANSFR/XFER)
-    COREDUMP = 12,         // Crash/coredump viewer
+    // COREDUMP = 12,      // Crash/coredump viewer (unimplemented)
     DIAGDATA = 13,         // System diagnostics snapshot
     FLEXES = 14,           // Lifetime stats and buffs overlay
     BOAR_BROS = 15,        // Manage excluded networks
@@ -27,7 +27,7 @@ enum class PorkchopMode : uint8_t {
     UNLOCKABLES = 17,      // Secret challenges menu
     BOUNTY = 18,           // View active bounties
     PIGSYNC_DEVICE_SELECT = 19, // PigSync device selection
-    PIGSYNC_CALL = 20,     // PigSync active call
+    // PIGSYNC_CALL = 20,  // PigSync active call (unimplemented)
     BACON_MODE = 21,       // Hide and seek beacon broadcaster
     JANUS_HOG_MODE = 22,   // Janus Hog (ESP32-C5) UART coprocessor status
     SD_FORMAT = 23,        // SD card format utility
@@ -37,13 +37,24 @@ enum class PorkchopMode : uint8_t {
     CAPTURES = HASHES,
     ACHIEVEMENTS = BADGES,
     FILE_TRANSFER = XFER,
-    CRASH_VIEWER = COREDUMP,
+    // CRASH_VIEWER = COREDUMP,
     DIAGNOSTICS = DIAGDATA,
     SWINE_STATS = FLEXES,
     WIGLE_MENU = TRACKS,
     BOUNTY_STATUS = BOUNTY,
     MONSTER_C5_MODE = JANUS_HOG_MODE
 };
+
+// Avatar modes: modes that render the pig avatar, weather, mood, and narrative.
+// Single source of truth — used by display, input, status bar, etc.
+inline bool isAvatarMode(PorkchopMode m) {
+    return m == PorkchopMode::IDLE ||
+           m == PorkchopMode::OINK_MODE ||
+           m == PorkchopMode::DNH_MODE ||
+           m == PorkchopMode::WARHOG_MODE ||
+           m == PorkchopMode::PIGGYBLUES_MODE ||
+           m == PorkchopMode::BACON_MODE;
+}
 
 // Events for async callbacks
 enum class PorkchopEvent : uint8_t {

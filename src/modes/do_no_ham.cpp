@@ -1278,7 +1278,7 @@ int DoNoHamMode::findOrCreatePMKID(const uint8_t* bssid) {
         if (pmkids.size() >= pmkids.capacity()) {
             size_t largest = ESP.getFreeHeap();
             if (largest < DNH_PMKID_ALLOC_MIN_BLOCK) {
-                Serial.printf("[DNH] PMKID add blocked: fragmented heap (largest=%u)\n", largest);
+                Serial.printf("[DNH] PMKID add blocked: fragmented heap (free=%u)\n", largest);
                 return -1;
             }
         }
@@ -1328,7 +1328,7 @@ int DoNoHamMode::findOrCreateHandshake(const uint8_t* bssid, const uint8_t* stat
         if (handshakes.size() >= handshakes.capacity()) {
             size_t largest = ESP.getFreeHeap();
             if (largest < DNH_HANDSHAKE_ALLOC_MIN_BLOCK) {
-                Serial.printf("[DNH] Handshake add blocked: fragmented heap (largest=%u)\n", largest);
+                Serial.printf("[DNH] Handshake add blocked: fragmented heap (free=%u)\n", largest);
                 return -1;
             }
         }

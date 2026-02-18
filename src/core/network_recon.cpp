@@ -788,8 +788,8 @@ void start() {
         return;
     }
 
-    Serial.printf("[RECON] Starting background scan... free=%u largest=%u\n",
-                  ESP.getFreeHeap(), ESP.getFreeHeap());
+    Serial.printf("[RECON] Starting background scan... free=%u\n",
+                  ESP.getFreeHeap());
     
     heapLargestAtStart = ESP.getFreeHeap();
     heapStabilized = false;
@@ -822,8 +822,8 @@ void start() {
         yield();  // Let deferred FreeRTOS cleanup tasks coalesce freed BLE memory
         delay(50);
 
-        Serial.printf("[RECON] After BLE deinit: free=%u largest=%u\n",
-                      ESP.getFreeHeap(), ESP.getFreeHeap());
+        Serial.printf("[RECON] After BLE deinit: free=%u\n",
+                      ESP.getFreeHeap());
     }
 
     // Initialize WiFi
@@ -964,7 +964,7 @@ void update() {
         size_t currentLargest = ESP.getFreeHeap();
         if (currentLargest > HeapPolicy::kHeapStableThreshold) {
             heapStabilized = true;
-            Serial.printf("[RECON] Heap stabilized in %ums: largest=%u (was %u)\n",
+            Serial.printf("[RECON] Heap stabilized in %ums: free=%u (was %u)\n",
                           now - startTime, currentLargest, heapLargestAtStart);
         }
     }

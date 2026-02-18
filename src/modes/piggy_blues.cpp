@@ -605,6 +605,8 @@ void PiggyBluesMode::start() {
     pAdvertising = NimBLEDevice::getAdvertising();
     if (!pAdvertising) {
         WiFi.mode(WIFI_STA);  // Re-enable WiFi on failure
+        delay(HeapPolicy::kWiFiModeDelayMs);
+        NetworkRecon::start();  // Restore background scanning
         return;
     }
     pAdvertising->setMinInterval(BLE_ADV_MIN_INTERVAL);  // 20ms

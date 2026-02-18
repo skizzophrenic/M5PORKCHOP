@@ -16,9 +16,7 @@ static uint8_t toastDelta = 0;
 static bool toastImproved = false;
 static bool toastActive = false;
 static size_t peakFree = 0;
-static size_t peakLargest = 0;
 static size_t minFree = 0;
-static size_t minLargest = 0;
 static bool conditionPending = false;
 static uint32_t lastConditionMs = 0;
 static uint8_t stableHealthPct = 100;
@@ -37,29 +35,20 @@ static float knuthRatio = 0.0f;
 // Only compute when diagnostics is viewing (saves ~50us/sec of heap enumeration)
 static bool knuthEnabled = false;
 
-static uint8_t computePercent(size_t freeHeap, size_t largestBlock, bool updatePeaks) {
+static uint8_t computePercent(size_t freeHeap, bool updatePeaks) {
     if (updatePeaks) {
         if (freeHeap > peakFree) peakFree = freeHeap;
-        if (largestBlock > peakLargest) peakLargest = largestBlock;
     }
 
+    // Health is ratio of current free to peak observed free,
+    // clamped by TLS threshold gate.
     float freeNorm = peakFree > 0 ? (float)freeHeap / (float)peakFree : 0.0f;
-    float contigNorm = peakLargest > 0 ? (float)largestBlock / (float)peakLargest : 0.0f;
-    float thresholdNorm = 1.0f;
-    if (HeapPolicy::kMinHeapForTls > 0 && HeapPolicy::kMinContigForTls > 0) {
+    float health = freeNorm;
+
+    if (HeapPolicy::kMinHeapForTls > 0) {
         float freeGate = (float)freeHeap / (float)HeapPolicy::kMinHeapForTls;
-        float contigGate = (float)largestBlock / (float)HeapPolicy::kMinContigForTls;
-        thresholdNorm = (freeGate < contigGate) ? freeGate : contigGate;
+        if (freeGate < health) health = freeGate;
     }
-
-    float health = freeNorm < contigNorm ? freeNorm : contigNorm;
-    if (thresholdNorm < health) health = thresholdNorm;
-
-    float fragRatio = freeHeap > 0 ? (float)largestBlock / (float)freeHeap : 0.0f;
-    float fragPenalty = fragRatio / HeapPolicy::kHealthFragPenaltyScale;
-    if (fragPenalty < 0.0f) fragPenalty = 0.0f;
-    if (fragPenalty > 1.0f) fragPenalty = 1.0f;
-    health *= fragPenalty;
 
     if (health < 0.0f) health = 0.0f;
     if (health > 1.0f) health = 1.0f;
@@ -71,26 +60,23 @@ static uint8_t computePercent(size_t freeHeap, size_t largestBlock, bool updateP
 }
 
 // Compute adaptive conditioning cooldown based on current heap state.
-// When heap is critical (largestBlock much smaller than TLS threshold),
-// allow more frequent conditioning. When healthy, back off.
-static uint32_t adaptiveCooldownMs(size_t largestBlock) {
+// When heap is low relative to TLS threshold, allow more frequent conditioning.
+static uint32_t adaptiveCooldownMs(size_t freeHeap) {
     if (HeapPolicy::kMinContigForTls == 0) return HeapPolicy::kConditionCooldownBaseMs;
-    float ratio = (float)largestBlock / (float)HeapPolicy::kMinContigForTls;
+    float ratio = (float)freeHeap / (float)HeapPolicy::kMinContigForTls;
     uint32_t cooldown = (uint32_t)((float)HeapPolicy::kConditionCooldownBaseMs * ratio);
     if (cooldown < HeapPolicy::kConditionCooldownMinMs) cooldown = HeapPolicy::kConditionCooldownMinMs;
     if (cooldown > HeapPolicy::kConditionCooldownMaxMs) cooldown = HeapPolicy::kConditionCooldownMaxMs;
     return cooldown;
 }
 
-// Compute pressure level from raw heap metrics.
-// Uses the more severe signal (free heap OR frag ratio) to determine level.
-static HeapPressureLevel computePressureLevel(size_t freeHeap, float fragRatio) {
-    // Check from most severe to least
-    if (freeHeap < HeapPolicy::kPressureLevel3Free || fragRatio < HeapPolicy::kPressureLevel3Frag)
+// Compute pressure level from free heap thresholds.
+static HeapPressureLevel computePressureLevel(size_t freeHeap) {
+    if (freeHeap < HeapPolicy::kPressureLevel3Free)
         return HeapPressureLevel::Critical;
-    if (freeHeap < HeapPolicy::kPressureLevel2Free || fragRatio < HeapPolicy::kPressureLevel2Frag)
+    if (freeHeap < HeapPolicy::kPressureLevel2Free)
         return HeapPressureLevel::Warning;
-    if (freeHeap < HeapPolicy::kPressureLevel1Free || fragRatio < HeapPolicy::kPressureLevel1Frag)
+    if (freeHeap < HeapPolicy::kPressureLevel1Free)
         return HeapPressureLevel::Caution;
     return HeapPressureLevel::Normal;
 }
@@ -103,14 +89,11 @@ void update() {
     lastSampleMs = now;
 
     size_t freeHeap = ESP.getFreeHeap();
-    size_t largestBlock = ESP.getFreeHeap();
-    if (peakFree == 0 || peakLargest == 0) {
+    if (peakFree == 0) {
         peakFree = freeHeap;
-        peakLargest = largestBlock;
     }
     if (minFree == 0 || freeHeap < minFree) minFree = freeHeap;
-    if (minLargest == 0 || largestBlock < minLargest) minLargest = largestBlock;
-    uint8_t newPct = computePercent(freeHeap, largestBlock, true);
+    uint8_t newPct = computePercent(freeHeap, true);
     heapHealthPct = newPct;
 
     // On first sample, snap display to actual value (skip EMA convergence from 100%)
@@ -127,14 +110,12 @@ void update() {
         displayPctF += alpha * ((float)newPct - displayPctF);
     }
 
-    float fragRatio = freeHeap > 0 ? (float)largestBlock / (float)freeHeap : 0.0f;
-
     // Knuth's Rule metric disabled on Core2 — heap_caps_get_info() walks
     // all pools including 4MB PSRAM via SPI and can hang.
     // knuthRatio stays at 0.0f (set in setKnuthEnabled).
 
     // --- Graduated pressure level with hysteresis ---
-    HeapPressureLevel newLevel = computePressureLevel(freeHeap, fragRatio);
+    HeapPressureLevel newLevel = computePressureLevel(freeHeap);
     if (newLevel != pressureLevel) {
         if (newLevel > pressureLevel) {
             // Escalating: require 2 consecutive samples at same target (except Critical = immediate)
@@ -160,18 +141,18 @@ void update() {
     }
 
     // --- Adaptive conditioning trigger ---
-    bool contigLow = largestBlock < HeapPolicy::kProactiveTlsConditioning;
+    bool heapLow = freeHeap < HeapPolicy::kProactiveTlsConditioning;
     bool pctLow = newPct <= HeapPolicy::kHealthConditionTriggerPct;
-    uint32_t cooldown = adaptiveCooldownMs(largestBlock);
+    uint32_t cooldown = adaptiveCooldownMs(freeHeap);
     if (!conditionPending) {
-        if (pctLow && contigLow &&
+        if (pctLow && heapLow &&
             (lastConditionMs == 0 || (now - lastConditionMs) >= cooldown)) {
             conditionPending = true;
         }
     } else {
         bool pctRecovered = newPct >= HeapPolicy::kHealthConditionClearPct;
-        bool contigRecovered = largestBlock >= HeapPolicy::kProactiveTlsConditioning;
-        if (pctRecovered && contigRecovered) {
+        bool heapRecovered = freeHeap >= HeapPolicy::kProactiveTlsConditioning;
+        if (pctRecovered && heapRecovered) {
             conditionPending = false;
         }
     }
@@ -224,11 +205,10 @@ float getKnuthRatio() {
 
 void resetPeaks(bool suppressToast) {
     peakFree = ESP.getFreeHeap();
-    peakLargest = ESP.getFreeHeap();
-    // NOTE: Do NOT reset minFree/minLargest here. Session watermarks must track
+    // NOTE: Do NOT reset minFree here. Session watermarks must track
     // the true session-worst values. Resetting them mid-brew would corrupt them
     // with transient values (WiFi buffers eat 35KB during conditioning).
-    heapHealthPct = computePercent(peakFree, peakLargest, false);
+    heapHealthPct = computePercent(peakFree, false);
     conditionPending = false;
     lastConditionMs = millis();
 
@@ -264,10 +244,6 @@ uint8_t getToastDelta() {
 
 uint32_t getMinFree() {
     return (uint32_t)minFree;
-}
-
-uint32_t getMinLargest() {
-    return (uint32_t)minLargest;
 }
 
 bool consumeConditionRequest() {
@@ -338,7 +314,7 @@ void persistWatermarks() {
     rec.magic = kWatermarkMagic;
     rec.uptimeSec = now / 1000;
     rec.minFreeVal = (uint32_t)minFree;
-    rec.minLargestVal = (uint32_t)minLargest;
+    rec.minLargestVal = 0;  // Field kept for binary compat; largestBlock tracking removed
     rec.minHealthPct = sessionMinHealthPct;
     rec.maxPressureSeen = sessionMaxPressure;
     rec.reserved = 0;

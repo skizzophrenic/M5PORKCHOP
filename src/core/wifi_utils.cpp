@@ -290,11 +290,10 @@ size_t conditionHeapForTLS() {
     // "OINK Bounce" effect - mimics the heap conditioning that happens
     // when entering/exiting OINK mode, which reclaims ~20-30KB of memory
 
-    size_t initialLargest = ESP.getFreeHeap();
     size_t initialFree = ESP.getFreeHeap();
-    
-    Serial.printf("[HEAP] Conditioning for TLS: free=%u largest=%u\n", 
-                  initialFree, initialLargest);
+
+    Serial.printf("[HEAP] Conditioning for TLS: free=%u\n",
+                  initialFree);
     
     // Phase 1: BLE cleanup (the BIG win - ~20-30KB!)
     // If PiggyBlues, PigSync, or any BLE mode was previously used,
@@ -319,8 +318,7 @@ size_t conditionHeapForTLS() {
         NimBLEDevice::deinit(true);
         delay(HeapPolicy::kBleDeinitDelayMs);  // Give BLE stack time to fully shut down
         
-        Serial.printf("[HEAP] BLE deinit complete: free=%u largest=%u\n",
-                      ESP.getFreeHeap(), 
+        Serial.printf("[HEAP] BLE deinit complete: free=%u\n",
                       ESP.getFreeHeap());
     }
     
@@ -356,8 +354,8 @@ size_t conditionHeapForTLS() {
     WiFi.mode(WIFI_STA);
     delay(HeapPolicy::kWiFiModeDelayMs);
     
-    Serial.printf("[HEAP] After WiFi.mode(STA): free=%u largest=%u\n",
-                  ESP.getFreeHeap(), ESP.getFreeHeap());
+    Serial.printf("[HEAP] After WiFi.mode(STA): free=%u\n",
+                  ESP.getFreeHeap());
     
     // Step 2: Enable promiscuous mode WITH CALLBACK (like OINK does!)
     WiFi.disconnect();
@@ -367,8 +365,8 @@ size_t conditionHeapForTLS() {
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
     
-    Serial.printf("[HEAP] After promiscuous(true)+callback: free=%u largest=%u\n",
-                  ESP.getFreeHeap(), ESP.getFreeHeap());
+    Serial.printf("[HEAP] After promiscuous(true)+callback: free=%u\n",
+                  ESP.getFreeHeap());
     
     // Step 3: Dwell time with channel hopping - THIS IS THE KEY
     // WHY THIS WORKS (TLSF allocator theory):
@@ -403,15 +401,14 @@ size_t conditionHeapForTLS() {
         // Log progress every second
         if (HeapPolicy::kConditioningLogIntervalMs > 0 &&
             (elapsedMs % HeapPolicy::kConditioningLogIntervalMs) == 0) {
-            Serial.printf("[HEAP] Brew %ds: free=%u largest=%u pkts=%u\n",
+            Serial.printf("[HEAP] Brew %ds: free=%u pkts=%u\n",
                           (unsigned)(elapsedMs / 1000),
-                          ESP.getFreeHeap(), currentLargest, brewPacketCount);
+                          ESP.getFreeHeap(), brewPacketCount);
         }
     }
     
-    Serial.printf("[HEAP] After brew dwell: free=%u largest=%u pkts=%u\n",
-                  ESP.getFreeHeap(), ESP.getFreeHeap(),
-                  brewPacketCount);
+    Serial.printf("[HEAP] After brew dwell: free=%u pkts=%u\n",
+                  ESP.getFreeHeap(), brewPacketCount);
     
     // Step 4: Clean shutdown (same as OINK stop)
     esp_wifi_set_promiscuous(false);
@@ -421,9 +418,9 @@ size_t conditionHeapForTLS() {
     WiFi.mode(WIFI_STA);
     delay(HeapPolicy::kWiFiShutdownDelayMs);
     
-    Serial.printf("[HEAP] Brew complete (%ums): free=%u largest=%u\n",
+    Serial.printf("[HEAP] Brew complete (%ums): free=%u\n",
                   millis() - brewStart,
-                  ESP.getFreeHeap(), ESP.getFreeHeap());
+                  ESP.getFreeHeap());
     
     // Final consolidation delay
     delay(HeapPolicy::kConditioningFinalDelayMs);
@@ -431,12 +428,11 @@ size_t conditionHeapForTLS() {
     
     size_t finalLargest = ESP.getFreeHeap();
     size_t finalFree = ESP.getFreeHeap();
-    
+
     int32_t freedBytes = (int32_t)finalFree - (int32_t)initialFree;
-    int32_t contiguousGain = (int32_t)finalLargest - (int32_t)initialLargest;
-    
-    Serial.printf("[HEAP] Conditioning complete: free=%u (%+d) largest=%u (%+d)\n",
-                  finalFree, freedBytes, finalLargest, contiguousGain);
+
+    Serial.printf("[HEAP] Conditioning complete: free=%u (%+d)\n",
+                  finalFree, freedBytes);
     HeapHealth::resetPeaks(true);
     lastManualConditionMs = millis();  // Cooldown starts from brew completion
 
@@ -472,10 +468,9 @@ size_t conditionHeapForTLS() {
 // The delay() calls after BLE deinit give FreeRTOS idle task time
 // to run deferred cleanup callbacks that free BLE memory.
 size_t brewHeap(uint32_t dwellMs, bool includeBleCleanup) {
-    size_t initialLargest = ESP.getFreeHeap();
     size_t initialFree = ESP.getFreeHeap();
-    Serial.printf("[HEAP] Brew start: free=%u largest=%u dwell=%ums\n",
-                  initialFree, initialLargest, (unsigned)dwellMs);
+    Serial.printf("[HEAP] Brew start: free=%u dwell=%ums\n",
+                  initialFree, (unsigned)dwellMs);
 
     if (includeBleCleanup && NimBLEDevice::isInitialized()) {
         Serial.println("[HEAP] Brew: BLE active - deinitializing");
@@ -520,7 +515,7 @@ size_t brewHeap(uint32_t dwellMs, bool includeBleCleanup) {
         if (elapsedMs > HeapPolicy::kConditioningWarmupMs) {
             size_t currentLargest = ESP.getFreeHeap();
             if (currentLargest > HeapPolicy::kHeapStableThreshold) {
-                Serial.printf("[HEAP] Brew early exit at %ums (largest=%u)\n",
+                Serial.printf("[HEAP] Brew early exit at %ums (free=%u)\n",
                               elapsedMs, (unsigned)currentLargest);
                 break;
             }
@@ -535,9 +530,8 @@ size_t brewHeap(uint32_t dwellMs, bool includeBleCleanup) {
 
     size_t finalLargest = ESP.getFreeHeap();
     size_t finalFree = ESP.getFreeHeap();
-    Serial.printf("[HEAP] Brew complete: free=%u (%+d) largest=%u (%+d) pkts=%u\n",
+    Serial.printf("[HEAP] Brew complete: free=%u (%+d) pkts=%u\n",
                   finalFree, (int)(finalFree - initialFree),
-                  finalLargest, (int)(finalLargest - initialLargest),
                   brewPacketCount);
     HeapHealth::resetPeaks(true);
     return finalLargest;

@@ -1,5 +1,14 @@
 #pragma once
 
+// HeapGates — Core2 always-pass implementation
+//
+// On M5Stack Core2, heap_caps_get_largest_free_block() and heap_caps_get_info()
+// walk ALL heap pools including 4MB PSRAM via SPI, which hangs the device.
+// All gate functions return ESP.getFreeHeap() for both freeHeap and largestBlock
+// (making them identical), and all checks pass unconditionally.
+// Pressure levels and conditioning are driven by freeHeap thresholds only.
+// See MEMORY.md heap_details.md for full investigation.
+
 #include <cstddef>
 #include <cstdint>
 
