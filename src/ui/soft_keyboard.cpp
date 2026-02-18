@@ -3,7 +3,9 @@
 #include "soft_keyboard.h"
 
 #include "display.h"
+#include "haptic.h"
 #include "input.h"
+#include "../audio/sfx.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -104,46 +106,43 @@ void SoftKeyboard::update() {
     if (!Input::tap(tap)) return;
 
     // Only handle taps inside main canvas region.
-    // Touch coords are screen coords; keyboard is drawn on main canvas at y=TOP_BAR_H.
     if (tap.y < TOP_BAR_H || tap.y >= (TOP_BAR_H + MAIN_H)) return;
 
     int16_t x = tap.x;
     int16_t y = (int16_t)(tap.y - TOP_BAR_H);
 
-    // Layout
-    const int w = DISPLAY_W;
-    const int h = MAIN_H;
-
+    // Layout constants
     const int pad = 6;
-    const int headerH = 36;
+    const int headerH = 40;
     const int keyAreaY = headerH;
-    const int keyAreaH = h - headerH - pad;
-
+    const int keyAreaH = MAIN_H - headerH;
     if (keyAreaH <= 0) return;
 
-    const int rowGap = 4;
-    const int colGap = 4;
-
-    // Four rows: QWERTY, ASDF, ZXCV, CMD row
-    const int rows = 4;
+    const int rowGap = 3;
+    const int colGap = 3;
+    const int rows = 5;
     const int rowH = (keyAreaH - (rowGap * (rows - 1))) / rows;
-    if (rowH < 24) return;
+    if (rowH < 20) return;
 
+    // Uniform key width from 10-key row
+    const int keyW = (DISPLAY_W - 2 * pad - colGap * 9) / 10;
+
+    const char* row0 = "1234567890";
     const char* row1 = "QWERTYUIOP";
     const char* row2 = "ASDFGHJKL";
-    const char* row3 = "ZXCVBNM";
+    const char* row3 = "ZXCVBNM_";
 
-    auto handleCharRow = [&](const char* letters, int rowIdx) -> bool {
+    auto handleCharRow = [&](const char* letters, int rowIdx, bool applyShift) -> bool {
         const int len = (int)strlen(letters);
         if (len <= 0) return false;
         const int y0 = keyAreaY + rowIdx * (rowH + rowGap);
-        const int keyW = (w - (pad * 2) - (colGap * (len - 1))) / len;
-        int x0 = pad;
+        const int totalW = len * keyW + (len - 1) * colGap;
+        const int leftPad = (DISPLAY_W - totalW) / 2;
         for (int i = 0; i < len; i++) {
-            int kx = x0 + i * (keyW + colGap);
+            int kx = leftPad + i * (keyW + colGap);
             if (pointInRect(x, y, kx, y0, keyW, rowH)) {
                 char c = letters[i];
-                if (!shift) c = (char)tolower((unsigned char)c);
+                if (applyShift && !shift) c = (char)tolower((unsigned char)c);
                 appendChar(c);
                 return true;
             }
@@ -151,12 +150,13 @@ void SoftKeyboard::update() {
         return false;
     };
 
-    if (handleCharRow(row1, 0)) return;
-    if (handleCharRow(row2, 1)) return;
-    if (handleCharRow(row3, 2)) return;
+    if (handleCharRow(row0, 0, false)) return;  // numbers — no shift
+    if (handleCharRow(row1, 1, true)) return;
+    if (handleCharRow(row2, 2, true)) return;
+    if (handleCharRow(row3, 3, true)) return;
 
     // Command row: SHIFT | BKSP | SPACE | OK | CANCEL
-    const int cmdRowIdx = 3;
+    const int cmdRowIdx = 4;
     const int y0 = keyAreaY + cmdRowIdx * (rowH + rowGap);
     struct CmdKey { const char* label; int w; };
     CmdKey keys[] = {
@@ -169,13 +169,14 @@ void SoftKeyboard::update() {
 
     int units = 0;
     for (auto& k : keys) units += k.w;
-    const int unitW = (w - (pad * 2) - (colGap * ((int)(sizeof(keys)/sizeof(keys[0])) - 1))) / units;
+    const int unitW = (DISPLAY_W - (pad * 2) - (colGap * ((int)(sizeof(keys)/sizeof(keys[0])) - 1))) / units;
     int curX = pad;
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         int kw = keys[i].w * unitW;
         if (pointInRect(x, y, curX, y0, kw, rowH)) {
             if (strcmp(keys[i].label, "SHIFT") == 0) {
                 shift = !shift;
+                Haptic::play(Haptic::SNAP);
             } else if (strcmp(keys[i].label, "BKSP") == 0) {
                 backspace();
             } else if (strcmp(keys[i].label, "SPACE") == 0) {
@@ -183,6 +184,8 @@ void SoftKeyboard::update() {
             } else if (strcmp(keys[i].label, "OK") == 0) {
                 accepted = true;
                 done = true;
+                Haptic::play(Haptic::THUMP);
+                SFX::play(SFX::CLICK);
             } else if (strcmp(keys[i].label, "CANCEL") == 0) {
                 accepted = false;
                 done = true;
@@ -203,18 +206,18 @@ void SoftKeyboard::draw(M5Canvas& canvas) {
     canvas.setTextColor(fg);
     canvas.setFont(&fonts::Font0);
 
-    // Header
+    // Header — title
     canvas.setTextDatum(top_left);
     canvas.setTextSize(2);
     if (title && title[0]) {
-        canvas.drawString(title, 6, 4);
+        canvas.drawString(title, 6, 2);
     } else {
-        canvas.drawString("INPUT", 6, 4);
+        canvas.drawString("INPUT", 6, 2);
     }
 
-    // Value (masked if needed)
-    canvas.setTextSize(1);
-    char viewBuf[48];
+    // Input value preview (size 2)
+    canvas.setTextSize(2);
+    char viewBuf[28];
     viewBuf[0] = '\0';
     if (targetBuf) {
         if (masked) {
@@ -224,49 +227,54 @@ void SoftKeyboard::draw(M5Canvas& canvas) {
             memset(viewBuf, '*', show);
             viewBuf[show] = '\0';
         } else {
-            // Show tail if long.
             size_t len = safeStrlen(targetBuf, targetCap - 1);
             const char* src = targetBuf;
-            if (len > 42) src = targetBuf + (len - 42);
+            if (len > 24) src = targetBuf + (len - 24);
             strncpy(viewBuf, src, sizeof(viewBuf) - 1);
             viewBuf[sizeof(viewBuf) - 1] = '\0';
         }
     }
-    canvas.drawRect(4, 24, DISPLAY_W - 8, 16, fg);
-    canvas.drawString(viewBuf, 8, 27);
+    canvas.drawRect(4, 20, 312, 20, fg);
+    canvas.setTextDatum(top_left);
+    canvas.drawString(viewBuf, 8, 22);
 
     // Key area
     const int pad = 6;
-    const int headerH = 36;
+    const int headerH = 40;
     const int keyAreaY = headerH;
-    const int keyAreaH = MAIN_H - headerH - pad;
-    const int rowGap = 4;
-    const int colGap = 4;
-    const int rows = 4;
+    const int keyAreaH = MAIN_H - headerH;
+    const int rowGap = 3;
+    const int colGap = 3;
+    const int rows = 5;
     const int rowH = (keyAreaH - (rowGap * (rows - 1))) / rows;
 
-    auto drawCharRow = [&](const char* letters, int rowIdx) {
+    // Uniform key width from 10-key row
+    const int keyW = (DISPLAY_W - 2 * pad - colGap * 9) / 10;
+
+    auto drawCharRow = [&](const char* letters, int rowIdx, bool applyShift) {
         const int len = (int)strlen(letters);
         const int y0 = keyAreaY + rowIdx * (rowH + rowGap);
-        const int keyW = (DISPLAY_W - (pad * 2) - (colGap * (len - 1))) / len;
+        const int totalW = len * keyW + (len - 1) * colGap;
+        const int leftPad = (DISPLAY_W - totalW) / 2;
         canvas.setTextSize(2);
         canvas.setTextDatum(middle_center);
         for (int i = 0; i < len; i++) {
-            int x0 = pad + i * (keyW + colGap);
+            int x0 = leftPad + i * (keyW + colGap);
             canvas.drawRect(x0, y0, keyW, rowH, fg);
             char c = letters[i];
-            if (!shift) c = (char)tolower((unsigned char)c);
+            if (applyShift && !shift) c = (char)tolower((unsigned char)c);
             char s[2] = {c, 0};
             canvas.drawString(s, x0 + keyW / 2, y0 + rowH / 2);
         }
     };
 
-    drawCharRow("QWERTYUIOP", 0);
-    drawCharRow("ASDFGHJKL", 1);
-    drawCharRow("ZXCVBNM", 2);
+    drawCharRow("1234567890", 0, false);  // numbers — no shift
+    drawCharRow("QWERTYUIOP", 1, true);
+    drawCharRow("ASDFGHJKL", 2, true);
+    drawCharRow("ZXCVBNM_", 3, true);
 
     // Command row
-    const int y0 = keyAreaY + 3 * (rowH + rowGap);
+    const int y0 = keyAreaY + 4 * (rowH + rowGap);
     struct CmdKey { const char* label; int w; };
     CmdKey keys[] = {
         {"SHIFT",  2},
@@ -296,10 +304,5 @@ void SoftKeyboard::draw(M5Canvas& canvas) {
         canvas.setTextColor(fg, bg);
         curX += kw + colGap;
     }
-
-    // Footer hint
-    canvas.setTextDatum(bottom_right);
-    canvas.setTextSize(1);
-    canvas.drawString("B-HOLD: CANCEL", DISPLAY_W - 4, MAIN_H - 2);
 }
 
