@@ -4,6 +4,7 @@
 #include "../core/config.h"
 #include "../core/xp.h"
 #include "../core/wifi_utils.h"
+#include "../core/heap_policy.h"
 #include "../core/network_recon.h"
 #include "../ui/display.h"
 #include "../piglet/mood.h"
@@ -510,7 +511,7 @@ void PiggyBluesMode::init() {
 }
 
 bool PiggyBluesMode::showWarningDialog() {
-    // Warning dialog styled like showToast - pink box on black background
+    // Warning dialog styled like showToast - inverted colors
     // Slightly larger to fit warning text
     M5Canvas& canvas = Display::getMain();
     
@@ -534,12 +535,11 @@ bool PiggyBluesMode::showWarningDialog() {
         // Clear and redraw
         canvas.fillSprite(COLOR_BG);
 
-        // Black border then pink fill
-        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+        // Inverted toast: fg border, bg fill, fg text
+        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
 
-        // Black text on pink background
-        canvas.setTextColor(COLOR_BG, COLOR_FG);
+        canvas.setTextColor(COLOR_FG, COLOR_BG);
         canvas.setTextDatum(top_center);
         canvas.setTextSize(1);
         canvas.setFont(&fonts::Font0);

@@ -17,8 +17,6 @@ static bool toastImproved = false;
 static bool toastActive = false;
 static size_t peakFree = 0;
 static size_t minFree = 0;
-static bool conditionPending = false;
-static uint32_t lastConditionMs = 0;
 static uint8_t stableHealthPct = 100;
 static float displayPctF = 100.0f;  // EMA-smoothed value for UI (float for precision)
 static bool pendingToast = false;
@@ -57,17 +55,6 @@ static uint8_t computePercent(size_t freeHeap, bool updatePeaks) {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     return (uint8_t)pct;
-}
-
-// Compute adaptive conditioning cooldown based on current heap state.
-// When heap is low relative to TLS threshold, allow more frequent conditioning.
-static uint32_t adaptiveCooldownMs(size_t freeHeap) {
-    if (HeapPolicy::kMinContigForTls == 0) return HeapPolicy::kConditionCooldownBaseMs;
-    float ratio = (float)freeHeap / (float)HeapPolicy::kMinContigForTls;
-    uint32_t cooldown = (uint32_t)((float)HeapPolicy::kConditionCooldownBaseMs * ratio);
-    if (cooldown < HeapPolicy::kConditionCooldownMinMs) cooldown = HeapPolicy::kConditionCooldownMinMs;
-    if (cooldown > HeapPolicy::kConditionCooldownMaxMs) cooldown = HeapPolicy::kConditionCooldownMaxMs;
-    return cooldown;
 }
 
 // Compute pressure level from free heap thresholds.
@@ -140,23 +127,6 @@ void update() {
         escalationCount = 0;
     }
 
-    // --- Adaptive conditioning trigger ---
-    bool heapLow = freeHeap < HeapPolicy::kProactiveTlsConditioning;
-    bool pctLow = newPct <= HeapPolicy::kHealthConditionTriggerPct;
-    uint32_t cooldown = adaptiveCooldownMs(freeHeap);
-    if (!conditionPending) {
-        if (pctLow && heapLow &&
-            (lastConditionMs == 0 || (now - lastConditionMs) >= cooldown)) {
-            conditionPending = true;
-        }
-    } else {
-        bool pctRecovered = newPct >= HeapPolicy::kHealthConditionClearPct;
-        bool heapRecovered = freeHeap >= HeapPolicy::kProactiveTlsConditioning;
-        if (pctRecovered && heapRecovered) {
-            conditionPending = false;
-        }
-    }
-
     // Debounced toast: use smoothed display value so transient spikes
     // that the EMA absorbs don't trigger user-visible notifications
     uint8_t smoothedPct = (uint8_t)(displayPctF + 0.5f);
@@ -205,12 +175,7 @@ float getKnuthRatio() {
 
 void resetPeaks(bool suppressToast) {
     peakFree = ESP.getFreeHeap();
-    // NOTE: Do NOT reset minFree here. Session watermarks must track
-    // the true session-worst values. Resetting them mid-brew would corrupt them
-    // with transient values (WiFi buffers eat 35KB during conditioning).
     heapHealthPct = computePercent(peakFree, false);
-    conditionPending = false;
-    lastConditionMs = millis();
 
     stableHealthPct = heapHealthPct;
     displayPctF = (float)heapHealthPct;
@@ -244,12 +209,6 @@ uint8_t getToastDelta() {
 
 uint32_t getMinFree() {
     return (uint32_t)minFree;
-}
-
-bool consumeConditionRequest() {
-    if (!conditionPending) return false;
-    conditionPending = false;
-    return true;
 }
 
 // --- Watermark persistence ---

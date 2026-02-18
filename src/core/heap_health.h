@@ -40,9 +40,6 @@ namespace HeapHealth {
     // Only enable when diagnostics menu is active.
     void setKnuthEnabled(bool enable);
 
-    // Conditioning trigger (set by update(), consumed by caller)
-    bool consumeConditionRequest();
-
     // Session watermark persistence (binary file on SD).
     // loadPreviousSession(): call at boot after SD init.
     // persistWatermarks(): call from update() or main loop, rate-limited internally.

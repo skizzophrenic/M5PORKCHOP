@@ -45,9 +45,6 @@ namespace HeapGates {
     // Return true if TLS can proceed, and optionally format an error string.
     bool canTls(const TlsGateStatus& status, char* outError, size_t outErrorLen);
 
-    // True when we are above the TLS gate but below the proactive threshold.
-    bool shouldProactivelyCondition(const TlsGateStatus& status);
-
     // Generic gate checks (free + contiguous).
     GateStatus checkGate(size_t minFree, size_t minContig);
     bool canMeet(const GateStatus& status, char* outError, size_t outErrorLen);

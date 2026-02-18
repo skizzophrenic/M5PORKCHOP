@@ -5,7 +5,6 @@
 #include "../core/sd_layout.h"
 #include "../core/config.h"
 #include "../core/heap_gates.h"
-#include "../core/wifi_utils.h"
 #include "../core/network_recon.h"
 #include "../piglet/mood.h"
 #include <SD.h>
@@ -598,8 +597,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     
     busy = true;
     
-    // Pause NetworkRecon - TLS operations conflict with promiscuous mode
-    // conditionHeapForTLS() overrides promiscuous callbacks, breaking NetworkRecon state
+    // Pause NetworkRecon - TLS operations need STA mode, not promiscuous
     bool wasReconRunning = NetworkRecon::isRunning();
     if (wasReconRunning) {
         Serial.println("[WPASEC] Pausing NetworkRecon for TLS operations");
@@ -622,49 +620,6 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
         return result;
     }
 
-    if (cb) {
-        cb("prepping heap", 0, 0);
-    }
-    
-    // Proactive heap conditioning - condition early when heap is marginal
-    // This prevents fragmentation from getting critical before TLS attempts
-    HeapGates::TlsGateStatus tls = HeapGates::checkTlsGates();
-    if (HeapGates::shouldProactivelyCondition(tls)) {
-        if (cb) {
-            cb("OPTIMIZING HEAP", 0, 0);
-        }
-        Serial.printf("[WPASEC] Proactive conditioning: %u < %u threshold\n",
-                      (unsigned int)tls.largestBlock,
-                      (unsigned int)HeapPolicy::kProactiveTlsConditioning);
-        WiFiUtils::conditionHeapForTLS();
-    }
-    
-    // Check if heap is sufficient for TLS operations
-    if (!canSync()) {
-        // Heap insufficient - try "OINK bounce" conditioning
-        // This reclaims BLE memory and coalesces fragmented heap blocks
-        if (cb) {
-            cb("CONDITIONING HEAP", 0, 0);
-        }
-        Serial.println("[WPASEC] Heap insufficient, attempting conditioning...");
-        
-        size_t largestAfter = WiFiUtils::conditionHeapForTLS();
-        
-        // Check again after conditioning
-        if (!canSync()) {
-            // Still insufficient - notify user via speech balloon
-            Mood::setStatusMessage("HEAP TIGHT - TRY OINK");
-            snprintf(result.error, sizeof(result.error), 
-                     "%s (TRY OINK)", lastError);
-            if (wasReconRunning) NetworkRecon::resume();
-            busy = false;
-            return result;
-        }
-        
-        Serial.printf("[WPASEC] Conditioning successful: free=%u\n",
-                      (unsigned int)largestAfter);
-    }
-    
     // Collect files to upload from handshakes directory
     if (cb) {
         cb("scanning caps", 0, 0);

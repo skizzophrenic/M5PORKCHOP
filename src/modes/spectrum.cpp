@@ -2166,12 +2166,11 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg)
         int boxX = (DISPLAY_W - boxW) / 2;
         int boxY = (90 - boxH) / 2;
 
-        // Black border then inverted fill
-        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
-        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+        // Inverted toast: fg border, bg fill, fg text
+        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
+        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, bg);
 
-        // Black text on inverted background
-        canvas.setTextColor(bg, fg);
+        canvas.setTextColor(fg, bg);
         canvas.setTextDatum(middle_center);
         canvas.drawString("WAKIE WAKIE", DISPLAY_W / 2, boxY + 12);
 
@@ -2211,12 +2210,11 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) 
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
-    // Black border then pink fill (standard popup pattern)
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+    // Inverted toast: fg border, bg fill, fg text
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, bg);
 
-    // Black text on pink background
-    canvas.setTextColor(bg, fg);
+    canvas.setTextColor(fg, bg);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
     

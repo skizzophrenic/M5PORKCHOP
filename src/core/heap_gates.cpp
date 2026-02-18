@@ -28,10 +28,6 @@ bool canMeet(const GateStatus&, char*, size_t) {
     return true;
 }
 
-bool shouldProactivelyCondition(const TlsGateStatus&) {
-    return false;
-}
-
 HeapSnapshot snapshot() {
     return {FAKE_FREE, FAKE_BLOCK, 0.9f};
 }

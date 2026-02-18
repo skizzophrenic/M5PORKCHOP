@@ -333,12 +333,11 @@ void BoarBrosMenu::drawDeleteConfirm(M5Canvas& canvas) {
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
-    // Black border then pink fill
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    // Black text on pink
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+
+    canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextDatum(top_center);
     
     canvas.drawString("REMOVE THIS BRO?", boxX + boxW / 2, boxY + 10);

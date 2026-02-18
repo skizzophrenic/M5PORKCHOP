@@ -865,27 +865,29 @@ void Display::update() {
             mLine = strtok(nullptr, "\n");
         }
 
-        int boxW = maxLineW + 16;
+        int padH = 8;
+        int padW = 16;
+        int boxW = maxLineW + padW * 2;
         if (boxW < 200) boxW = 200;
         if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
-        int boxH = 12 + lineCount * lineH;
+        int boxH = padH * 2 + lineCount * lineH;
         int boxX = (DISPLAY_W - boxW) / 2;
         int boxY = (MAIN_H - boxH) / 2;
 
-        // Black border then pink fill
-        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
-        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+        // Inverted toast: fg border, bg fill, fg text
+        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
+        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, bg);
 
-        // Black text on pink background
-        mainCanvas.setTextColor(bg, fg);
-        mainCanvas.setTextDatum(TC_DATUM);
+        mainCanvas.setTextColor(fg, bg);
+        mainCanvas.setTextDatum(MC_DATUM);
 
         // Draw each line centered
         char buf[160];
         strncpy(buf, toastMessage, sizeof(buf) - 1);
         buf[sizeof(buf) - 1] = '\0';
 
-        int y = boxY + 2;
+        int totalTextH = lineCount * lineH;
+        int y = boxY + (boxH - totalTextH) / 2 + lineH / 2;
         char* line = strtok(buf, "\n");
         while (line) {
             mainCanvas.drawString(line, DISPLAY_W / 2, y);
@@ -2019,18 +2021,17 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     
     mainCanvas.fillSprite(COLOR_BG);
     
-    // Black border then pink fill
-    mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    // Black text on pink background
-    mainCanvas.setTextColor(COLOR_BG, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+
+    mainCanvas.setTextColor(COLOR_FG, COLOR_BG);
     mainCanvas.setTextDatum(top_center);
     mainCanvas.setTextSize(1);
     mainCanvas.setFont(&fonts::Font0);
-    
+
     int centerX = DISPLAY_W / 2;
-    
+
     // Header
     mainCanvas.drawString("* LEVEL UP! *", centerX, boxY + 8);
     
@@ -2086,18 +2087,17 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
     
     mainCanvas.fillSprite(COLOR_BG);
     
-    // Black border then pink fill
-    mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    // Black text on pink background
-    mainCanvas.setTextColor(COLOR_BG, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+
+    mainCanvas.setTextColor(COLOR_FG, COLOR_BG);
     mainCanvas.setTextDatum(top_center);
     mainCanvas.setTextSize(1);
     mainCanvas.setFont(&fonts::Font0);
-    
+
     int centerX = DISPLAY_W / 2;
-    
+
     // Header
     mainCanvas.drawString("* CL4SS PR0M0T10N *", centerX, boxY + 8);
     

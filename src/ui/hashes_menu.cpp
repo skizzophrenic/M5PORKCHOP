@@ -817,17 +817,16 @@ void HashesMenu::drawNukeConfirm(M5Canvas& canvas) {
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
-    // Black border then pink fill
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    // Black text on pink background
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+
+    canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
-    
+
     int centerX = canvas.width() / 2;
-    
+
     // Hacker edgy message
     canvas.drawString("!! SCORCHED EARTH !!", centerX, boxY + 8);
     const char* scanRoot = (scanBaseDir[0] != '\0') ? scanBaseDir : SDLayout::handshakesDir();
@@ -976,12 +975,11 @@ void HashesMenu::drawDetailView(M5Canvas& canvas) {
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
 
-    // Black border then pink fill
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
 
-    // Black text on pink background
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
 
@@ -1260,17 +1258,16 @@ void HashesMenu::drawSyncModal(M5Canvas& canvas) {
     const int boxX = (canvas.width() - boxW) / 2;
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
-    // Black border then pink fill
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    // Black text on pink background
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    // Inverted toast: fg border, bg fill, fg text
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+
+    canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
-    
+
     int centerX = canvas.width() / 2;
-    
+
     // Title
     canvas.drawString("WPA-SEC SYNC", centerX, boxY + 6);
     

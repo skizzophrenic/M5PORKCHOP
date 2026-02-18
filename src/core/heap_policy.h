@@ -4,10 +4,9 @@
 #include <cstdint>
 
 namespace HeapPolicy {
-    // TLS gating thresholds
-    static constexpr size_t kMinHeapForTls = 35000;
-    static constexpr size_t kMinContigForTls = 35000;
-    static constexpr size_t kProactiveTlsConditioning = 45000;
+    // TLS gating thresholds (2KB dynamic mbedTLS buffers, ~10KB peak)
+    static constexpr size_t kMinHeapForTls = 15000;
+    static constexpr size_t kMinContigForTls = 15000;
 
     // General allocation safety thresholds
     static constexpr size_t kMinHeapForOinkNetworkAdd = 30000;
@@ -38,22 +37,10 @@ namespace HeapPolicy {
     static constexpr uint32_t kHealthToastDurationMs = 5000;
     static constexpr uint8_t kHealthToastMinDelta = 5;
     static constexpr uint32_t kHealthToastSettleMs = 3000;
-    static constexpr uint8_t kHealthConditionTriggerPct = 65;
-    static constexpr uint8_t kHealthConditionClearPct = 75;
-    // kHealthFragPenaltyScale removed — fragmentation tracking disabled on Core2
-    // (heap_caps_get_largest_free_block() hangs walking 4MB PSRAM via SPI)
 
     // Display EMA smoothing (asymmetric to absorb transient spikes)
     static constexpr float kDisplayEmaAlphaDown = 0.10f;  // Slow to drop (absorb transients)
     static constexpr float kDisplayEmaAlphaUp   = 0.20f;  // Moderate recovery
-
-    // Adaptive conditioning cooldown (replaces fixed 30s)
-    // Formula: cooldown = clamp(min, max, base * (largestBlock / kMinContigForTls))
-    // When heap is stressed (largestBlock << kMinContigForTls), cooldown hits 15s floor
-    // When heap is healthy (largestBlock > kMinContigForTls), cooldown is long (60s)
-    static constexpr uint32_t kConditionCooldownMinMs = 15000;
-    static constexpr uint32_t kConditionCooldownMaxMs = 60000;
-    static constexpr uint32_t kConditionCooldownBaseMs = 30000;
 
     // Memory pressure levels (graduated degradation)
     // Level 0 (Normal): all features enabled
@@ -66,9 +53,6 @@ namespace HeapPolicy {
     // kPressureLevel*Frag removed — frag ratio always 1.0 on Core2 (see above)
     static constexpr uint32_t kPressureHysteresisMs = 3000;  // Min time before level decrease
 
-    // Pressure level gates for expensive operations
-    // Auto-brew blocked at Critical (brew needs 35KB transient, critical has <30KB)
-    static constexpr uint8_t kMaxPressureLevelForAutoBrew = 2;  // Warning
     // SD writes blocked at Warning+ (file ops allocate FAT/handle buffers)
     static constexpr uint8_t kMaxPressureLevelForSDWrite = 1;   // Caution
 
@@ -86,14 +70,6 @@ namespace HeapPolicy {
     // Stress test guardrail
     static constexpr size_t kStressMinHeap = 70000;
 
-    // Runtime conditioning dwell times (used by OINK Bounce / brewHeap)
-    static constexpr uint32_t kConditioningDwellMs = 3000;
-    static constexpr uint32_t kConditioningStepMs = 100;
-    static constexpr uint32_t kConditioningWarmupMs = 1000;
-    static constexpr uint32_t kConditioningLogIntervalMs = 1000;
-    static constexpr uint32_t kConditioningFinalDelayMs = 50;
-    static constexpr uint32_t kBrewDefaultDwellMs = 1000;
-    static constexpr uint32_t kBrewAutoDwellMs = 1200;
     // LWIP async TCP cleanup polling
     // lwip_close() returns immediately but TCP PCB/buffers are freed by LWIP
     // timer task on a 250-500ms cycle. Poll until heap stabilizes.

@@ -3488,18 +3488,6 @@ bool XferServer::start(const char* ssid, const char* password) {
         return false;
     }
 
-    // Pre-start heap conditioning if contiguous block is below TLS threshold.
-    HeapGates::HeapSnapshot heapBefore = HeapGates::snapshot();
-    size_t largestBefore = heapBefore.largestBlock;
-    if (largestBefore < HeapPolicy::kMinContigForTls) {
-        FS_LOGF("[FILESERVER] Pre-start conditioning: free=%u < %u\n",
-                      (unsigned)largestBefore, (unsigned)HeapPolicy::kMinContigForTls);
-        size_t largestAfter = WiFiUtils::conditionHeapForTLS();
-        FS_LOGF("[FILESERVER] Pre-start conditioning complete: %u -> %u (+%d)\n",
-                      (unsigned)largestBefore, (unsigned)largestAfter,
-                      (int)(largestAfter - largestBefore));
-    }
-    
     snprintf(statusMessage, sizeof(statusMessage), "%s", "jacking in.");
     logWiFiStatus("before connect");
 
