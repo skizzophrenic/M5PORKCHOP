@@ -67,6 +67,10 @@ bool Avatar::starsActive = false;
 uint32_t Avatar::lastNightCheck = 0;
 bool Avatar::cachedNightMode = false;
 
+// Wave ripple state
+WaveMode Avatar::waveMode = WaveMode::NONE;
+uint32_t Avatar::waveBurstStart = 0;
+
 // Color helper for thunder flash inversion (matches Sirloin)
 static uint16_t getDrawColor() {
     if (thunderFlashActive) {
@@ -739,6 +743,9 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         }
     }
     
+    // Draw wave ripples (radio activity feedback)
+    drawWaveRipples(canvas, faceRight, startX, startY);
+
     // Draw grass below piglet
     drawGrass(canvas);
 }
@@ -1146,6 +1153,61 @@ void Avatar::setThunderFlash(bool active) {
 
 bool Avatar::isThunderFlashing() {
     return thunderFlashActive;
+}
+
+// --- Wave ripple animation (radio activity feedback) ---
+// Burst-based: each call starts a 1500ms burst (just over one 1200ms ripple cycle).
+// Re-triggering resets the timer. OUTGOING priority prevents INCOMING flicker.
+void Avatar::waveRipple(WaveMode mode) {
+    if (mode == WaveMode::NONE) {
+        waveMode = WaveMode::NONE;
+        return;
+    }
+    // OUTGOING priority: don't let INCOMING override an active OUTGOING burst
+    if (mode == WaveMode::INCOMING && waveMode == WaveMode::OUTGOING) {
+        if (millis() - waveBurstStart < 1500) return;  // OUTGOING still active
+    }
+    waveMode = mode;
+    waveBurstStart = millis();
+}
+
+void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY) {
+    if (waveMode == WaveMode::NONE) return;
+
+    uint32_t now = millis();
+
+    // Auto-expire burst after 1500ms of no re-triggering
+    if (now - waveBurstStart >= 1500) {
+        waveMode = WaveMode::NONE;
+        return;
+    }
+    uint16_t color = getDrawColor();
+
+    int waveCX = faceRight ? (startX + 85) : (startX + 23);
+    int waveCY = startY + 31;
+
+    float arcStart = faceRight ? 300.0f : 120.0f;
+    float arcEnd   = faceRight ?  60.0f : 240.0f;
+
+    const uint8_t  COUNT    = 3;
+    const uint16_t CYCLE_MS = 1200;
+    const int16_t  R_MIN    = 12;
+    const int16_t  R_MAX    = 50;
+
+    for (uint8_t i = 0; i < COUNT; i++) {
+        uint32_t phaseOffset = i * (CYCLE_MS / COUNT);
+        float progress = (float)((now + phaseOffset) % CYCLE_MS) / (float)CYCLE_MS;
+
+        if (progress > 0.80f) continue;  // Gap in last 20%
+        float t = progress / 0.80f;
+
+        int16_t r = (waveMode == WaveMode::OUTGOING)
+            ? R_MIN + (int16_t)((float)(R_MAX - R_MIN) * t)
+            : R_MAX - (int16_t)((float)(R_MAX - R_MIN) * t);
+
+        int16_t thick = (t < 0.5f) ? 2 : 1;
+        canvas.fillArc(waveCX, waveCY, r + thick, r, arcStart, arcEnd, color);
+    }
 }
 
 // --- Phase 6: Windup slide for coast-back ---

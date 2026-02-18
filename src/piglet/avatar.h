@@ -13,6 +13,12 @@ enum class AvatarState {
     ANGRY
 };
 
+enum class WaveMode : uint8_t {
+    NONE,      // No waves (idle, cooldown, bored)
+    INCOMING,  // Converging toward nose (scanning/sniffing)
+    OUTGOING   // Radiating from nose (deauth/sending)
+};
+
 class Avatar {
 public:
     static void init();
@@ -46,6 +52,12 @@ public:
     // Thunder flash (invert colors for weather effect)
     static void setThunderFlash(bool active);
     static bool isThunderFlashing();
+
+    // Wave ripple animation (radio activity feedback)
+    // Burst-based: each call starts a 1500ms burst, re-triggering resets timer
+    // OUTGOING priority: active OUTGOING burst can't be overridden by INCOMING
+    static void waveRipple(WaveMode mode);
+    static WaveMode getWaveMode() { return waveMode; }
 
     // Night sky star system (RTC-based)
     static bool isNightTime();           // check rtc for night hours, 20:00-06:00
@@ -137,6 +149,10 @@ private:
     static GrassBlade grassBlades[GRASS_BLADE_COUNT];
     static int16_t grassOffset;  // smooth scroll pixel offset
     
+    static WaveMode waveMode;
+    static uint32_t waveBurstStart;
+    static void drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY);
+
     static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink = false, bool faceRight = true, bool sniff = false);
     static void drawGrass(M5Canvas& canvas);
     static void updateGrass();

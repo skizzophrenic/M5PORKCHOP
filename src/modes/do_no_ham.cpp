@@ -111,6 +111,7 @@ static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
     (void)ssid;
     (void)channel;
     if (rssi < Config::wifi().attackMinRssi) return;  // Skip weak networks
+    Avatar::waveRipple(WaveMode::INCOMING);
     XP::addXP(XPEvent::DNH_NETWORK_PASSIVE);
 }
 
@@ -293,7 +294,8 @@ void DoNoHamMode::stop() {
     
     // Stop grass animation
     Avatar::setGrassMoving(false);
-    
+    Avatar::waveRipple(WaveMode::NONE);
+
     bool pausedByUs = false;
     if (NetworkRecon::isRunning()) {
         NetworkRecon::pause();
@@ -653,7 +655,7 @@ void DoNoHamMode::update() {
         Avatar::setGrassMoving(isHopping);
     }
     lastGrassState = state;
-    
+
     switch (state) {
         case DNHState::HOPPING:
             {
@@ -846,6 +848,7 @@ bool DoNoHamMode::checkHuntingTrigger() {
     
     // Trigger: 2+ EAPOL frames or high beacon burst
     if (stats.eapolCount >= 2 || stats.beaconCount >= 8) {
+        Avatar::waveRipple(WaveMode::INCOMING);
         state = DNHState::HUNTING;
         huntStartTime = now;
         lastHuntChannel = currentChannel;

@@ -657,8 +657,9 @@ void PiggyBluesMode::stop() {
     setAdvertisingNow(false);
     
     Avatar::setGrassMoving(false);
+    Avatar::waveRipple(WaveMode::NONE);
     Avatar::resetGrass();
-    
+
     bool doReboot = (random(0, 100) < REBOOT_CHANCE_PERCENT);
     if (doReboot) {
         // Death screen - take over display
@@ -724,7 +725,8 @@ void PiggyBluesMode::update() {
             setAdvertisingNow(true);
             advertisingStartTime = now;
             lastBurstTime = now; // Reset timer for the next burst interval.
-            
+            Avatar::waveRipple(WaveMode::OUTGOING);
+
             // This function will now only START the advertisement, not block.
             sendRandomPayload();
         }

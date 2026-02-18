@@ -89,6 +89,7 @@ static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
                                    const char* ssid, int8_t rssi, uint8_t channel) {
     // Skip weak networks — not actionable for attack modes
     if (rssi < Config::wifi().attackMinRssi) return;
+    Avatar::waveRipple(WaveMode::INCOMING);
     // Queue mood event for main thread (Mood::onNewNetwork triggers XP::addXP)
     if (!pendingNewNetwork) {
         if (ssid) {
@@ -555,6 +556,7 @@ void OinkMode::stop() {
 
     // Stop grass animation
     Avatar::setGrassMoving(false);
+    Avatar::waveRipple(WaveMode::NONE);
 
     // Clear our callbacks (NetworkRecon keeps running)
     NetworkRecon::setPacketCallback(nullptr);
@@ -1112,6 +1114,7 @@ void OinkMode::update() {
                         sendAuthenticationRequest(targetBssid);
                         delay(10);  // AP processes auth in <2ms; 10ms is safe margin
                         sendAssociationRequest(targetBssid, targetSSID, strlen(targetSSID));
+                        Avatar::waveRipple(WaveMode::OUTGOING);
                         pmkidProbeTime = now;
                         if (pmkidTargetIndex < 64) pmkidProbedBitset |= (1ULL << pmkidTargetIndex);
                         Avatar::sniff();
@@ -1475,6 +1478,7 @@ void OinkMode::update() {
                     // Start new burst if none active and enough time has passed
                     if (!deauthBurst.active && (now - lastDeauthTime > DEAUTH_BURST_INTERVAL_MS)) {
                         deauthBurst.active = true;
+                        Avatar::waveRipple(WaveMode::OUTGOING);
                         memcpy(deauthBurst.targetBssid, targetBssidLocal, 6);
                         deauthBurst.phase = 0;  // Start with knock
                         deauthBurst.direction = 0;

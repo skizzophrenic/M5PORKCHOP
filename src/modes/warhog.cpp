@@ -308,7 +308,8 @@ void WarhogMode::stop() {
     
     // Stop grass animation
     Avatar::setGrassMoving(false);
-    
+    Avatar::waveRipple(WaveMode::NONE);
+
     running = false;
     
     // Put GPS to sleep if power management enabled
@@ -393,7 +394,6 @@ void WarhogMode::update() {
         Avatar::setGrassMoving(hasGPSFix);
         lastGPSState = hasGPSFix;
     }
-
     // Distance tracking for XP (every 5 seconds when GPS is available)
     if (hasGPSFix && now - lastDistanceCheck >= 5000) {
         GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
@@ -884,6 +884,7 @@ void WarhogMode::processScanResults() {
     
     // Trigger mood update if we found new networks
     if (newThisScan > 0) {
+        Avatar::waveRipple(WaveMode::INCOMING);
         Mood::onWarhogFound(nullptr, 0);
         SDLOG("WARHOG", "Found %lu new (%lu geotagged)", newThisScan, geotaggedThisScan);
     }
