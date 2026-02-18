@@ -11,7 +11,7 @@
 #include "../core/config.h"
 #include "../core/xp.h"
 #include "../core/challenges.h"
-#include "../audio/sfx.h"
+#include "../audio/feedback.h"
 #include "../build_info.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
@@ -40,7 +40,7 @@
 #include "bounty_menu.h"
 #include "sd_format_menu.h"
 #include "input.h"
-#include "haptic.h"
+#include "haptic.h"  // still needed for Haptic::update() in main loop
 #include "../core/heap_health.h"
 #include "../piglet/narrative.h"
 #include "../core/janus_hog.h"
@@ -1768,6 +1768,7 @@ static void bootSplashDelay(uint32_t ms) {
         M5.update();
         Input::update();
         SFX::update();
+        Haptic::update();
         delay(20);
         yield();
     }
@@ -1787,8 +1788,8 @@ void Display::showBootSplash() {
     M5.Display.drawString("OINK", DISPLAY_W / 2, DISPLAY_H / 2 - 20);
     M5.Display.drawString("OINK", DISPLAY_W / 2, DISPLAY_H / 2 + 20);
     
-    // Pig wake-up grunt: "oink oink"
-    SFX::play(SFX::BOOT);
+    // Pig wake-up grunt + boot rumble haptic
+    Feedback::play(SFX::BOOT);
     
     bootSplashDelay(800);
     
@@ -2042,15 +2043,15 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     
     pushAll();
     
-    // Celebratory beep sequence - non-blocking
-    SFX::play(SFX::LEVEL_UP);
-    Haptic::pulse();
+    // Squeal of glory — audio + 400ms reward haptic
+    Feedback::play(SFX::LEVEL_UP);
     
     // Auto-dismiss after 2.5 seconds or on any key press
     uint32_t startTime = millis();
     while ((millis() - startTime) < 2500) {
         M5.update();
         Input::update();
+        Haptic::update();
         if (Input::up() || Input::down() || Input::select() || Input::back()) {
             break;  // Any key dismisses
         }
@@ -2105,9 +2106,8 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
     
     pushAll();
     
-    // Distinct beep sequence - non-blocking (uses ACHIEVEMENT jingle for class promo)
-    SFX::play(SFX::ACHIEVEMENT);
-    Haptic::pulse();
+    // Achievement jingle + pulse haptic
+    Feedback::play(SFX::ACHIEVEMENT);
     
     // Auto-dismiss after 2.5 seconds or on any key press
     uint32_t startTime = millis();
@@ -2115,6 +2115,7 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
         M5.update();
         Input::update();
         SFX::update();  // Tick audio during wait
+        Haptic::update();
         if (Input::up() || Input::down() || Input::select() || Input::back()) {
             break;
         }

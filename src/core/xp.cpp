@@ -7,8 +7,7 @@
 #include "challenges.h"
 #include "../ui/display.h"
 #include "../ui/flexes_screen.h"
-#include "../audio/sfx.h"
-#include "../ui/haptic.h"
+#include "../audio/feedback.h"
 #include "../piglet/narrative.h"
 #include <M5Unified.h>
 #include <SD.h>
@@ -764,7 +763,7 @@ void XP::addXP(XPEvent event) {
             // ULTRA STREAK! celebration at 20 captures
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
-                SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Feedback::play(SFX::ULTRA_STREAK);  // Epic crescendo haptic
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (handshake at <10% battery)
@@ -785,7 +784,7 @@ void XP::addXP(XPEvent event) {
             // ULTRA STREAK! celebration at 20 captures
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
-                SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Feedback::play(SFX::ULTRA_STREAK);  // Epic crescendo haptic
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (PMKID at <10% battery)
@@ -901,7 +900,7 @@ void XP::addXP(XPEvent event) {
             // Announce ultra streak at 20 captures
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
-                SFX::play(SFX::ULTRA_STREAK);
+                Feedback::play(SFX::ULTRA_STREAK);
                 ultraStreakAnnounced = true;
             }
 
@@ -1007,7 +1006,7 @@ void XP::addXP(uint16_t amount) {
                 amount = UINT16_MAX;  // Cap at max value
             }
             Display::showToast("JACKPOT!");
-            SFX::play(SFX::JACKPOT_XP);  // Non-blocking celebration
+            Feedback::play(SFX::JACKPOT_XP);  // Pulse haptic
         } else if (roll >= 90) {
             // Bonus! 8% chance for 2x
             // Prevent overflow by checking before multiplication
@@ -1202,8 +1201,7 @@ void XP::updateSessionTime() {
                     uint16_t bonus = 25 + (data.cachedLevel * 2);
                     addXPSilent(bonus);
                     Display::showToast("PIG MISSED YOU.");
-                    SFX::play(SFX::ACHIEVEMENT);
-                    Haptic::pulse();
+                    Feedback::play(SFX::ACHIEVEMENT);
                     Serial.printf("[XP] Return bonus: +%d XP (absent %lu hours)\n",
                                   bonus, (unsigned long)(elapsed / 3600));
                 }
@@ -1458,8 +1456,7 @@ void XP::processAchievementQueue() {
         char toastMsg[48];
         snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
         Display::showToast(toastMsg);
-        SFX::play(SFX::ACHIEVEMENT);
-        Haptic::pulse();
+        Feedback::play(SFX::ACHIEVEMENT);
     }
 }
 

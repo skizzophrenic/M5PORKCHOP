@@ -8,8 +8,9 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
-#include "../audio/sfx.h"
+#include "../audio/feedback.h"
 #include "../ui/input.h"
+#include "../ui/haptic.h"
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <algorithm>
@@ -665,11 +666,12 @@ void PiggyBluesMode::stop() {
         M5.Display.setTextSize(3);
         M5.Display.drawString("YOU DIED", M5.Display.width() / 2, M5.Display.height() / 2);
         
-        // Play death sound and wait 5 seconds (pumping audio engine)
-        SFX::play(SFX::YOU_DIED);
+        // Death sound + descending haptic fade
+        Feedback::play(SFX::YOU_DIED);
         uint32_t start = millis();
         while (millis() - start < 5000) {
             SFX::update();
+            Haptic::update();
             delay(10);
         }
         

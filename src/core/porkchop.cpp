@@ -28,6 +28,7 @@
 #include "../modes/charging.h"
 #include "../web/xfer_server.h"
 #include "../audio/sfx.h"
+#include "../ui/haptic.h"
 #include "config.h"
 #include "heap_health.h"
 #include "../piglet/narrative.h"
@@ -282,8 +283,9 @@ void Porkchop::update() {
 
     maybeAutoConditionHeap(currentMode);
     
-    // Tick non-blocking audio engine
+    // Tick non-blocking audio + haptic engines
     SFX::update();
+    Haptic::update();
     yield(); // Allow other tasks to run between operations
     
     // Process one queued achievement celebration (debounced)

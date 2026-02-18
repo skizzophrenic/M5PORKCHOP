@@ -43,37 +43,38 @@ static const Note SND_MENU_CLICK[] = {
 };
 
 // TERMINAL_TICK: Mother-style hum pulse (deterministic round-robin)
+// Sub-300Hz notes raised to audible range on Core2 micro speaker
 static const Note SND_TERM_TICK_A[] = {
-    {260, 12, 2},
+    {520, 12, 2},     // 260x2 — audible hum
     {540, 3, 0},
     {0, 0, 0}
 };
 static const Note SND_TERM_TICK_B[] = {
-    {240, 13, 2},
+    {480, 13, 2},     // 240x2
     {500, 3, 0},
     {0, 0, 0}
 };
 static const Note SND_TERM_TICK_C[] = {
-    {280, 11, 2},
+    {560, 11, 2},     // 280x2
     {600, 3, 0},
     {0, 0, 0}
 };
 static const Note SND_TERM_TICK_D[] = {
-    {220, 14, 2},
+    {440, 14, 2},     // 220x2
     {460, 3, 2},
-    {140, 10, 0},
+    {340, 10, 0},     // 140→340 (just above threshold)
     {0, 0, 0}
 };
 static const Note SND_TERM_TICK_E[] = {
-    {300, 10, 2},
+    {600, 10, 2},     // 300x2
     {620, 3, 2},
-    {160, 12, 0},
+    {360, 12, 0},     // 160→360
     {0, 0, 0}
 };
 
-// NETWORK_NEW: Short, quiet ping (fires often)
+// NETWORK_NEW: Piglet pip — tiny chirp at pig F1 range
 static const Note SND_NETWORK[] = {
-    {820, 5, 0},
+    {700, 8, 0},      // Near piglet F1 (~409Hz octave)
     {0, 0, 0}
 };
 
@@ -83,26 +84,28 @@ static const Note SND_CLIENT_FOUND[] = {
     {0, 0, 0}
 };
 
-// DEAUTH: Low punch - impactful, visceral "kick"
+// DEAUTH: Visceral kick — raised from 400 to speaker-audible range
 static const Note SND_DEAUTH[] = {
-    {400, 70, 0},
+    {600, 70, 0},     // Audible low punch in speaker sweet spot
     {0, 0, 0}
 };
 
-// PMKID: "Truffle found" - pig's ears perk up, quick ascending pair
+// PMKID: "Truffle snuffle" — pig rooting, quick ascending discovery
 static const Note SND_PMKID[] = {
-    {1000, 50, 15},
-    {1300, 50, 0},
+    {600, 25, 8},     // Sniff 1
+    {750, 25, 8},     // Sniff 2 (rising = interest)
+    {500, 20, 10},    // Brief dip (rooting)
+    {900, 40, 0},     // Find! (ascending confirmation)
     {0, 0, 0}
 };
 
-// HANDSHAKE: "Got 'em" - complete phrase with warm resolution
-// 800→1000→1200 then resolve back to 1000 (closure)
+// HANDSHAKE: "Oink confirm" — pig F0 contour shifted to speaker sweet spot
+// Frequency arch mimics oink: attack → peak vowel → resolve down
 static const Note SND_HANDSHAKE[] = {
-    {800, 60, 15},
-    {1000, 60, 15},
-    {1200, 80, 15},
-    {1000, 100, 0},  // Resolve - the satisfying "done"
+    {500, 40, 10},    // Mouth opens — attack
+    {700, 60, 10},    // Peak "oi" — near piglet F1 (409Hz octave)
+    {900, 60, 10},    // Overtone emphasis — speaker sweet spot
+    {700, 80, 0},     // Resolve down — "nk" closure, satisfaction
     {0, 0, 0}
 };
 
@@ -114,12 +117,13 @@ static const Note SND_ACHIEVEMENT[] = {
     {0, 0, 0}
 };
 
-// LEVEL_UP: "Oink of glory" - ascending major, proper celebration
+// LEVEL_UP: "Squeal of glory" — ascending through pig squeal formant range
 static const Note SND_LEVEL_UP[] = {
-    {500, 80, 20},
-    {700, 80, 20},
-    {1000, 80, 20},
-    {1200, 120, 0},
+    {600, 60, 15},    // Grunt start — building anticipation
+    {800, 60, 15},    // Rising through F1
+    {1100, 60, 15},   // Near squeal F1 (1158 Hz)
+    {1500, 80, 15},   // Climbing
+    {1900, 100, 0},   // Near squeal F2 (1925 Hz) — peak excitement
     {0, 0, 0}
 };
 
@@ -132,13 +136,14 @@ static const Note SND_JACKPOT[] = {
     {0, 0, 0}
 };
 
-// ULTRA_STREAK: Big moment - extended celebration
+// ULTRA_STREAK: Epic squeal — extended celebration with resolve
 static const Note SND_ULTRA_STREAK[] = {
     {500, 60, 15},
     {700, 60, 15},
-    {900, 60, 15},
-    {1100, 80, 20},
-    {1400, 150, 0},
+    {1000, 60, 15},
+    {1400, 80, 20},
+    {1900, 120, 15},  // Peak squeal F2
+    {1400, 80, 0},    // Resolve down — closure
     {0, 0, 0}
 };
 
@@ -157,44 +162,47 @@ static const Note SND_SYNC_COMPLETE[] = {
     {0, 0, 0}
 };
 
-// ERROR: Soft low double tap
+// ERROR: Descending semitone — audible "wrong" feeling
+// Raised from 240/180Hz (inaudible) to speaker sweet spot
 static const Note SND_ERROR[] = {
-    {240, 50, 20},
-    {180, 60, 0},
+    {480, 50, 20},    // 240x2 — audible low tone
+    {360, 60, 0},     // 180x2 — descending = instability
     {0, 0, 0}
 };
 
 // BOOT: Nostromo-style long boot sequence (2-3s)
+// Sub-300Hz notes octave-doubled for Core2 micro speaker
 static const Note SND_BOOT[] = {
-    {140, 650, 140},  // low hum pulse
+    {560, 650, 140},  // 140x4 — audible hum pulse
     {600, 12, 30},
     {700, 12, 30},
     {520, 12, 60},
-    {120, 180, 80},  // tape thud
+    {480, 180, 80},   // 120x4 — tape thud (audible)
     {800, 12, 30},
     {640, 12, 30},
     {500, 12, 60},
     {900, 10, 30},
     {700, 10, 30},
     {850, 10, 60},
-    {170, 230, 70},  // tape thud
-    {210, 320, 90},
-    {240, 360, 0},
+    {340, 230, 70},   // 170x2 — tape thud
+    {420, 320, 90},   // 210x2
+    {480, 360, 0},    // 240x2
     {0, 0, 0}
 };
 
 // PIGSYNC_BOOT: Shorter wake sequence for FA/TH/ER
+// Sub-300Hz notes octave-doubled for Core2 micro speaker
 static const Note SND_PIGSYNC_BOOT[] = {
-    {160, 480, 140},
+    {320, 480, 140},  // 160x2
     {540, 12, 40},
     {660, 12, 40},
     {560, 12, 80},
-    {120, 160, 70},  // tape thud
+    {480, 160, 70},   // 120x4 — tape thud
     {820, 10, 40},
     {700, 10, 60},
-    {190, 210, 70},
-    {220, 220, 70},
-    {180, 240, 0},
+    {380, 210, 70},   // 190x2
+    {440, 220, 70},   // 220x2
+    {360, 240, 0},    // 180x2
     {0, 0, 0}
 };
 
@@ -250,20 +258,21 @@ static const Note SND_CHALLENGE_SWEEP[] = {
 };
 
 // YOU_DIED: "Dark Souls" style death sound
-// Impact (43Hz), then F3 wobble (172/178), with dissonant B3/Eb4, fading to sub
+// All sub-300Hz notes octave-doubled for Core2 speaker.
+// "Weight" of impact delivered by Haptic::DEATH pattern instead.
 static const Note SND_YOU_DIED[] = {
-    {43, 200, 20},   // Impact F1 (Sub-bass thud)
-    {172, 80, 0},    // F3 wobble 1
-    {178, 80, 0},    // F3 wobble 1
-    {172, 80, 0},    // F3 wobble 2
-    {178, 80, 0},    // F3 wobble 2
-    {247, 60, 0},    // B3 (poison/dissonance)
-    {172, 80, 0},    // F3 wobble 3
-    {178, 80, 0},    // F3 wobble 3
-    {311, 60, 0},    // Eb4 (metallic edge)
-    {174, 400, 0},   // F3 sustain (The "Doom Tone")
-    {87, 400, 0},    // F2 drop
-    {43, 800, 0},    // F1 - tail (Sub-bass fade)
+    {344, 200, 20},   // Impact (43x8) — audible sub hit
+    {344, 80, 0},     // F3 wobble 1 (172x2)
+    {356, 80, 0},     // F3 wobble 2 (178x2)
+    {344, 80, 0},     // F3 wobble 3
+    {356, 80, 0},     // F3 wobble 4
+    {494, 60, 0},     // B3 octave (247x2) — dissonance
+    {344, 80, 0},     // F3 wobble 5
+    {356, 80, 0},     // F3 wobble 6
+    {622, 60, 0},     // Eb4 octave (311x2) — metallic edge
+    {348, 400, 0},    // "Doom Tone" sustain (174x2)
+    {348, 400, 0},    // F2 sustain (87x4)
+    {344, 800, 0},    // Tail (43x8)
     {0, 0, 0}
 };
 

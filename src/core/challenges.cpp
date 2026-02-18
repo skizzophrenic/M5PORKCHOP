@@ -4,7 +4,7 @@
 #include "challenges.h"
 #include "config.h"
 #include "../ui/display.h"
-#include "../audio/sfx.h"
+#include "../audio/feedback.h"
 #include <M5Unified.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
@@ -333,8 +333,8 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
         }
         Display::showToast(toastMsg);
 
-        // Rising tones for challenge complete - non-blocking
-        SFX::play(SFX::CHALLENGE_COMPLETE);
+        // Rising tones + pulse haptic
+        Feedback::play(SFX::CHALLENGE_COMPLETE);
 
         Serial.printf("[CHALLENGES] pig pleased. '%s' complete. +%d XP.\\n",
                       notices[i].name, notices[i].xpReward);
@@ -348,8 +348,8 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
 
         Display::showToast("WORTHY. 115200 REMEMBERS.");
 
-        // Victory fanfare - non-blocking (priority sound, interrupts CHALLENGE_COMPLETE)
-        SFX::play(SFX::CHALLENGE_SWEEP);
+        // Victory fanfare + epic crescendo haptic (priority, interrupts CHALLENGE_COMPLETE)
+        Feedback::play(SFX::CHALLENGE_SWEEP);
 
         Serial.printf("[CHALLENGES] *** FULL SWEEP! +%d BONUS XP ***\n", BONUS_XP);
     }

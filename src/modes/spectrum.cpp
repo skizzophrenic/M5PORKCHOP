@@ -3,7 +3,7 @@
 #include "spectrum.h"
 #include "oink.h"
 #include "../core/config.h"
-#include "../audio/sfx.h"
+#include "../audio/feedback.h"
 #include "../core/network_recon.h"
 #include "../core/oui.h"
 #include "../core/stress_test.h"
@@ -15,7 +15,6 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../ui/input.h"
-#include "../ui/haptic.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
@@ -506,7 +505,7 @@ void SpectrumMode::update() {
     // Process deferred client beep (from callback)
     if (pendingClientBeep) {
         pendingClientBeep = false;
-        SFX::play(SFX::CLIENT_FOUND);
+        Feedback::play(SFX::CLIENT_FOUND);
     }
     
     // Process deferred XP from onBeacon callback (avoids level-up popup crash)
@@ -575,8 +574,8 @@ void SpectrumMode::update() {
             // Block callback during exit sequence (has delays)
             busy = true;
             
-            // Descending tones for signal lost - non-blocking
-            SFX::play(SFX::SIGNAL_LOST);
+            // Signal lost — descending tones + snap haptic
+            Feedback::play(SFX::SIGNAL_LOST);
             Display::showToast("SIGNAL LOST");
             delay(300);  // Brief pause so user sees toast
             
@@ -3203,8 +3202,8 @@ void SpectrumMode::enterClientMonitor() {
     NetworkRecon::lockChannel(monitoredChannel);
     currentChannel = monitoredChannel;
     
-    // Short beep for channel lock - non-blocking
-    SFX::play(SFX::CHANNEL_LOCK);
+    // Channel lock — confirmation snap
+    Feedback::play(SFX::CHANNEL_LOCK);
     
     Serial.printf("[SPECTRUM] Monitoring %s on CH%d\n", 
         net.ssid[0] ? net.ssid : "<hidden>", monitoredChannel);
@@ -3347,9 +3346,8 @@ void SpectrumMode::deauthClient(int idx) {
         delay(random(1, 6));
     }
     
-    // Feedback beep (low thump) - non-blocking
-    SFX::play(SFX::DEAUTH);
-    Haptic::pulse();
+    // Visceral kick — audio + thump haptic
+    Feedback::play(SFX::DEAUTH);
     
     // Short toast with client MAC suffix
     char msg[24];
@@ -3409,8 +3407,8 @@ void SpectrumMode::enterRevealMode() {
     revealStartTime = millis();
     lastRevealBurst = 0;
     
-    // Sound feedback - non-blocking
-    SFX::play(SFX::REVEAL_START);
+    // Reveal start — ascending pair + tick haptic
+    Feedback::play(SFX::REVEAL_START);
 }
 
 // Exit reveal mode

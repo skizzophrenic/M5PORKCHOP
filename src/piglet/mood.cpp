@@ -13,8 +13,7 @@
 #include "../ui/display.h"
 #include "../ui/flexes_screen.h"
 #include "../modes/oink.h"
-#include "../audio/sfx.h"
-#include "../ui/haptic.h"
+#include "../audio/feedback.h"
 #include <Preferences.h>
 #include <ctype.h>
 #include <string.h>
@@ -1730,9 +1729,8 @@ void Mood::onHandshakeCaptured(const char* apName) {
     lastPhraseChange = millis();
     queuePhrases(buf2, buf3);
 
-    // Celebratory beep for handshake capture - non-blocking via SFX engine
-    SFX::play(SFX::HANDSHAKE);
-    Haptic::buzz();
+    // Oink confirm — audio + 400ms reward haptic (Feedback handles pairing)
+    Feedback::play(SFX::HANDSHAKE);
     
     // Force mood peek to show EXCITED face regardless of threshold
     forceMoodPeek();
@@ -1796,9 +1794,8 @@ void Mood::onPMKIDCaptured(const char* apName) {
     lastPhraseChange = millis();
     queuePhrases(buf2, buf3);
 
-    // Triple beep for PMKID - non-blocking via SFX engine
-    SFX::play(SFX::PMKID);
-    Haptic::buzz();
+    // Truffle snuffle — audio + double-tap haptic
+    Feedback::play(SFX::PMKID);
     
     // NOTE: saveAllPMKIDs() removed from here - OinkMode handles its own saves
     // Calling SD writes during promiscuous mode causes SPI bus contention crashes
@@ -1813,9 +1810,8 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     lastActivityTime = millis();
     isBoredState = false;  // Clear bored state - found something!
     
-    // Audio feedback - soft blip for new network
-    SFX::play(SFX::NETWORK_NEW);
-    Haptic::tick();
+    // Piglet pip — subtle audio + tick haptic
+    Feedback::play(SFX::NETWORK_NEW);
     
     // Sniff animation - found a truffle!
     Avatar::sniff();
@@ -3215,9 +3211,8 @@ void Mood::onDeauthSuccess(const uint8_t* clientMac) {
     SET_PHRASE(currentPhrase, buf);
     lastPhraseChange = millis();
     
-    // Quick beep for confirmed kick - non-blocking
-    SFX::play(SFX::DEAUTH);
-    Haptic::pulse();
+    // Visceral kick — audio + thump haptic
+    Feedback::play(SFX::DEAUTH);
     
     // Force mood peek to show emotional reaction
     forceMoodPeek();
