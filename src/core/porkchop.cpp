@@ -116,54 +116,6 @@ Porkchop::Porkchop()
     callbacks.reserve(16);
 }
 
-static bool isAutoConditionSafe(PorkchopMode mode) {
-    switch (mode) {
-        case PorkchopMode::IDLE:
-        case PorkchopMode::MENU:
-        case PorkchopMode::SETTINGS:
-        case PorkchopMode::ABOUT:
-        case PorkchopMode::BADGES:
-        case PorkchopMode::DIAGDATA:
-        case PorkchopMode::FLEXES:
-        case PorkchopMode::BOAR_BROS:
-        case PorkchopMode::UNLOCKABLES:
-        case PorkchopMode::BOUNTY:
-        case PorkchopMode::SD_FORMAT:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static void maybeAutoConditionHeap(PorkchopMode mode) {
-    if (!isAutoConditionSafe(mode)) {
-        return;
-    }
-    if (XferServer::isRunning() || XferServer::isConnecting()) {
-        return;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        return;
-    }
-    // At Critical pressure (<30KB free), brew needs 35KB transient — would fail anyway
-    if (static_cast<uint8_t>(HeapHealth::getPressureLevel()) > HeapPolicy::kMaxPressureLevelForAutoBrew) {
-        return;
-    }
-    if (!HeapHealth::consumeConditionRequest()) {
-        return;
-    }
-
-    bool wasReconRunning = NetworkRecon::isRunning();
-    if (wasReconRunning) {
-        NetworkRecon::pause();
-    }
-    // Small, low-disruption brew to coalesce heap when health drops.
-    WiFiUtils::brewHeap(HeapPolicy::kBrewAutoDwellMs, false);
-    if (wasReconRunning) {
-        NetworkRecon::resume();
-    }
-}
-
 void Porkchop::init() {
     startTime = millis();
     
@@ -284,8 +236,6 @@ void Porkchop::update() {
     }
     updateMode();
 
-    maybeAutoConditionHeap(currentMode);
-    
     // Tick non-blocking audio + haptic engines
     SFX::update();
     Haptic::update();
@@ -306,7 +256,12 @@ void Porkchop::update() {
 
 void Porkchop::setMode(PorkchopMode mode) {
     if (mode == currentMode) return;
-    
+
+    // Kill any in-progress haptic before potentially-blocking mode init/cleanup.
+    // Without this, a TICK started by Input::update() stays on for the entire
+    // duration of blocking operations (BLE init, WiFi scan, etc.).
+    Haptic::stop();
+
     // Store the mode we're leaving for cleanup
     PorkchopMode oldMode = currentMode;
 

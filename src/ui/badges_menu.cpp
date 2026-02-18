@@ -3,6 +3,7 @@
 #include "badges_menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../core/xp.h"
 #include <ctype.h>
 #include <string.h>
@@ -156,6 +157,8 @@ void BadgesMenu::handleInput() {
             selectedIndex = n < 0 ? 0 : n;
             if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -167,6 +170,8 @@ void BadgesMenu::handleInput() {
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -178,6 +183,8 @@ void BadgesMenu::handleInput() {
                 scrollOffset = selectedIndex;
             }
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
     }
 
@@ -188,6 +195,8 @@ void BadgesMenu::handleInput() {
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             }
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
     }
 

@@ -12,6 +12,7 @@
 #include <SD.h>
 #include <string.h>
 #include "input.h"
+#include "haptic.h"
 #include "../audio/sfx.h"
 #include "soft_keyboard.h"
 
@@ -1119,6 +1120,8 @@ void SettingsMenu::handleInput() {
                 rootIndex = n;
                 if (rootIndex >= rootScroll + VISIBLE_ROOT_ITEMS)
                     rootScroll = rootIndex - VISIBLE_ROOT_ITEMS + 1;
+            } else {
+                Haptic::stop();
             }
         } else {
             size_t count = 0;
@@ -1133,6 +1136,8 @@ void SettingsMenu::handleInput() {
                 groupIndex = n;
                 if (groupIndex >= groupScroll + VISIBLE_GROUP_ITEMS)
                     groupScroll = groupIndex - VISIBLE_GROUP_ITEMS + 1;
+            } else {
+                Haptic::stop();
             }
         }
         return;
@@ -1193,6 +1198,8 @@ void SettingsMenu::handleInput() {
                 rootIndex--;
             } else if (down && rootIndex + 1 < rootCount) {
                 rootIndex++;
+            } else {
+                Haptic::stop();
             }
 
             if (rootIndex < rootScroll) {
@@ -1210,6 +1217,8 @@ void SettingsMenu::handleInput() {
                 groupIndex--;
             } else if (down && groupIndex + 1 < count) {
                 groupIndex++;
+            } else {
+                Haptic::stop();
             }
 
             if (groupIndex < groupScroll) {

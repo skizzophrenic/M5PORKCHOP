@@ -3,6 +3,7 @@
 #include "menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../audio/sfx.h"
 #include "../piglet/narrative.h"
 #include "../core/porkchop.h"
@@ -468,20 +469,28 @@ void Menu::handleInput() {
             return;
         }
 
-        if (swUp && modalIdx > 0) {
-            int newIdx = (int)modalIdx - MODAL_VISIBLE;
-            if (newIdx < 0) newIdx = 0;
-            modalIdx = newIdx;
-            if (modalIdx < modalScroll) modalScroll = modalIdx;
-            SFX::play(SFX::MENU_CLICK);
+        if (swUp) {
+            if (modalIdx > 0) {
+                int newIdx = (int)modalIdx - MODAL_VISIBLE;
+                if (newIdx < 0) newIdx = 0;
+                modalIdx = newIdx;
+                if (modalIdx < modalScroll) modalScroll = modalIdx;
+                SFX::play(SFX::MENU_CLICK);
+            } else {
+                Haptic::stop();  // At top — cancel premature tick
+            }
             return;
         }
-        if (swDown && modalIdx < groupSize - 1) {
-            int newIdx = (int)modalIdx + MODAL_VISIBLE;
-            if (newIdx >= groupSize) newIdx = groupSize - 1;
-            modalIdx = newIdx;
-            if (modalIdx >= modalScroll + MODAL_VISIBLE) modalScroll = modalIdx - MODAL_VISIBLE + 1;
-            SFX::play(SFX::MENU_CLICK);
+        if (swDown) {
+            if (modalIdx < groupSize - 1) {
+                int newIdx = (int)modalIdx + MODAL_VISIBLE;
+                if (newIdx >= groupSize) newIdx = groupSize - 1;
+                modalIdx = newIdx;
+                if (modalIdx >= modalScroll + MODAL_VISIBLE) modalScroll = modalIdx - MODAL_VISIBLE + 1;
+                SFX::play(SFX::MENU_CLICK);
+            } else {
+                Haptic::stop();  // At bottom — cancel premature tick
+            }
             return;
         }
 
@@ -492,6 +501,8 @@ void Menu::handleInput() {
                 if (modalIdx < modalScroll) {
                     modalScroll = modalIdx;
                 }
+            } else {
+                Haptic::stop();  // At top — cancel premature tick
             }
         }
 
@@ -502,6 +513,8 @@ void Menu::handleInput() {
                 if (modalIdx >= modalScroll + MODAL_VISIBLE) {
                     modalScroll = modalIdx - MODAL_VISIBLE + 1;
                 }
+            } else {
+                Haptic::stop();  // At bottom — cancel premature tick
             }
         }
 
@@ -539,6 +552,8 @@ void Menu::handleInput() {
                 rootIdx = newIdx;
                 SFX::play(SFX::MENU_CLICK);
                 if (rootIdx < rootScroll) rootScroll = rootIdx;
+            } else {
+                Haptic::stop();  // At top — cancel premature tick
             }
             return;
         }
@@ -552,6 +567,8 @@ void Menu::handleInput() {
                 rootIdx = newIdx;
                 SFX::play(SFX::MENU_CLICK);
                 if (rootIdx >= rootScroll + VISIBLE_ITEMS) rootScroll = rootIdx - VISIBLE_ITEMS + 1;
+            } else {
+                Haptic::stop();  // At bottom — cancel premature tick
             }
             return;
         }
@@ -569,6 +586,8 @@ void Menu::handleInput() {
                 if (rootIdx < rootScroll) {
                     rootScroll = rootIdx;
                 }
+            } else {
+                Haptic::stop();  // At top — cancel premature tick
             }
         }
 
@@ -585,6 +604,8 @@ void Menu::handleInput() {
                 if (rootIdx >= rootScroll + VISIBLE_ITEMS) {
                     rootScroll = rootIdx - VISIBLE_ITEMS + 1;
                 }
+            } else {
+                Haptic::stop();  // At bottom — cancel premature tick
             }
         }
 

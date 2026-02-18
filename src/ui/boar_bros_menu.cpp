@@ -6,6 +6,7 @@
 #include <string.h>
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../modes/oink.h"
 #include "../core/sd_layout.h"
 
@@ -185,6 +186,8 @@ void BoarBrosMenu::handleInput() {
             int n = (int)selectedIndex - VISIBLE_ITEMS;
             selectedIndex = n < 0 ? 0 : n;
             if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -195,6 +198,8 @@ void BoarBrosMenu::handleInput() {
             selectedIndex = n;
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -205,6 +210,8 @@ void BoarBrosMenu::handleInput() {
             if (selectedIndex < scrollOffset) {
                 scrollOffset = selectedIndex;
             }
+        } else {
+            Haptic::stop();
         }
     }
 
@@ -214,6 +221,8 @@ void BoarBrosMenu::handleInput() {
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             }
+        } else {
+            Haptic::stop();
         }
     }
 

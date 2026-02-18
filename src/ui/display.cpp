@@ -135,7 +135,20 @@ uint32_t Display::uploadStartTime = 0;
 
 
 // Expanded narrator state (full-screen narrative text toggle)
-static bool narratorExpanded = false;
+static bool narratorExpanded = true;              // logical target (expanded on boot)
+static float narratorVisual = 1.0f;               // visual progress 0.0=collapsed, 1.0=expanded
+static uint32_t narratorCollapseTime = 0;          // millis() when collapsed; 0 = not collapsed
+static const float NARRATOR_ANIM_RATE = 1.0f / 600.0f;  // full transition in 600ms
+
+struct NarratorDrop {
+    int16_t x, y;
+    int8_t  vy;
+    uint8_t life;
+};
+static const int MAX_DROPS = 60;
+static NarratorDrop drops[MAX_DROPS];
+static uint8_t dropCount = 0;
+static float prevNarratorVisual = 1.0f;
 
 // PWNED banner state, persists until reboot
 static char lootSSID[20] = {0};
@@ -149,7 +162,14 @@ void Display::showLoot(const char* ssid) {
     lootSSID[sizeof(lootSSID) - 1] = '\0';
 }
 
-void Display::toggleNarratorExpanded() { narratorExpanded = !narratorExpanded; }
+void Display::toggleNarratorExpanded() {
+    narratorExpanded = !narratorExpanded;
+    if (!narratorExpanded) {
+        narratorCollapseTime = millis();
+    } else {
+        narratorCollapseTime = 0;
+    }
+}
 bool Display::isNarratorExpanded() { return narratorExpanded; }
 
 extern Porkchop porkchop;
@@ -330,118 +350,6 @@ static void drawBuffOverlay(M5Canvas& canvas) {
     canvas.setTextDatum(TL_DATUM);
 }
 
-// Mini spectrum widget - analog waveform scanner with filled curve
-static void drawMiniSpectrum(M5Canvas& canvas, int x, int y, int w, int h) {
-    const uint16_t fg = getColorFG();
-    const uint16_t bg = getColorBG();
-    const int8_t RSSI_MIN = -95;
-    const int8_t RSSI_MAX = -30;
-    const int8_t NOISE_FLOOR = -92;
-    const int barAreaH = h - 10;
-
-    // Build per-channel peak RSSI from NetworkRecon
-    int8_t peakRSSI[14];
-    memset(peakRSSI, 0, sizeof(peakRSSI));
-
-    if (NetworkRecon::isRunning() || NetworkRecon::isPaused()) {
-        NetworkRecon::CriticalSection lock;
-        const auto& nets = NetworkRecon::getNetworks();
-        for (size_t i = 0; i < nets.size(); i++) {
-            uint8_t ch = nets[i].channel;
-            if (ch >= 1 && ch <= 13) {
-                int8_t rssi = nets[i].rssi;
-                if (peakRSSI[ch] == 0 || rssi > peakRSSI[ch]) {
-                    peakRSSI[ch] = rssi;
-                }
-            }
-        }
-    }
-
-    uint8_t curCh = NetworkRecon::getCurrentChannel();
-
-    // Border
-    canvas.drawRect(x, y, w, h, fg);
-
-    // Inner area
-    int ix = x + 1;
-    int iy = y + 1;
-    int iw = w - 2;
-    int pitch = iw / 13;
-    int pad = (iw - pitch * 13) / 2;
-    int baseline = iy + barAreaH - 1;
-
-    // Compute 13 waveform points (center of each channel slot)
-    int16_t ptx[13], pty[13];
-    for (uint8_t ch = 1; ch <= 13; ch++) {
-        int i = ch - 1;
-        ptx[i] = ix + pad + i * pitch + pitch / 2;
-        if (peakRSSI[ch] != 0) {
-            int8_t rssi = peakRSSI[ch];
-            if (rssi < RSSI_MIN) rssi = RSSI_MIN;
-            if (rssi > RSSI_MAX) rssi = RSSI_MAX;
-            int sh = ((rssi - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
-            if (sh < 2) sh = 2;
-            pty[i] = baseline - sh;
-        } else {
-            pty[i] = baseline;
-        }
-    }
-
-    // Fill waveform: left edge slope
-    canvas.fillTriangle(ix, baseline, ptx[0], pty[0], ptx[0], baseline, fg);
-    // Fill waveform: inter-channel trapezoids (2 triangles each)
-    for (int i = 0; i < 12; i++) {
-        canvas.fillTriangle(ptx[i], pty[i], ptx[i+1], pty[i+1], ptx[i], baseline, fg);
-        canvas.fillTriangle(ptx[i+1], pty[i+1], ptx[i+1], baseline, ptx[i], baseline, fg);
-    }
-    // Fill waveform: right edge slope
-    canvas.fillTriangle(ptx[12], pty[12], ix + iw - 1, baseline, ptx[12], baseline, fg);
-
-    // Crisp waveform edge lines
-    canvas.drawLine(ix, baseline, ptx[0], pty[0], fg);
-    for (int i = 0; i < 12; i++) {
-        canvas.drawLine(ptx[i], pty[i], ptx[i+1], pty[i+1], fg);
-    }
-    canvas.drawLine(ptx[12], pty[12], ix + iw - 1, baseline, fg);
-
-    // Scan line at current channel (inverted: fg above waveform, bg inside)
-    if (curCh >= 1 && curCh <= 13) {
-        int si = curCh - 1;
-        int peakY = pty[si];
-        // Above waveform: fg line on bg background
-        if (peakY > iy)
-            canvas.drawFastVLine(ptx[si], iy, peakY - iy, fg);
-        // Inside waveform: bg line on fg fill
-        canvas.drawFastVLine(ptx[si], peakY, baseline - peakY + 1, bg);
-        canvas.fillCircle(ptx[si], peakY, 1, bg);
-    }
-
-    // Noise floor dotted line (BG dots punch through fill)
-    int noiseH = ((NOISE_FLOOR - RSSI_MIN) * barAreaH) / (RSSI_MAX - RSSI_MIN);
-    int noiseY = baseline - noiseH;
-    if (noiseY >= iy && noiseY < baseline) {
-        for (int nx = ix; nx < ix + iw; nx += 3) {
-            canvas.drawPixel(nx, noiseY, bg);
-        }
-    }
-
-    // Channel tick marks at baseline (BG cuts through fill)
-    for (int i = 0; i < 13; i++) {
-        canvas.drawFastVLine(ptx[i], baseline - 1, 2, bg);
-    }
-
-    // Channel number text at bottom center
-    if (curCh >= 1 && curCh <= 13) {
-        char chBuf[6];
-        snprintf(chBuf, sizeof(chBuf), "CH%u", curCh);
-        canvas.setTextDatum(BC_DATUM);
-        canvas.setTextSize(1);
-        canvas.setTextColor(fg);
-        canvas.drawString(chBuf, x + w / 2, y + h - 1);
-        canvas.setTextDatum(TL_DATUM);
-    }
-}
-
 // Info panel below avatar - shows character, recon, and loot stats
 // Uses the 92px space below the grass line (y=108 to y=200)
 // Layout: 14px header + rows + narrative line at bottom
@@ -617,7 +525,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
     }
 
     int xpColX = maxChalW + 22;
-    if (xpColX > DISPLAY_W - 90) xpColX = DISPLAY_W - 90;
+    if (xpColX > DISPLAY_W - 4) xpColX = DISPLAY_W - 4;
 
     if (chalTotal > 0) {
         for (uint8_t i = 0; i < 3; i++) {
@@ -626,7 +534,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
             int textY = y + (ROW_H - 8) / 2;
 
             if (ch.completed) {
-                canvas.fillRect(0, y, DISPLAY_W - 88, ROW_H, fg);
+                canvas.fillRect(0, y, DISPLAY_W, ROW_H, fg);
                 canvas.setTextColor(bg);
                 canvas.drawString(chalLines[i], 4, textY);
                 canvas.drawString(xpBufs[i], xpColX, textY);
@@ -635,7 +543,7 @@ static void drawInfoPanel(M5Canvas& canvas) {
                 int xpEndX = xpColX + canvas.textWidth(xpBufs[i]);
                 int progW = (xpEndX * ch.progress) / ch.target;
                 if (progW > xpEndX) progW = xpEndX;
-                int rightEdge = DISPLAY_W - 88;
+                int rightEdge = DISPLAY_W;
                 if (progW > 0) {
                     canvas.fillRect(0, y, progW, ROW_H, fg);
                     canvas.setClipRect(0, y, progW, ROW_H);
@@ -661,9 +569,6 @@ static void drawInfoPanel(M5Canvas& canvas) {
         canvas.drawString("P1G SLEEPS...", 4, y);
         y += ROW_H;
     }
-
-    // Mini spectrum widget to the right of challenge rows
-    drawMiniSpectrum(canvas, DISPLAY_W - 86, chalStartY, 84, 42);
 
     // 3rd narrative line (oldest) drawn at bottom of mainCanvas, just above bottomBar
     if (NarrativeEngine::hasContent() && NarrativeEngine::getLine3()[0]) {
@@ -1003,62 +908,183 @@ void Display::update() {
         drawBottomBar();
     }
 
-    // Expanded narrator: fill from grass line down (info panel area + bottomBar)
-    // Top bar and avatar/grass/weather stay visible — only the lower portion expands
-    if (narratorExpanded && useAvatarWeather) {
-        const int expandY = 108;  // Info panel start (just below grass ground line)
-
-        // Fill info panel area in mainCanvas with inverted background
-        mainCanvas.fillRect(0, expandY, DISPLAY_W, MAIN_H - expandY, fg);
-        mainCanvas.setTextColor(bg);
-        mainCanvas.setTextSize(1);
-        mainCanvas.setTextDatum(TL_DATUM);
-        mainCanvas.setFont(&fonts::Font0);
-
-        // Fill bottomBar with inverted background
-        bottomBar.fillSprite(fg);
-        bottomBar.setTextColor(bg);
-        bottomBar.setTextSize(1);
-        bottomBar.setTextDatum(TL_DATUM);
-        bottomBar.setFont(&fonts::Font0);
-
-        // bottomBar (20px): Line1 at y=10, Line2 at y=0
-        if (NarrativeEngine::getLine2()[0]) {
-            bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
-        }
-        {
-            char buf[54] = {0};
-            uint8_t rev = NarrativeEngine::getReveal1();
-            if (rev > 0) {
-                memcpy(buf, NarrativeEngine::getLine1(), rev);
-                buf[rev] = '\0';
-                bottomBar.drawString(buf, 4, 11);
-            }
-            if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
-                int cx = 4 + bottomBar.textWidth(buf);
-                bottomBar.fillRect(cx, 11, 6, 8, bg);
-            }
-        }
-
-        // mainCanvas below grass: Line3 at bottom, scrollback lines above it
-        // Available space: Y=108 to Y=199 = 92px → 9 lines of 10px
-        // Line3 at Y=190, scrollback[0] at Y=180, ... scrollback[7] at Y=110
-        if (NarrativeEngine::getLine3()[0]) {
-            mainCanvas.drawString(NarrativeEngine::getLine3(), 4, 191);
-        }
-        int sbCount = NarrativeEngine::getScrollbackCount();
-        int maxSb = 8;  // lines that fit: Y=180,170,160,150,140,130,120,110
-        for (int i = 0; i < maxSb && i < sbCount; i++) {
-            const char* line = NarrativeEngine::getScrollbackLine(i);
-            if (line[0]) {
-                mainCanvas.drawString(line, 4, 181 - i * 10);
-            }
-        }
-    } else if (narratorExpanded) {
-        // Mode left avatar screens — auto-collapse
-        narratorExpanded = false;
+    // --- Auto-re-expand: collapsed for 5s on avatar screen → re-expand ---
+    if (!narratorExpanded && narratorCollapseTime > 0 && useAvatarWeather &&
+        millis() - narratorCollapseTime >= 5000) {
+        narratorExpanded = true;
+        narratorCollapseTime = 0;
     }
 
+    // --- Lerp narratorVisual toward target ---
+    {
+        float target = (narratorExpanded && useAvatarWeather) ? 1.0f : 0.0f;
+        float step = NARRATOR_ANIM_RATE * 33.0f;  // per frame at ~30fps cap
+        if (narratorVisual < target) {
+            narratorVisual += step;
+            if (narratorVisual > target) narratorVisual = target;
+        } else if (narratorVisual > target) {
+            narratorVisual -= step;
+            if (narratorVisual < target) narratorVisual = target;
+        }
+        // Mode change to non-avatar: snap to 0
+        if (!useAvatarWeather) {
+            narratorVisual = 0.0f;
+            dropCount = 0;
+            if (narratorExpanded) {
+                narratorExpanded = false;
+                narratorCollapseTime = 0;
+            }
+        }
+    }
+
+    // --- Draw narrator overlay when visual progress > 0 ---
+    if (narratorVisual > 0.0f) {
+        const int expandY = 108;
+        const int expandH = MAIN_H - expandY;  // 92px
+
+        bool animating = (narratorVisual > 0.001f && narratorVisual < 0.999f);
+        int filledH = (int)(expandH * narratorVisual);
+        if (filledH < 1) filledH = 1;
+
+        if (animating) {
+            // --- FILLED AREA with jagged edges ---
+            int edgeY = expandY + filledH;
+            const int JITTER = 3;
+
+            // Deterministic per-column hash (stable per edge position, no flicker)
+            auto colHash = [](int x, int seed) -> uint8_t {
+                uint32_t h = (uint32_t)x * 2654435761u + (uint32_t)seed;
+                h ^= h >> 16; h *= 0x45d9f3b; h ^= h >> 16;
+                return (uint8_t)(h & 0xFF);
+            };
+
+            if (filledH > JITTER * 2) {
+                // Core solid fill (inset from edges)
+                mainCanvas.fillRect(0, expandY + JITTER, DISPLAY_W, filledH - JITTER * 2, fg);
+
+                // Thresholds: row0=90, row1=166, row2=230 (~35%, ~65%, ~90%)
+                static const uint8_t thresh[3] = {90, 166, 230};
+
+                // Top edge: jagged (expandY to expandY + JITTER-1)
+                for (int row = 0; row < JITTER; row++) {
+                    int y = expandY + row;
+                    for (int x = 0; x < DISPLAY_W; x += 2) {
+                        if (colHash(x, edgeY + row * 97) < thresh[row]) {
+                            mainCanvas.drawPixel(x, y, fg);
+                            if (x + 1 < DISPLAY_W) mainCanvas.drawPixel(x + 1, y, fg);
+                        }
+                    }
+                }
+
+                // Bottom edge: jagged (edgeY - JITTER to edgeY - 1)
+                for (int row = 0; row < JITTER; row++) {
+                    int y = edgeY - 1 - row;  // outermost first
+                    for (int x = 0; x < DISPLAY_W; x += 2) {
+                        if (colHash(x, edgeY + row * 131) < thresh[row]) {
+                            mainCanvas.drawPixel(x, y, fg);
+                            if (x + 1 < DISPLAY_W) mainCanvas.drawPixel(x + 1, y, fg);
+                        }
+                    }
+                }
+            } else {
+                // Too small for jitter — solid fill
+                mainCanvas.fillRect(0, expandY, DISPLAY_W, filledH, fg);
+            }
+
+            mainCanvas.setClipRect(0, expandY, DISPLAY_W, filledH);
+            mainCanvas.setTextColor(bg);
+            mainCanvas.setTextSize(1);
+            mainCanvas.setTextDatum(TL_DATUM);
+            mainCanvas.setFont(&fonts::Font0);
+            if (NarrativeEngine::getLine3()[0]) {
+                mainCanvas.drawString(NarrativeEngine::getLine3(), 4, 191);
+            }
+            int sbCount = NarrativeEngine::getScrollbackCount();
+            for (int i = 0; i < 8 && i < sbCount; i++) {
+                const char* line = NarrativeEngine::getScrollbackLine(i);
+                if (line[0]) mainCanvas.drawString(line, 4, 181 - i * 10);
+            }
+            mainCanvas.clearClipRect();
+
+            // --- TRAILING RAIN DROPS ---
+            // (edgeY already computed above for jagged edges)
+
+            // Spawn drops below the edge (rain-style, dense)
+            static uint32_t rngState = 12345;
+            for (int i = 0; i < 5 && dropCount < MAX_DROPS; i++) {
+                rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+                NarratorDrop& d = drops[dropCount++];
+                d.x = rngState % DISPLAY_W;
+                rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+                d.y = edgeY + 1 + (rngState % 3);    // 1-3px below edge
+                d.vy = 4 + (rngState & 3);            // 4-7 px/frame downward
+                rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+                d.life = 5 + (rngState % 6);          // 5-10 frames
+            }
+
+            // Update + draw drops as 2px wide × 4px tall streaks
+            int alive = 0;
+            for (int i = 0; i < dropCount; i++) {
+                NarratorDrop& d = drops[i];
+                d.y += d.vy;
+                d.life--;
+                if (d.life == 0 || d.y < edgeY || d.y >= (int)MAIN_H) continue;
+                int maxDy = min(4, (int)MAIN_H - d.y);
+                for (int dy = 0; dy < maxDy; dy++) {
+                    mainCanvas.drawPixel(d.x, d.y + dy, fg);
+                    if (d.x + 1 < DISPLAY_W) mainCanvas.drawPixel(d.x + 1, d.y + dy, fg);
+                }
+                drops[alive++] = d;
+            }
+            dropCount = alive;
+
+        } else {
+            // Fully expanded: clean solid fill + inverted text
+            mainCanvas.fillRect(0, expandY, DISPLAY_W, expandH, fg);
+            dropCount = 0;
+
+            mainCanvas.setTextColor(bg);
+            mainCanvas.setTextSize(1);
+            mainCanvas.setTextDatum(TL_DATUM);
+            mainCanvas.setFont(&fonts::Font0);
+            if (NarrativeEngine::getLine3()[0]) {
+                mainCanvas.drawString(NarrativeEngine::getLine3(), 4, 191);
+            }
+            int sbCount = NarrativeEngine::getScrollbackCount();
+            for (int i = 0; i < 8 && i < sbCount; i++) {
+                const char* line = NarrativeEngine::getScrollbackLine(i);
+                if (line[0]) mainCanvas.drawString(line, 4, 181 - i * 10);
+            }
+        }
+
+        // BottomBar inversion: only when fully expanded
+        if (narratorVisual >= 0.999f) {
+            bottomBar.fillSprite(fg);
+            bottomBar.setTextColor(bg);
+            bottomBar.setTextSize(1);
+            bottomBar.setTextDatum(TL_DATUM);
+            bottomBar.setFont(&fonts::Font0);
+
+            if (NarrativeEngine::getLine2()[0]) {
+                bottomBar.drawString(NarrativeEngine::getLine2(), 4, 1);
+            }
+            {
+                char buf[54] = {0};
+                uint8_t rev = NarrativeEngine::getReveal1();
+                if (rev > 0) {
+                    memcpy(buf, NarrativeEngine::getLine1(), rev);
+                    buf[rev] = '\0';
+                    bottomBar.drawString(buf, 4, 11);
+                }
+                if (NarrativeEngine::isTyping() && ((millis() / 500) & 1)) {
+                    int cx = 4 + bottomBar.textWidth(buf);
+                    bottomBar.fillRect(cx, 11, 6, 8, bg);
+                }
+            }
+        }
+    }
+
+    prevNarratorVisual = narratorVisual;
     pushAll();
 
     // Frame pacing: yield unused CPU time to RTOS scheduler.
@@ -3543,7 +3569,11 @@ static uint16_t getNextScreenshotNumber() {
 bool Display::takeScreenshot() {
     // Prevent re-entry
     if (snapping) return false;
-    
+
+    // Kill any in-progress haptic before blocking SD writes.
+    // Without this, motor stays on for the entire file write duration.
+    Haptic::stop();
+
     // Check SD availability
     if (!Config::isSDAvailable()) {
         requestTopBarMessage("NO SD CARD", 2000);

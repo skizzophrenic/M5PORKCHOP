@@ -138,8 +138,10 @@ void update() {
         }
     }
 
-    // Haptic tick for any input event (centralized — no per-file tick calls needed)
-    if (evUp || evDown || evSelect || evBack || evScreenshot || evDoubleClick ||
+    // Haptic tick for input events (centralized — no per-file tick calls needed).
+    // Excludes evScreenshot: hold action that precedes blocking SD writes —
+    // motor would stay on for the entire write duration since update() can't run.
+    if (evUp || evDown || evSelect || evBack || evDoubleClick ||
         evSwipeLeft || evSwipeRight || evSwipeUp || evSwipeDown || evTap || evNarratorTap)
         Haptic::tick();
 }

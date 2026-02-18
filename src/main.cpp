@@ -24,6 +24,7 @@
 #include "modes/warhog.h"
 #include "core/janus_hog.h"
 #include "audio/sfx.h"
+#include "ui/haptic.h"
 
 Porkchop porkchop;
 
@@ -145,6 +146,7 @@ void loop() {
 
     // Persist session watermarks to SD (rate-limited to 60s internally)
     HeapHealth::persistWatermarks();
+    Haptic::update();  // Kill motor ASAP after potential SD write block
 
     {
         static bool bakedActive = false;

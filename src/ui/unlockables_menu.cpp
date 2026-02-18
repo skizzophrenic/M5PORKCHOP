@@ -4,6 +4,7 @@
 #include <mbedtls/sha256.h>
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "soft_keyboard.h"
 #include "../core/xp.h"
 #include "../piglet/mood.h"
@@ -172,6 +173,8 @@ void UnlockablesMenu::handleInput() {
             selectedIndex = n < 0 ? 0 : n;
             if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -183,6 +186,8 @@ void UnlockablesMenu::handleInput() {
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -194,6 +199,8 @@ void UnlockablesMenu::handleInput() {
                 scrollOffset = selectedIndex;
             }
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -205,6 +212,8 @@ void UnlockablesMenu::handleInput() {
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             }
             updateBottomOverlay();
+        } else {
+            Haptic::stop();
         }
         return;
     }

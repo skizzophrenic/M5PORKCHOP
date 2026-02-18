@@ -5,6 +5,7 @@
 #include "bounty_menu.h"
 #include "display.h"
 #include "input.h"
+#include "haptic.h"
 #include "../modes/pigsync_mode.h"
 #include "../modes/warhog.h"
 #include "../modes/oink.h"
@@ -130,6 +131,8 @@ void BountyMenu::handleInput() {
             int n = (int)selectedIndex - VISIBLE_ITEMS;
             selectedIndex = n < 0 ? 0 : n;
             if (selectedIndex < scrollOffset) scrollOffset = selectedIndex;
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -140,6 +143,8 @@ void BountyMenu::handleInput() {
             selectedIndex = n;
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS)
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
+        } else {
+            Haptic::stop();
         }
         return;
     }
@@ -150,6 +155,8 @@ void BountyMenu::handleInput() {
             if (selectedIndex < scrollOffset) {
                 scrollOffset = selectedIndex;
             }
+        } else {
+            Haptic::stop();
         }
     }
 
@@ -159,6 +166,8 @@ void BountyMenu::handleInput() {
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
             }
+        } else {
+            Haptic::stop();
         }
     }
 }
