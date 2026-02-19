@@ -656,7 +656,8 @@ void PiggyBluesMode::stop() {
     setAdvertisingNow(false);
     
     Avatar::setGrassMoving(false);
-    Avatar::resetGrassPattern();
+    Avatar::resetGrass();
+    Avatar::waveRipple(WaveMode::NONE);
     
     bool doReboot = (random(0, 100) < REBOOT_CHANCE_PERCENT);
     if (doReboot) {
@@ -807,6 +808,7 @@ void PiggyBluesMode::sendAppleJuice() {
     
     // Start advertising
     if (pAdvertising->start()) {
+        Avatar::waveRipple(WaveMode::OUTGOING);
         totalPackets++;
         appleCount++;
         XP::addXP(XPEvent::BLE_APPLE);  // +3 XP

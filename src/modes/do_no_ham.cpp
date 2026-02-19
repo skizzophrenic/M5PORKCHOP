@@ -108,6 +108,7 @@ static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
     (void)ssid;
     (void)channel;
     if (rssi < Config::wifi().attackMinRssi) return;  // Skip weak networks
+    Avatar::waveRipple(WaveMode::INCOMING);
     XP::addXP(XPEvent::DNH_NETWORK_PASSIVE);
 }
 
@@ -286,7 +287,8 @@ void DoNoHamMode::stop() {
     
     // Stop grass animation
     Avatar::setGrassMoving(false);
-    
+    Avatar::waveRipple(WaveMode::NONE);
+
     bool pausedByUs = false;
     if (NetworkRecon::isRunning()) {
         NetworkRecon::pause();

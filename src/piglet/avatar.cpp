@@ -17,6 +17,14 @@ int Avatar::moodIntensity = 0;  // Phase 8: -100 to 100
 bool Avatar::jumpActive = false;
 uint32_t Avatar::jumpStartTime = 0;
 
+// Attack hop state (multi-hop pounce for captures)
+bool Avatar::attackHopActive = false;
+uint32_t Avatar::attackHopStartTime = 0;
+uint8_t Avatar::attackHopIndex = 0;
+uint8_t Avatar::attackHopTotal = 0;
+int16_t Avatar::attackHopOriginX = 0;
+int16_t Avatar::attackHopTargets[5] = {0};
+
 // Walk transition state
 bool Avatar::transitioning = false;
 uint32_t Avatar::transitionStartTime = 0;
@@ -38,6 +46,10 @@ static const uint32_t TRANSITION_DURATION_MS = 1200;  // 1.2s slow relaxed walk 
 static uint32_t lastGrassStopTime = 0;
 static const uint32_t GRASS_REST_COOLDOWN_MS = 3000;  // 3 second chill period after grass stops
 
+// Grass wander state (random roaming toward center while treadmill runs)
+static uint32_t grassWanderTimer = 0;
+static uint32_t grassWanderInterval = 4000;
+
 // Attack shake state (visual feedback for captures)
 static bool attackShakeActive = false;
 static bool attackShakeStrong = false;
@@ -54,6 +66,10 @@ uint32_t Avatar::nextSpawnDelay = 2000;
 bool Avatar::starsActive = false;
 uint32_t Avatar::lastNightCheck = 0;
 bool Avatar::cachedNightMode = false;
+
+// Wave ripple state
+WaveMode Avatar::waveMode = WaveMode::NONE;
+uint32_t Avatar::waveBurstStart = 0;
 
 // Color helper for thunder flash inversion (matches Sirloin)
 static uint16_t getDrawColor() {
@@ -76,7 +92,23 @@ bool Avatar::grassDirection = true;  // true = grass scrolls right
 bool Avatar::pendingGrassStart = false;  // Wait for transition before starting grass
 uint32_t Avatar::lastGrassUpdate = 0;
 uint16_t Avatar::grassSpeed = 80;  // Default fast for OINK
-char Avatar::grassPattern[32] = {0};
+Avatar::GrassBlade Avatar::grassBlades[GRASS_BLADE_COUNT] = {{0}};
+int16_t Avatar::grassOffset = 0;
+// Trail particle system (dust kicked up by running pig)
+struct TrailParticle {
+    float x, y;
+    float vx, vy;
+    float startX;
+    float maxDist;     // 30-60px travel before vanishing
+    uint8_t baseSize;  // 1-2 px radius
+    bool active;
+};
+static const int TRAIL_COUNT = 10;
+static TrailParticle trailParticles[TRAIL_COUNT] = {{0}};
+static uint32_t lastTrailSpawn = 0;
+static uint32_t lastTrailUpdate = 0;
+static int trailSpawnIdx = 0;
+
 // Internal state for looking direction
 static bool facingRight = true;  // Default: pig looks right
 static uint32_t lastFlipTime = 0;
@@ -181,7 +213,7 @@ void Avatar::init() {
     earsUp = true;
     lastBlinkTime = millis();
     blinkInterval = random(4000, 8000);
-    
+
     // Init direction - start at LEFT or RIGHT edge (not center)
     // This ensures bubble can float beside pig from the start
     bool startRight = random(0, 2) == 0;
@@ -192,19 +224,20 @@ void Avatar::init() {
     flipInterval = random(25000, 50000);  // First walk: 25-50s
     lastLookTime = millis();
     lookInterval = random(3000, 8000);  // First look: 3-8s (let pig settle in)
-    
-    // Init grass pattern - full screen width at size 2 (~24 chars)
+
+    // Init grass blade system
     grassMoving = false;
     grassDirection = true;
     pendingGrassStart = false;
     grassSpeed = 80;
     lastGrassUpdate = millis();
     lastGrassStopTime = 0;  // No cooldown on fresh init
-    for (int i = 0; i < 26; i++) {
-        // Random grass pattern /\/\\//\/
-        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
+    grassOffset = 0;
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        grassBlades[i].height = random(6, 20);
+        grassBlades[i].lean = random(-3, 4);
+        grassBlades[i].width = random(1, 4);
     }
-    grassPattern[26] = '\0';
 
     // Init star system, dormant until night
     starsActive = false;
@@ -214,8 +247,6 @@ void Avatar::init() {
     lastNightCheck = 0;
     cachedNightMode = false;
     initStarPositions();
-    
-    // Remove duplicate grass pattern initialization - already done earlier in init()
 }
 
 void Avatar::setState(AvatarState state) {
@@ -235,7 +266,7 @@ bool Avatar::isOnRightSide() {
 }
 
 bool Avatar::isTransitioning() {
-    return transitioning;
+    return transitioning || attackHopActive;
 }
 
 int Avatar::getCurrentX() {
@@ -264,9 +295,39 @@ void Avatar::cuteJump() {
     jumpStartTime = millis();
 }
 
+void Avatar::attackHop() {
+    // Multi-hop pounce animation for capture events
+    attackHopActive = true;
+    attackHopStartTime = millis();
+    attackHopIndex = 0;
+    attackHopOriginX = currentX;
+    attackHopTotal = random(3, 6);  // 3-5 hops
+
+    int16_t prevX = currentX;
+    for (uint8_t i = 0; i < attackHopTotal; i++) {
+        if (i == attackHopTotal - 1) {
+            // Last hop returns home
+            attackHopTargets[i] = attackHopOriginX;
+        } else {
+            // Random +/-25-55px from previous position, clamped to [10, 120]
+            int16_t offset = random(25, 56);
+            if (random(0, 2) == 0) offset = -offset;
+            int16_t target = prevX + offset;
+            if (target < 10) target = 10;
+            if (target > 120) target = 120;
+            attackHopTargets[i] = target;
+        }
+        prevX = attackHopTargets[i];
+    }
+}
+
+bool Avatar::isAttackHopping() {
+    return attackHopActive;
+}
+
 void Avatar::draw(M5Canvas& canvas) {
     uint32_t now = millis();
-    
+
     // Sniff animation times out after SNIFF_DURATION_MS
     // Update sniff frame for animation (cycle every 100ms)
     if (isSniffing) {
@@ -277,7 +338,7 @@ void Avatar::draw(M5Canvas& canvas) {
             sniffFrame = ((now - sniffStartTime) / 100) % 3;  // 3 frames: oo, oO, Oo
         }
     }
-    
+
     // Handle walk transition animation
     if (transitioning) {
         uint32_t elapsed = now - transitionStartTime;
@@ -287,13 +348,13 @@ void Avatar::draw(M5Canvas& canvas) {
             currentX = transitionToX;
             facingRight = transitionToFacingRight;
             onRightSide = (currentX > 60);  // Track which side we're on
-            
+
             // Start grass now if it was pending
             if (pendingGrassStart) {
                 grassMoving = true;
                 pendingGrassStart = false;
                 facingRight = !grassDirection;  // Face opposite to grass movement
-            } else {
+            } else if (!grassMoving) {
                 // === POST-WALK RANDOM BEHAVIOR ===
                 // After arriving somewhere, pig might do something interesting
                 int arrivalRoll = random(0, 100);
@@ -312,7 +373,7 @@ void Avatar::draw(M5Canvas& canvas) {
                 }
                 // 45%: Just face the direction we were walking
             }
-            
+
             // Reset look timer for new position with random delay
             lastLookTime = now;
             lookInterval = random(1500, 6000);  // More variable
@@ -329,13 +390,13 @@ void Avatar::draw(M5Canvas& canvas) {
     // Phase 8: Mood intensity affects animation timing
     // High positive = excited (faster blinks, more looking around)
     // High negative = lethargic (slower blinks, less movement)
-    
+
     // Calculate intensity-adjusted blink interval
     // Base: 4000-8000ms, excited (-50%): 2000-4000ms, sad (+50%): 6000-12000ms
     float blinkMod = 1.0f - (moodIntensity / 200.0f);  // 0.5 to 1.5
     uint32_t minBlink = (uint32_t)(4000 * blinkMod);
     uint32_t maxBlink = (uint32_t)(8000 * blinkMod);
-    
+
     // Check if we should blink (single frame blink)
     if (now - lastBlinkTime > blinkInterval) {
         isBlinking = true;
@@ -351,15 +412,15 @@ void Avatar::draw(M5Canvas& canvas) {
     uint32_t maxWalk = (uint32_t)(75000 * flipMod);   // Walk timer: 75s base
     uint32_t minLook = (uint32_t)(4000 * flipMod);    // Look timer: 4s base (more frequent looks)
     uint32_t maxLook = (uint32_t)(15000 * flipMod);   // Look timer: 15s base
-    
+
     // === ORGANIC RANDOM BEHAVIORS ===
-    // Disable all movement while grass is moving (treadmill mode)
-    if (!transitioning && !grassMoving && !pendingGrassStart) {
-        
+    // Disable all movement while grass is moving (treadmill mode) or attack hopping
+    if (!transitioning && !grassMoving && !pendingGrassStart && !attackHopActive) {
+
         // --- LOOK BEHAVIOR: Random glances with personality ---
         if (now - lastLookTime > lookInterval) {
             int lookRoll = random(0, 100);
-            
+
             if (lookRoll < 35) {
                 // 35%: Simple head turn
                 facingRight = !facingRight;
@@ -382,7 +443,7 @@ void Avatar::draw(M5Canvas& canvas) {
                 blink();
             }
             // 10%: Do nothing (just chill)
-            
+
             lastLookTime = now;
             // Vary the interval more - sometimes rapid, sometimes long pauses
             if (random(0, 5) == 0) {
@@ -392,17 +453,17 @@ void Avatar::draw(M5Canvas& canvas) {
             }
         }
         skip_look_reset:
-        
+
         // --- WALK BEHAVIOR: Always stay at LEFT/RIGHT edges for bubble positioning ---
         // Pig should ALWAYS be at edges where bubble can float beside, never in center
         if (now - lastFlipTime > flipInterval) {
             int walkRoll = random(0, 100);
             int targetX;
-            
+
             // Define edge zones (bubble floats beside pig, not above)
             const int LEFT_EDGE = 20;   // Left rest position
             const int RIGHT_EDGE = 108; // Right rest position
-            
+
             if (walkRoll < 50) {
                 // 50%: Walk to opposite edge (primary behavior)
                 targetX = onRightSide ? LEFT_EDGE : RIGHT_EDGE;
@@ -423,17 +484,17 @@ void Avatar::draw(M5Canvas& canvas) {
                 flipInterval = random(minWalk / 2, maxWalk / 2);
                 goto skip_walk;
             }
-            
+
             // Only walk if destination is different enough (avoid micro-movements)
             if (abs(targetX - currentX) > 15) {
                 bool goingRight = targetX > currentX;
-                
+
                 transitioning = true;
                 transitionStartTime = now;
                 transitionFromX = currentX;
                 transitionToX = targetX;
                 transitionToFacingRight = goingRight;  // Face direction of travel
-                
+
                 lastFlipTime = now;
                 // Vary wait time more randomly
                 if (random(0, 4) == 0) {
@@ -450,33 +511,70 @@ void Avatar::draw(M5Canvas& canvas) {
         }
         skip_walk:;
     }
-    
+
+    // === GRASS WANDER: Random roaming toward center while treadmill runs ===
+    if (!transitioning && grassMoving && !attackHopActive) {
+        if (now - grassWanderTimer > grassWanderInterval) {
+            int homeX = grassDirection ? 108 : 20;
+            int centerX = DISPLAY_W / 2;  // 120 = screen center limit
+            int distFromHome = abs(currentX - homeX);
+
+            if (distFromHome < 20) {
+                // Near home - chance to wander toward center
+                if (random(0, 100) < 35) {
+                    int lo = (homeX < centerX) ? homeX + 10 : centerX;
+                    int hi = (homeX < centerX) ? centerX : homeX - 10;
+                    int target = random(lo, hi + 1);
+                    if (abs(target - currentX) > 10) {
+                        transitioning = true;
+                        transitionStartTime = now;
+                        transitionFromX = currentX;
+                        transitionToX = target;
+                        transitionToFacingRight = !grassDirection;  // Keep treadmill facing
+                    }
+                }
+            } else {
+                // Away from home - maybe return (or stay and chill)
+                if (random(0, 100) < 45) {
+                    transitioning = true;
+                    transitionStartTime = now;
+                    transitionFromX = currentX;
+                    transitionToX = homeX;
+                    transitionToFacingRight = !grassDirection;  // Restore treadmill facing
+                }
+            }
+
+            grassWanderTimer = now;
+            grassWanderInterval = random(3000, 8000);
+        }
+    }
+
     // Select frame based on state and direction (blink modifies eye only, not ears)
     const char** frame;
     bool shouldBlink = isBlinking && currentState != AvatarState::SLEEPY;
-    
+
     // Clear blink flag after reading (single frame blink)
     if (isBlinking) {
         isBlinking = false;
     }
-    
+
     switch (currentState) {
-        case AvatarState::HAPPY:    
+        case AvatarState::HAPPY:
             frame = facingRight ? AVATAR_HAPPY_R : AVATAR_HAPPY_L; break;
-        case AvatarState::EXCITED:  
+        case AvatarState::EXCITED:
             frame = facingRight ? AVATAR_EXCITED_R : AVATAR_EXCITED_L; break;
-        case AvatarState::HUNTING:  
+        case AvatarState::HUNTING:
             frame = facingRight ? AVATAR_HUNTING_R : AVATAR_HUNTING_L; break;
-        case AvatarState::SLEEPY:   
+        case AvatarState::SLEEPY:
             frame = facingRight ? AVATAR_SLEEPY_R : AVATAR_SLEEPY_L; break;
-        case AvatarState::SAD:      
+        case AvatarState::SAD:
             frame = facingRight ? AVATAR_SAD_R : AVATAR_SAD_L; break;
-        case AvatarState::ANGRY:    
+        case AvatarState::ANGRY:
             frame = facingRight ? AVATAR_ANGRY_R : AVATAR_ANGRY_L; break;
-        default:                    
+        default:
             frame = facingRight ? AVATAR_NEUTRAL_R : AVATAR_NEUTRAL_L; break;
     }
-    
+
     drawFrame(canvas, frame, 3, shouldBlink, facingRight, isSniffing);
 }
 
@@ -489,48 +587,84 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     canvas.setTextDatum(top_left);
     canvas.setTextSize(3);
     canvas.setTextColor(getDrawColor());  // Thunder-aware color
-    
+
     uint32_t now = millis();
-    
+
     // Watchdog: if caller stops refreshing attack shake, auto-disable after 250ms
     if (attackShakeRefreshTime == 0 || (now - attackShakeRefreshTime) > 250) {
         attackShakeActive = false;
         attackShakeStrong = false;
     }
-    
+
     // Handle cute jump timeout
     if (jumpActive && (now - jumpStartTime > JUMP_DURATION_MS)) {
         jumpActive = false;
     }
-    
+
+    // === Attack hop animation update ===
+    if (attackHopActive) {
+        uint32_t hopElapsed = now - attackHopStartTime;
+        uint32_t totalHopTime = (uint32_t)attackHopTotal * ATTACK_HOP_MS;
+
+        if (hopElapsed >= totalHopTime) {
+            // Animation complete - return to origin
+            attackHopActive = false;
+            currentX = attackHopOriginX;
+            if (grassMoving) facingRight = !grassDirection;
+        } else {
+            // Determine current hop index
+            uint8_t hopIdx = hopElapsed / ATTACK_HOP_MS;
+            if (hopIdx >= attackHopTotal) hopIdx = attackHopTotal - 1;
+            attackHopIndex = hopIdx;
+
+            // Interpolate X: smooth-step from previous position to target
+            float hopT = (float)(hopElapsed - hopIdx * ATTACK_HOP_MS) / (float)ATTACK_HOP_MS;
+            // Smooth step: 3t^2 - 2t^3
+            float smoothT = hopT * hopT * (3.0f - 2.0f * hopT);
+            int16_t fromX = (hopIdx == 0) ? attackHopOriginX : attackHopTargets[hopIdx - 1];
+            int16_t toX = attackHopTargets[hopIdx];
+            currentX = fromX + (int)((toX - fromX) * smoothT);
+
+            // Face hop direction
+            facingRight = (toX > fromX);
+        }
+    }
+
     // Calculate vertical shake/jump offset
     int shakeY = 0;
-    if (jumpActive) {
+    if (attackHopActive) {
+        // Attack hop: parabolic arc per hop
+        uint32_t hopElapsed = now - attackHopStartTime;
+        uint32_t hopLocal = hopElapsed - (uint32_t)attackHopIndex * ATTACK_HOP_MS;
+        float t = (float)hopLocal / (float)ATTACK_HOP_MS;
+        float arc = 4.0f * t * (1.0f - t);  // 0 -> 1 -> 0
+        shakeY = -(int)(arc * ATTACK_HOP_HEIGHT);
+    } else if (jumpActive) {
         // Cute jump: smooth arc up and down (sine-like)
         // First half: go up, second half: come down
         uint32_t elapsed = now - jumpStartTime;
         float t = (float)elapsed / (float)JUMP_DURATION_MS;  // 0.0 to 1.0
         // Parabolic arc: peaks at t=0.5
-        float arc = 4.0f * t * (1.0f - t);  // 0 → 1 → 0
+        float arc = 4.0f * t * (1.0f - t);  // 0 -> 1 -> 0
         shakeY = -(int)(arc * JUMP_HEIGHT);  // Negative = up
     } else if (attackShakeActive) {
-        // Combat shake: random ±4px (normal) / ±6px (strong)
+        // Combat shake: random +/-4px (normal) / +/-6px (strong)
         const int amp = attackShakeStrong ? 6 : 4;
         shakeY = (esp_random() % 2 == 0) ? amp : -amp;
     } else if (transitioning || grassMoving) {
         // Heavy walk bounce: 4-phase weighted pattern (heavier landing feel)
-        // Phase: down(0) → up-overshoot(-3) → settle-low(-1) → settle-mid(-2)
+        // Phase: down(0) -> up-overshoot(-3) -> settle-low(-1) -> settle-mid(-2)
         // 80ms per phase = 320ms full cycle, slower than Sirloin's snappy bounce
         static const int bouncePattern[4] = {0, -3, -1, -2};
         int phase = (now / 80) % 4;
         shakeY = bouncePattern[phase];
     }
-    
+
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
     int startY = 23 + shakeY;  // Apply shake offset (shifted down for XP bar at top)
     int lineHeight = 22;
-    
+
     for (uint8_t i = 0; i < lines; i++) {
         // Handle body line (i=2) for dynamic tail
         if (i == 2) {
@@ -573,7 +707,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
             char modifiedLine[16];
             strncpy(modifiedLine, frame[i], sizeof(modifiedLine) - 1);
             modifiedLine[sizeof(modifiedLine) - 1] = '\0';
-            
+
             if (blink) {
                 // Replace eye character with '-' for blink
                 if (faceRight) {
@@ -582,7 +716,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
                     modifiedLine[4] = '-';  // Eye position in "(00 X)"
                 }
             }
-            
+
             if (sniff) {
                 // Animated sniff - cycle through nose shapes
                 char n1, n2;
@@ -602,13 +736,16 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
                     modifiedLine[2] = n2;
                 }
             }
-            
+
             canvas.drawString(modifiedLine, startX, startY + i * lineHeight);
         } else {
             canvas.drawString(frame[i], startX, startY + i * lineHeight);
         }
     }
-    
+
+    // Draw wave ripples (radio activity feedback)
+    drawWaveRipples(canvas, faceRight, startX, startY);
+
     // Draw grass below piglet
     drawGrass(canvas);
 }
@@ -621,7 +758,7 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
     if (!moving && !grassMoving && !pendingGrassStart) {
         return;  // Already stopped
     }
-    
+
     if (moving) {
         // COOLDOWN CHECK: Don't start grass if we just stopped
         // This prevents rapid on/off/on/off state changes from causing macarena
@@ -629,14 +766,14 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
         if (lastGrassStopTime > 0 && (now - lastGrassStopTime) < GRASS_REST_COOLDOWN_MS) {
             return;  // Still in cooldown period - pig needs rest
         }
-        
+
         grassDirection = directionRight;
-        
+
         // Calculate correct treadmill position based on direction
         // Grass RIGHT: pig at X=108 (tail margin on right)
         // Grass LEFT: pig at X=20 (tail margin on left: 20-18=2)
         int targetX = directionRight ? 108 : 20;
-        
+
         if (transitioning) {
             // Check if this is a coast-back transition (pig returning to rest at X=20)
             // Don't interrupt coast-back with grass start - let the pig chill first
@@ -658,20 +795,22 @@ void Avatar::setGrassMoving(bool moving, bool directionRight) {
             grassMoving = true;
             pendingGrassStart = false;
         }
-        
+
         // Clear cooldown since we successfully started
         lastGrassStopTime = 0;
+        grassWanderTimer = millis();
+        grassWanderInterval = random(3000, 8000);  // Initial delay before first wander
     } else {
         // Stop grass and coast back to resting position
         grassMoving = false;
         pendingGrassStart = false;
-        
+
         // Start cooldown timer - pig needs rest before grass can start again
         lastGrassStopTime = millis();
-        
+
         // Reset walk timer to prevent immediate post-coast walk trigger
         lastFlipTime = millis();
-        
+
         // Coast back to left resting position (X=20 for tail margin)
         startWindupSlide(20, false);  // X=20, face left when done
     }
@@ -681,62 +820,175 @@ void Avatar::setGrassSpeed(uint16_t ms) {
     grassSpeed = ms;
 }
 
-void Avatar::setGrassPattern(const char* pattern) {
-    strncpy(grassPattern, pattern, 26);
-    grassPattern[26] = '\0';
-}
-
-void Avatar::resetGrassPattern() {
-    // Reset to random grass pattern /\/\\//\/
-    for (int i = 0; i < 26; i++) {
-        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
+void Avatar::resetGrass() {
+    grassOffset = 0;
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        grassBlades[i].height = random(6, 20);
+        grassBlades[i].lean = random(-3, 4);
+        grassBlades[i].width = random(1, 4);
     }
-    grassPattern[26] = '\0';
 }
 
 void Avatar::updateGrass() {
     if (!grassMoving) return;
-    
+
     uint32_t now = millis();
-    if (now - lastGrassUpdate < grassSpeed) return;
+    // Pixel-level scroll: shift 1px every grassSpeed/GRASS_STRIDE ms
+    uint32_t pixelInterval = grassSpeed / GRASS_STRIDE;
+    if (pixelInterval < 1) pixelInterval = 1;
+    if (now - lastGrassUpdate < pixelInterval) return;
     lastGrassUpdate = now;
-    
-    // Shift pattern based on grassDirection (set when grass started)
-    // grassDirection=true: grass scrolls RIGHT (pig faces left, walking left through world)
-    // grassDirection=false: grass scrolls LEFT (pig faces right, walking right through world)
+
+    // Smooth pixel scroll
     if (grassDirection) {
-        // Shift right (grass scrolls right)
-        char last = grassPattern[25];
-        for (int i = 25; i > 0; i--) {
-            grassPattern[i] = grassPattern[i - 1];
+        grassOffset++;
+        if (grassOffset >= GRASS_STRIDE) {
+            grassOffset = 0;
+            // Rotate blade array right by 1
+            GrassBlade last = grassBlades[GRASS_BLADE_COUNT - 1];
+            for (int i = GRASS_BLADE_COUNT - 1; i > 0; i--) {
+                grassBlades[i] = grassBlades[i - 1];
+            }
+            grassBlades[0] = last;
         }
-        grassPattern[0] = last;
     } else {
-        // Shift left (grass scrolls left)
-        char first = grassPattern[0];
-        for (int i = 0; i < 25; i++) {
-            grassPattern[i] = grassPattern[i + 1];
+        grassOffset--;
+        if (grassOffset < 0) {
+            grassOffset = GRASS_STRIDE - 1;
+            // Rotate blade array left by 1
+            GrassBlade first = grassBlades[0];
+            for (int i = 0; i < GRASS_BLADE_COUNT - 1; i++) {
+                grassBlades[i] = grassBlades[i + 1];
+            }
+            grassBlades[GRASS_BLADE_COUNT - 1] = first;
         }
-        grassPattern[25] = first;
     }
-    
-    // Occasionally mutate a character for variety
+
+    // ~3% mutation chance - randomize one blade for organic variety
     if (random(0, 30) == 0) {
-        int pos = random(0, 26);
-        grassPattern[pos] = (random(0, 2) == 0) ? '/' : '\\';
+        int idx = random(0, GRASS_BLADE_COUNT);
+        grassBlades[idx].height = random(6, 20);
+        grassBlades[idx].lean = random(-3, 4);
+        grassBlades[idx].width = random(1, 4);
     }
 }
 
 void Avatar::drawGrass(M5Canvas& canvas) {
     updateGrass();
-    
-    canvas.setTextSize(2);  // Same as menu items
-    canvas.setTextColor(getDrawColor());  // Thunder-aware color
-    canvas.setTextDatum(top_left);
-    
-    // Draw at bottom of avatar area, full screen width
-    int grassY = 91;  // Below the pig face (at edge of main canvas)
-    canvas.drawString(grassPattern, 0, grassY);
+
+    uint32_t now = millis();
+    uint16_t color = getDrawColor();  // Thunder-aware color
+    const int16_t baseY = 91;  // Ground line (at edge of main canvas)
+
+    // Solid ground line
+    canvas.fillRect(0, 90, 240, 2, color);
+
+    // Pig body footprint for grass bending (6 chars x 18px at text size 3)
+    // Inset 18px from each edge - bend under the 4 inner spaces, not the parens
+    bool pigOnGround = !jumpActive && !attackHopActive;
+    int pigLeft  = currentX - 18;   // extend bend zone left of pig
+    int pigRight = currentX + 126;  // extend bend zone right of pig
+    int pigCenter = (pigLeft + pigRight) / 2;
+    int pigHalf  = (pigRight - pigLeft) / 2;  // 72px
+
+    // Draw triangle blades
+    for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
+        int16_t cx = i * GRASS_STRIDE + grassOffset;
+        // Wrap for seamless scrolling
+        if (cx < -GRASS_STRIDE) cx += 240 + GRASS_STRIDE;
+        if (cx > 240) continue;
+
+        const GrassBlade& b = grassBlades[i];
+        int16_t drawHeight = b.height;
+        int8_t drawLean = b.lean;
+
+        // Ambient wind sway - triangle wave, ~2.5s period, per-blade phase
+        {
+            uint32_t phase = now + (uint32_t)i * 197;  // stagger per blade
+            int wave = (int)(phase % 2500);             // 0..2499
+            // Triangle wave: ramp up 0..1250, ramp down 1250..2500 -> range -2..+2
+            int sway = (wave < 1250) ? (wave - 625) : (1875 - wave);
+            sway = sway / 312;  // scale to +/-2
+            drawLean += (int8_t)sway;
+        }
+
+        // Bend grass under pig body
+        if (pigOnGround && cx >= pigLeft && cx <= pigRight) {
+            int distFromCenter = cx - pigCenter;
+            if (distFromCenter < 0) distFromCenter = -distFromCenter;
+            // 1.0 at center, 0.0 at edges
+            float bend = 1.0f - (float)distFromCenter / (float)pigHalf;
+            // Flatten: up to 70% shorter at center
+            drawHeight = b.height - (int16_t)((float)b.height * 0.7f * bend);
+            if (drawHeight < 2) drawHeight = 2;
+            // Lean away from pig center
+            int8_t leanPush = (int8_t)(4.0f * bend);
+            drawLean = (cx < pigCenter) ? (b.lean - leanPush) : (b.lean + leanPush);
+        }
+
+        int16_t tipX = cx + drawLean;
+        int16_t tipY = baseY - drawHeight;
+        int16_t leftX = cx - b.width;
+        int16_t rightX = cx + b.width;
+        canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, color);
+    }
+
+    // === Trail particles (dust from running pig) ===
+    bool isRunning = transitioning || grassMoving;
+
+    // Spawn one particle per ~70ms while pig is moving on the ground
+    if (isRunning && pigOnGround && now - lastTrailSpawn > 70) {
+        lastTrailSpawn = now;
+        TrailParticle& p = trailParticles[trailSpawnIdx];
+        trailSpawnIdx = (trailSpawnIdx + 1) % TRAIL_COUNT;
+
+        // Spawn at pig's trailing edge near the feet
+        if (facingRight) {
+            p.x = (float)(currentX + random(0, 20));
+            p.vx = -(1.0f + (float)random(0, 20) / 10.0f);
+        } else {
+            p.x = (float)(currentX + 88 + random(0, 20));
+            p.vx = 1.0f + (float)random(0, 20) / 10.0f;
+        }
+        p.y = (float)(81 + random(0, 10));
+        p.vy = -(0.2f + (float)random(0, 10) / 20.0f);  // slight upward drift
+        p.startX = p.x;
+        p.maxDist = 30.0f + (float)random(0, 31);  // 30-60px
+        p.baseSize = random(1, 3);  // 1-2 px radius
+        p.active = true;
+    }
+
+    // Update trail particles
+    if (now - lastTrailUpdate > 50) {
+        lastTrailUpdate = now;
+        for (int i = 0; i < TRAIL_COUNT; i++) {
+            if (!trailParticles[i].active) continue;
+            trailParticles[i].x += trailParticles[i].vx;
+            trailParticles[i].y += trailParticles[i].vy;
+            float dx = trailParticles[i].x - trailParticles[i].startX;
+            if (dx < 0) dx = -dx;
+            if (dx >= trailParticles[i].maxDist) {
+                trailParticles[i].active = false;
+            }
+        }
+    }
+
+    // Draw trail particles (shrinking circles)
+    for (int i = 0; i < TRAIL_COUNT; i++) {
+        if (!trailParticles[i].active) continue;
+        int px = (int)trailParticles[i].x;
+        int py = (int)trailParticles[i].y;
+        if (px < 0 || px >= 240) continue;
+
+        float dx = trailParticles[i].x - trailParticles[i].startX;
+        if (dx < 0) dx = -dx;
+        float progress = dx / trailParticles[i].maxDist;
+        if (progress > 1.0f) progress = 1.0f;
+        int r = (int)((float)trailParticles[i].baseSize * (1.0f - progress) + 0.5f);
+        if (r < 1) continue;
+
+        canvas.fillCircle(px, py, r, color);
+    }
 }
 
 // --- Night sky star system ---
@@ -901,6 +1153,61 @@ void Avatar::setThunderFlash(bool active) {
 
 bool Avatar::isThunderFlashing() {
     return thunderFlashActive;
+}
+
+// --- Wave ripple animation (radio activity feedback) ---
+// Burst-based: each call starts a 1500ms burst (just over one 1200ms ripple cycle).
+// Re-triggering resets the timer. OUTGOING priority prevents INCOMING flicker.
+void Avatar::waveRipple(WaveMode mode) {
+    if (mode == WaveMode::NONE) {
+        waveMode = WaveMode::NONE;
+        return;
+    }
+    // OUTGOING priority: don't let INCOMING override an active OUTGOING burst
+    if (mode == WaveMode::INCOMING && waveMode == WaveMode::OUTGOING) {
+        if (millis() - waveBurstStart < 1500) return;  // OUTGOING still active
+    }
+    waveMode = mode;
+    waveBurstStart = millis();
+}
+
+void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY) {
+    if (waveMode == WaveMode::NONE) return;
+
+    uint32_t now = millis();
+
+    // Auto-expire burst after 1500ms of no re-triggering
+    if (now - waveBurstStart >= 1500) {
+        waveMode = WaveMode::NONE;
+        return;
+    }
+    uint16_t color = getDrawColor();
+
+    int waveCX = faceRight ? (startX + 85) : (startX + 23);
+    int waveCY = startY + 31;
+
+    float arcStart = faceRight ? 300.0f : 120.0f;
+    float arcEnd   = faceRight ?  60.0f : 240.0f;
+
+    const uint8_t  COUNT    = 3;
+    const uint16_t CYCLE_MS = 1200;
+    const int16_t  R_MIN    = 12;
+    const int16_t  R_MAX    = 50;
+
+    for (uint8_t i = 0; i < COUNT; i++) {
+        uint32_t phaseOffset = i * (CYCLE_MS / COUNT);
+        float progress = (float)((now + phaseOffset) % CYCLE_MS) / (float)CYCLE_MS;
+
+        if (progress > 0.80f) continue;  // Gap in last 20%
+        float t = progress / 0.80f;
+
+        int16_t r = (waveMode == WaveMode::OUTGOING)
+            ? R_MIN + (int16_t)((float)(R_MAX - R_MIN) * t)
+            : R_MAX - (int16_t)((float)(R_MAX - R_MIN) * t);
+
+        int16_t thick = (t < 0.5f) ? 2 : 1;
+        canvas.fillArc(waveCX, waveCY, r + thick, r, arcStart, arcEnd, color);
+    }
 }
 
 // --- Phase 6: Windup slide for coast-back ---

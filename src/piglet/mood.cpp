@@ -1457,15 +1457,10 @@ void Mood::onHandshakeCaptured(const char* apName) {
     applyMomentumBoost(30);  // Big temporary excitement!
     lastActivityTime = millis();
     
-    // Sniff animation - caught something big!
+    // Sniff + multi-hop pounce celebration!
     Avatar::sniff();
-    
-    // Cute jump celebration!
-    Avatar::cuteJump();
-    
-    // Phase 2: Attack shake - strong shake for captures!
-    Avatar::setAttackShake(true, true);
-    
+    Avatar::attackHop();
+
     // Award XP for handshake capture
     XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
     
@@ -1543,15 +1538,10 @@ void Mood::onPMKIDCaptured(const char* apName) {
     applyMomentumBoost(40);  // Even more temporary excitement!
     lastActivityTime = millis();
     
-    // Sniff animation - stealthy capture!
+    // Sniff + multi-hop pounce celebration!
     Avatar::sniff();
-    
-    // Cute jump celebration!
-    Avatar::cuteJump();
-    
-    // Phase 2: Attack shake - strong shake for captures!
-    Avatar::setAttackShake(true, true);
-    
+    Avatar::attackHop();
+
     // Award XP for PMKID capture
     // If in DO NO HAM mode, award the rare ghost PMKID XP (100 XP!)
     if (porkchop.getMode() == PorkchopMode::DNH_MODE) {

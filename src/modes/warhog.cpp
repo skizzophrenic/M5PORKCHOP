@@ -304,7 +304,8 @@ void WarhogMode::stop() {
     
     // Stop grass animation
     Avatar::setGrassMoving(false);
-    
+    Avatar::waveRipple(WaveMode::NONE);
+
     running = false;
     
     // Put GPS to sleep if power management enabled
@@ -387,6 +388,7 @@ void WarhogMode::update() {
     bool hasGPSFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
     if (hasGPSFix != lastGPSState) {
         Avatar::setGrassMoving(hasGPSFix);
+        if (hasGPSFix) Avatar::waveRipple(WaveMode::INCOMING);
         lastGPSState = hasGPSFix;
     }
 
