@@ -34,7 +34,7 @@ enum class NoticeChannel : uint8_t {
 };
 
 // Theme count and extern declaration (actual array in display.cpp)
-static const uint8_t THEME_COUNT = 15;
+static const uint8_t THEME_COUNT = 16;
 extern const PorkTheme THEMES[THEME_COUNT];
 
 // Dynamic color getters (use these instead of macros)

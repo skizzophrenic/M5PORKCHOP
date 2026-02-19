@@ -65,6 +65,7 @@ const PorkTheme THEMES[THEME_COUNT] = {
     {"L1TTL3M1XY", 0x0360, 0x95AA}, // OG Game Boy LCD - RGB332-quantized
     {"B4NSH33",   0x27E0, 0x0000},  // P1 phosphor green CRT - RGB332-quantized
     {"M1XYL1TTL3", 0x95AA, 0x0360}, // Inverted Game Boy LCD - RGB332-quantized
+    {"jader0xF2", 0xD81F, 0x0000},  // Bright purple on black - RGB332-quantized
 };
 
 uint16_t getColorFG() {
