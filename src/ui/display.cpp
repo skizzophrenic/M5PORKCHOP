@@ -534,8 +534,8 @@ void Display::update() {
         if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
         int boxH = padH * 2 + lineCount * lineH;
         int boxX = (DISPLAY_W - boxW) / 2;
-        // Center in pig area (between top bar and grass line at y=91)
-        int boxY = (91 - boxH) / 2;
+        // Center in pig area (between top bar and grass line at y=106)
+        int boxY = (106 - boxH) / 2;
 
         // Inverted toast: fg border, bg fill, fg text
         mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);

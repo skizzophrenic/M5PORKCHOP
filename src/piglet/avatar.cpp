@@ -662,7 +662,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
 
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
-    int startY = 23 + shakeY;  // Apply shake offset (shifted down for XP bar at top)
+    int startY = 38 + shakeY;  // Apply shake offset (shifted down so grass meets bottom bar)
     int lineHeight = 22;
 
     for (uint8_t i = 0; i < lines; i++) {
@@ -878,10 +878,10 @@ void Avatar::drawGrass(M5Canvas& canvas) {
 
     uint32_t now = millis();
     uint16_t color = getDrawColor();  // Thunder-aware color
-    const int16_t baseY = 91;  // Ground line (at edge of main canvas)
+    const int16_t baseY = 106;  // Ground line (pixel-adjacent with bottom bar)
 
     // Solid ground line
-    canvas.fillRect(0, 90, 240, 2, color);
+    canvas.fillRect(0, 105, 240, 2, color);
 
     // Pig body footprint for grass bending (6 chars x 18px at text size 3)
     // Inset 18px from each edge - bend under the 4 inner spaces, not the parens
@@ -950,7 +950,7 @@ void Avatar::drawGrass(M5Canvas& canvas) {
             p.x = (float)(currentX + 88 + random(0, 20));
             p.vx = 1.0f + (float)random(0, 20) / 10.0f;
         }
-        p.y = (float)(81 + random(0, 10));
+        p.y = (float)(96 + random(0, 10));
         p.vy = -(0.2f + (float)random(0, 10) / 20.0f);  // slight upward drift
         p.startX = p.x;
         p.maxDist = 30.0f + (float)random(0, 31);  // 30-60px
@@ -1032,7 +1032,7 @@ void Avatar::initStarPositions() {
         // x 5-235 near full width
         stars[i].x = random(5, 235);
         // Match rain clip: keep stars above grass (rain clips at y < 88)
-        stars[i].y = random(20, 88);
+        stars[i].y = random(35, 103);
         stars[i].size = 1;
         stars[i].brightness = 0;
         stars[i].fadeInStart = 0;
@@ -1096,8 +1096,8 @@ void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
 
     int boxX = currentX - 25;
     int boxW = 155;  // covers tail + 7 chars + margin
-    int boxY = 11;   // base y (23) minus jump headroom (12)
-    int boxH = 84;   // stops above grass near y95
+    int boxY = 26;   // base y (38) minus jump headroom (12)
+    int boxH = 81;   // stops above grass near y107
 
     // Clamp to screen
     if (boxX < 0) { boxW += boxX; boxX = 0; }
@@ -1117,7 +1117,7 @@ void Avatar::drawStars(M5Canvas& canvas) {
 
     for (uint8_t i = 0; i < starCount; i++) {
         if (stars[i].brightness < 128) continue;
-        if (stars[i].y >= 88) continue;  // Match rain clip above grass
+        if (stars[i].y >= 103) continue;  // Match rain clip above grass
 
         char starChar = '.';
         if (stars[i].isBlinking) {

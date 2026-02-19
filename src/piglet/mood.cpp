@@ -2650,7 +2650,7 @@ void Mood::draw(M5Canvas& canvas) {
     int bubbleH = 8 + (numLines * lineHeight);  // Padding + actual lines
     
     // Cap bubble height to fit above grass (y=91)
-    if (bubbleH > 88) bubbleH = 88;
+    if (bubbleH > 103) bubbleH = 103;
     
     // Determine bubble mode based on pigX thresholds (matches Sirloin)
     enum class BubbleMode { LEFT_EDGE, CENTER_TOP, RIGHT_EDGE };
@@ -2666,12 +2666,12 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig at left edge → bubble floats to RIGHT of pig (horizontal arrow pointing left)
         mode = BubbleMode::LEFT_EDGE;
         bubbleX = pigX + 108 + 6;  // Right of pig body + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 38;  // At pig ear level
     } else if (atRightEdge) {
         // Pig at right edge → bubble floats to LEFT of pig (horizontal arrow pointing right)
         mode = BubbleMode::RIGHT_EDGE;
         bubbleX = pigX - bubbleW - 6;  // Left of pig + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 38;  // At pig ear level
     } else {
         // Pig in center → bubble floats ABOVE pig but not too far
         // Position bubble so it doesn't cover pig's face but stays close
@@ -2681,8 +2681,8 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig head at Y=23, ears start there
         // Arrow tip should point at pig's ear area (Y ~20)
         // Bubble should not float too far from head - min Y = 2 (near top)
-        int arrowTipY = 20;  // Point at pig's ear area
-        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 12
+        int arrowTipY = 35;  // Point at pig's ear area
+        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 27
         bubbleY = bubbleBottom - bubbleH;
         
         // Clamp bubbleY to minimum of 2 (near top) - taller bubbles stay close to head
@@ -2729,7 +2729,7 @@ void Mood::draw(M5Canvas& canvas) {
         canvas.fillTriangle(arrowTipX, arrowY, arrowBaseX, arrowY - 6, arrowBaseX, arrowY + 6, COLOR_FG);
     } else {
         // Center mode → vertical arrow pointing DOWN toward pig's head
-        int arrowTipY = 20;  // Point at pig's ear area (updated for new head Y)
+        int arrowTipY = 35;  // Point at pig's ear area (updated for new head Y)
         int arrowBaseY = arrowTipY - ARROW_LENGTH;
         int arrowLeftX = pigHeadCenterX - 6;
         int arrowRightX = pigHeadCenterX + 6;

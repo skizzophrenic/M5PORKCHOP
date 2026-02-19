@@ -266,7 +266,7 @@ void setRaining(bool active) {
         for (int i = 0; i < RAIN_DROP_COUNT; i++) {
             rainDrops[i].x = (float)random(0, DISPLAY_W);
             // Distribute drops across visible area (stop above grass at Y=88)
-            rainDrops[i].y = (float)random(16, 85);
+            rainDrops[i].y = (float)random(16, 100);
             // Fast rain (5-8 pixels per update)
             rainDrops[i].speed = random(5, 9);
         }
@@ -409,7 +409,7 @@ static void updateRain(uint32_t now) {
 
         // Respawn just below clouds when reaching bottom
         // Grass starts at Y=91, stop rain 3px above it
-        if (rainDrops[i].y >= 88.0f) {
+        if (rainDrops[i].y >= 103.0f) {
             rainDrops[i].y = (float)random(16, 23);  // Just below cloud layer
             rainDrops[i].x = (float)random(0, DISPLAY_W);
             rainDrops[i].speed = random(5, 9);  // Fast rain
@@ -483,7 +483,7 @@ static void updateWind(uint32_t now) {
                     : ((float)DISPLAY_W + 5.0f + random(0, 40));
                 windParticles[i].x = spawnX;
                 windParticles[i].spawnX = spawnX;
-                windParticles[i].y = (float)random(20, 90);
+                windParticles[i].y = (float)random(20, 105);
                 windParticles[i].speed = 2.0f + (float)random(0, 30) / 10.0f;  // 2.0-5.0
                 windParticles[i].maxTravel = (float)random(180, 281);
                 windParticles[i].baseSize = random(1, 4);  // 1-3 px radius
@@ -576,7 +576,7 @@ void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
 
             // Draw 6-pixel tall x 2-pixel wide raindrop (slightly taller for visibility)
             for (int dy = 0; dy < 6; dy++) {
-                if (y + dy < 88) {  // Clip 3px above grass (grass starts at Y=91)
+                if (y + dy < 103) {  // Clip 3px above grass (grass starts at Y=106)
                     canvas.drawPixel(x, y + dy, drawColor);
                     if (x + 1 < DISPLAY_W) canvas.drawPixel(x + 1, y + dy, drawColor);
                 }
