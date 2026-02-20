@@ -549,8 +549,9 @@ void OinkMode::stop() {
     // Clear scanning dwell override
     NetworkRecon::setHopIntervalOverride(0);
 
-    // Stop grass animation and wave ripples
+    // Stop grass animation, tree, and wave ripples
     Avatar::setGrassMoving(false);
+    Avatar::hideTree();
     Avatar::waveRipple(WaveMode::NONE);
 
     // Clear our callbacks (NetworkRecon keeps running)
@@ -691,6 +692,7 @@ void OinkMode::update() {
     NetworkRecon::exitCritical();
     if (hasPendingDeauth) {
         Mood::onDeauthSuccess(pendingStationCopy);
+        Avatar::dropFruit();
         // M1 observed for target: stop active jamming and switch to listen phase.
         // Continuing deauth here can suppress M2/M3 and cause handshake miss.
         if (autoState == AutoState::ATTACKING) {
@@ -918,6 +920,32 @@ void OinkMode::update() {
     
     // Sync grass animation with channel hopping state
     Avatar::setGrassMoving(channelHopping);
+
+    // Sync fruit tree with attack state
+    {
+        bool wantTree = (autoState == AutoState::LOCKING ||
+                         autoState == AutoState::ATTACKING ||
+                         autoState == AutoState::WAITING);
+        static bool hadTree = false;
+
+        if (wantTree && !hadTree) {
+            // Count attackable networks with clients on current channel
+            uint8_t fruits = 0;
+            uint8_t ch = NetworkRecon::getCurrentChannel();
+            NetworkRecon::enterCritical();
+            for (size_t i = 0; i < networks().size() && fruits < 8; i++) {
+                const auto& n = networks()[i];
+                if (n.channel != ch) continue;
+                if (n.authmode == WIFI_AUTH_OPEN || n.isHidden) continue;
+                if (NetworkRecon::estimateClientCount(n) > 0) fruits++;
+            }
+            NetworkRecon::exitCritical();
+            if (fruits > 0) Avatar::showTree(fruits);
+        } else if (!wantTree && hadTree) {
+            Avatar::hideTree();
+        }
+        hadTree = wantTree;
+    }
 
     // === Background C5 5GHz polling (independent of autoState) ===
     // Runs every update() regardless of what the 2.4GHz state machine is doing

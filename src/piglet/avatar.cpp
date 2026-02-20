@@ -71,6 +71,47 @@ bool Avatar::cachedNightMode = false;
 WaveMode Avatar::waveMode = WaveMode::NONE;
 uint32_t Avatar::waveBurstStart = 0;
 
+// Fruit tree state
+TreePhase Avatar::treePhase = TreePhase::HIDDEN;
+float Avatar::treeGrowth = 0.0f;
+uint32_t Avatar::treeAnimStart = 0;
+Avatar::TreeTrunk Avatar::treeTrunk = {};
+Avatar::TreeBranch Avatar::treeBranches[MAX_BRANCHES] = {};
+uint8_t Avatar::treeBranchCount = 0;
+Avatar::TreeLeafCluster Avatar::treeLeaves[MAX_LEAF_CLUSTERS] = {};
+uint8_t Avatar::treeLeafCount = 0;
+uint8_t Avatar::treeEndpointLeafCount = 0;
+Avatar::TreeFruit Avatar::treeFruits[MAX_TREE_FRUITS] = {};
+uint8_t Avatar::treeFruitCount = 0;
+uint32_t Avatar::treeSeed = 0;
+bool Avatar::treePendingHide = false;
+bool Avatar::treePendingShow = false;
+uint8_t Avatar::treePendingFruits = 0;
+uint32_t Avatar::treeAliveStart = 0;
+int16_t Avatar::treeScrollOffset = 0;
+
+// Dropping fruit system (individual fruit falls on deauth success)
+struct DroppingFruit {
+    int16_t x, y;         // absolute screen position at detach
+    uint8_t radius;
+    uint32_t dropStart;   // millis() when detached
+    bool active;
+};
+static constexpr uint8_t MAX_DROPPING = 4;
+static DroppingFruit droppingFruits[MAX_DROPPING] = {{0}};
+
+// Fruit splash particles (burst on ground impact)
+struct FruitSplash {
+    float x, y;
+    float vx, vy;
+    uint8_t size;       // 1-3px radius
+    uint32_t spawnTime;
+    bool active;
+};
+static constexpr uint8_t FRUIT_SPLASH_COUNT = 8;
+static FruitSplash fruitSplashes[FRUIT_SPLASH_COUNT] = {{0}};
+static uint8_t fruitSplashIdx = 0;
+
 // Color helper for thunder flash inversion (matches Sirloin)
 static uint16_t getDrawColor() {
     if (thunderFlashActive) {
@@ -238,6 +279,24 @@ void Avatar::init() {
         grassBlades[i].lean = random(-3, 4);
         grassBlades[i].width = random(1, 4);
     }
+
+    // Init tree state
+    treePhase = TreePhase::HIDDEN;
+    treeGrowth = 0.0f;
+    treeBranchCount = 0;
+    treeLeafCount = 0;
+    treeEndpointLeafCount = 0;
+    treeFruitCount = 0;
+    treePendingHide = false;
+    treePendingShow = false;
+    treePendingFruits = 0;
+    treeAliveStart = 0;
+    treeScrollOffset = 0;
+
+    // Init dropping fruits and splash particles
+    for (uint8_t i = 0; i < MAX_DROPPING; i++) droppingFruits[i].active = false;
+    for (uint8_t i = 0; i < FRUIT_SPLASH_COUNT; i++) fruitSplashes[i].active = false;
+    fruitSplashIdx = 0;
 
     // Init star system, dormant until night
     starsActive = false;
@@ -582,6 +641,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     // Star system background layer (behind pig)
     updateStars();
     drawStars(canvas);
+    drawTree(canvas);  // Fruit tree behind pig
     fillPigBoundingBox(canvas);
 
     canvas.setTextDatum(top_left);
@@ -842,6 +902,7 @@ void Avatar::updateGrass() {
     // Smooth pixel scroll
     if (grassDirection) {
         grassOffset++;
+        if (treePhase != TreePhase::HIDDEN) treeScrollOffset++;
         if (grassOffset >= GRASS_STRIDE) {
             grassOffset = 0;
             // Rotate blade array right by 1
@@ -853,6 +914,7 @@ void Avatar::updateGrass() {
         }
     } else {
         grassOffset--;
+        if (treePhase != TreePhase::HIDDEN) treeScrollOffset--;
         if (grassOffset < 0) {
             grassOffset = GRASS_STRIDE - 1;
             // Rotate blade array left by 1
@@ -988,6 +1050,568 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         if (r < 1) continue;
 
         canvas.fillCircle(px, py, r, color);
+    }
+
+    // === Fruit splash particles (burst on ground impact) ===
+    static uint32_t lastSplashUpdate = 0;
+    if (now - lastSplashUpdate > 50) {
+        lastSplashUpdate = now;
+        for (uint8_t i = 0; i < FRUIT_SPLASH_COUNT; i++) {
+            if (!fruitSplashes[i].active) continue;
+            fruitSplashes[i].x += fruitSplashes[i].vx;
+            fruitSplashes[i].y += fruitSplashes[i].vy;
+            fruitSplashes[i].vy += 0.15f;  // slight gravity pull-back
+            if (now - fruitSplashes[i].spawnTime > 500) {
+                fruitSplashes[i].active = false;
+            }
+        }
+    }
+
+    // Draw fruit splash particles (shrinking circles)
+    for (uint8_t i = 0; i < FRUIT_SPLASH_COUNT; i++) {
+        if (!fruitSplashes[i].active) continue;
+        int spx = (int)fruitSplashes[i].x;
+        int spy = (int)fruitSplashes[i].y;
+        if (spx < 0 || spx >= 240) continue;
+
+        float progress = (float)(now - fruitSplashes[i].spawnTime) / 500.0f;
+        if (progress > 1.0f) progress = 1.0f;
+        int sr = (int)((float)fruitSplashes[i].size * (1.0f - progress) + 0.5f);
+        if (sr < 1) continue;
+
+        canvas.fillCircle(spx, spy, sr, color);
+    }
+}
+
+// --- Fruit tree system ---
+
+// Simple LCG for deterministic tree generation from seed
+static uint32_t treeLCG(uint32_t& s) {
+    s = s * 1664525u + 1013904223u;
+    return s;
+}
+
+// Fixed-point sin*256 for angles 0-180 in 15-degree steps (13 entries)
+static const int16_t sin_lut[13] = {
+    0, 66, 128, 181, 222, 248, 256, 248, 222, 181, 128, 66, 0
+};
+
+static int16_t lut_sin(uint8_t idx) {
+    return (idx < 13) ? sin_lut[idx] : 0;
+}
+
+static int16_t lut_cos(uint8_t idx) {
+    // cos(i*15) = sin((6-i)*15)
+    int8_t ci = 6 - (int8_t)idx;
+    if (ci >= 0) return sin_lut[ci];
+    return -sin_lut[-ci];
+}
+
+void Avatar::generateTree(uint8_t fruitCount) {
+    treeSeed = esp_random();
+    treeScrollOffset = 0;
+    uint32_t s = treeSeed;
+
+    // Position: opposite side from pig
+    if (onRightSide) {
+        treeTrunk.baseX = 25 + (int16_t)(treeLCG(s) % 30);  // 25-54
+    } else {
+        treeTrunk.baseX = 175 + (int16_t)(treeLCG(s) % 35);  // 175-209
+    }
+
+    // Ensure minimum gap from pig (safety buffer during attack-hop animations)
+    int16_t gap = abs(treeTrunk.baseX - currentX);
+    if (gap < 60) {
+        treeTrunk.baseX = (currentX < 120) ? 180 + (int16_t)(treeLCG(s) % 30)
+                                            : 20 + (int16_t)(treeLCG(s) % 30);
+    }
+
+    // Trunk dimensions — proportional to 107px canvas
+    treeTrunk.trunkHeight = 66 + fruitCount + (uint8_t)(treeLCG(s) % 7);  // 67-81px
+    treeTrunk.trunkWidth = 2 + (uint8_t)(treeLCG(s) % 2);     // 2-3 half-width
+    treeTrunk.trunkLean = (int8_t)(treeLCG(s) % 7) - 3;       // -3..+3
+
+    // Crown canopy — dominant visual element
+    treeTrunk.crownRadius = 8 + treeTrunk.trunkHeight / 5 + (uint8_t)(treeLCG(s) % 3);  // 21-26px
+
+    // Trunk top (relative to baseX, baseY=106)
+    int8_t topX = treeTrunk.trunkLean;
+    int8_t topY = -(int8_t)treeTrunk.trunkHeight;
+
+    // Always 3 main branches, fanned across 45-135 degree range (upward-biased)
+    const uint8_t mainCount = 3;
+    treeBranchCount = 0;
+    treeLeafCount = 0;
+    treeEndpointLeafCount = 0;
+    uint8_t sector = 7 / mainCount;  // ~2 sectors across [3..9]
+
+    // Branch origins distributed along trunk (50%, 70%, 100% of height)
+    const uint8_t originPcts[3] = { 50, 70, 100 };
+
+    // Track sub-branch endpoints for tertiary branching
+    uint8_t subEndpoints[6];  // indices into treeBranches for sub-branch endpoints
+    uint8_t subEndpointCount = 0;
+
+    for (uint8_t m = 0; m < mainCount && treeBranchCount < MAX_BRANCHES; m++) {
+        uint8_t sectorStart = 3 + m * sector;
+        uint8_t angleIdx = sectorStart + (uint8_t)(treeLCG(s) % sector);
+        if (angleIdx > 9) angleIdx = 9;
+
+        // Branch origin at distributed height along trunk
+        int8_t originY = -(int8_t)(treeTrunk.trunkHeight * originPcts[m] / 100);
+        // X follows trunk lean proportionally
+        int8_t originX = (int8_t)((int16_t)treeTrunk.trunkLean * originPcts[m] / 100);
+
+        uint8_t length = 18 + (uint8_t)(treeLCG(s) % 15);  // 18-32
+
+        int8_t dx = (int8_t)((int16_t)length * lut_cos(angleIdx) / 256);
+        int8_t dy = (int8_t)(-(int16_t)length * lut_sin(angleIdx) / 256);
+
+        TreeBranch& br = treeBranches[treeBranchCount];
+        br.x1 = originX;
+        br.y1 = originY;
+        br.x2 = originX + dx;
+        br.y2 = originY + dy;
+        br.thickness = 2;
+        treeBranchCount++;
+
+        // Guaranteed sub-branch from 2/3 point of every main branch
+        if (treeBranchCount < MAX_BRANCHES) {
+            int8_t midX = br.x1 + (br.x2 - br.x1) * 2 / 3;
+            int8_t midY = br.y1 + (br.y2 - br.y1) * 2 / 3;
+
+            int8_t angleOff = 1 + (int8_t)(treeLCG(s) % 3);  // 1-3 steps
+            if (treeLCG(s) % 2 == 0) angleOff = -angleOff;
+            int8_t subAngle = (int8_t)angleIdx + angleOff;
+            if (subAngle < 3) subAngle = 3;
+            if (subAngle > 9) subAngle = 9;
+
+            uint8_t subLen = 12 + (uint8_t)(treeLCG(s) % 11);  // 12-22
+
+            uint8_t subIdx = treeBranchCount;
+            TreeBranch& sbr = treeBranches[subIdx];
+            sbr.x1 = midX;
+            sbr.y1 = midY;
+            sbr.x2 = midX + (int8_t)((int16_t)subLen * lut_cos((uint8_t)subAngle) / 256);
+            sbr.y2 = midY + (int8_t)(-(int16_t)subLen * lut_sin((uint8_t)subAngle) / 256);
+            sbr.thickness = 1;
+            treeBranchCount++;
+
+            // Remember sub-branch for tertiary branching
+            if (subEndpointCount < 6) {
+                subEndpoints[subEndpointCount++] = subIdx;
+            }
+        }
+
+        // Second sub-branch from 1/3 point of main branch
+        if (treeBranchCount < MAX_BRANCHES) {
+            int8_t thirdX = br.x1 + (br.x2 - br.x1) / 3;
+            int8_t thirdY = br.y1 + (br.y2 - br.y1) / 3;
+
+            int8_t angleOff2 = 1 + (int8_t)(treeLCG(s) % 3);
+            if (treeLCG(s) % 2 == 0) angleOff2 = -angleOff2;
+            int8_t subAngle2 = (int8_t)angleIdx + angleOff2;
+            if (subAngle2 < 3) subAngle2 = 3;
+            if (subAngle2 > 9) subAngle2 = 9;
+
+            uint8_t subLen2 = 10 + (uint8_t)(treeLCG(s) % 9);  // 10-18
+
+            uint8_t subIdx2 = treeBranchCount;
+            TreeBranch& sbr2 = treeBranches[subIdx2];
+            sbr2.x1 = thirdX;
+            sbr2.y1 = thirdY;
+            sbr2.x2 = thirdX + (int8_t)((int16_t)subLen2 * lut_cos((uint8_t)subAngle2) / 256);
+            sbr2.y2 = thirdY + (int8_t)(-(int16_t)subLen2 * lut_sin((uint8_t)subAngle2) / 256);
+            sbr2.thickness = 1;
+            treeBranchCount++;
+
+            if (subEndpointCount < 6) {
+                subEndpoints[subEndpointCount++] = subIdx2;
+            }
+        }
+    }
+
+    // Tertiary branches from each sub-branch endpoint
+    for (uint8_t t = 0; t < subEndpointCount && treeBranchCount < MAX_BRANCHES; t++) {
+
+        const TreeBranch& parent = treeBranches[subEndpoints[t]];
+        int8_t angleOff = 1 + (int8_t)(treeLCG(s) % 3);
+        if (treeLCG(s) % 2 == 0) angleOff = -angleOff;
+
+        // Derive angle from parent direction
+        int8_t terAngle = 6 + angleOff;  // center around 90deg
+        if (terAngle < 3) terAngle = 3;
+        if (terAngle > 9) terAngle = 9;
+
+        uint8_t terLen = 8 + (uint8_t)(treeLCG(s) % 9);  // 8-16
+
+        TreeBranch& tbr = treeBranches[treeBranchCount];
+        tbr.x1 = parent.x2;
+        tbr.y1 = parent.y2;
+        tbr.x2 = parent.x2 + (int8_t)((int16_t)terLen * lut_cos((uint8_t)terAngle) / 256);
+        tbr.y2 = parent.y2 + (int8_t)(-(int16_t)terLen * lut_sin((uint8_t)terAngle) / 256);
+        tbr.thickness = 1;
+        treeBranchCount++;
+
+    }
+
+    // Fruits anchored to branch endpoints directly
+    treeFruitCount = fruitCount > MAX_TREE_FRUITS ? MAX_TREE_FRUITS : fruitCount;
+    uint8_t fruitRadius = (treeFruitCount <= 4) ? 6 : 4;
+    uint8_t endpointCount = treeBranchCount > 0 ? treeBranchCount : 1;
+
+    for (uint8_t i = 0; i < treeFruitCount; i++) {
+        uint8_t bi = (uint8_t)(treeLCG(s) % endpointCount);
+        const TreeBranch& br = treeBranches[bi];
+        int8_t scatter = 3;
+        treeFruits[i].offsetX = br.x2 + (int8_t)((treeLCG(s) % (scatter * 2 + 1)) - scatter);
+        treeFruits[i].offsetY = br.y2 + (int8_t)((treeLCG(s) % (scatter * 2 + 1)) - scatter);
+        treeFruits[i].radius = fruitRadius;
+        treeFruits[i].bobPhase = (uint8_t)(treeLCG(s) & 0xFF);
+    }
+}
+
+void Avatar::showTree(uint8_t fruitCount) {
+    if (fruitCount == 0) return;
+
+    // If collapsing: queue show for after collapse finishes
+    if (treePhase == TreePhase::COLLAPSING) {
+        treePendingShow = true;
+        treePendingFruits = fruitCount;
+        return;
+    }
+
+    // If already growing: ignore (already on the way up)
+    if (treePhase == TreePhase::GROWING) {
+        return;
+    }
+
+    if (treePhase == TreePhase::ALIVE && treeFruitCount == fruitCount) {
+        return;  // Same count, no-op
+    }
+
+    if (treePhase == TreePhase::ALIVE) {
+        // Update fruits in-place without re-growing
+        uint32_t s = treeSeed + fruitCount;
+        uint8_t fruitRadius = (fruitCount <= 4) ? 6 : 4;
+        treeFruitCount = fruitCount > MAX_TREE_FRUITS ? MAX_TREE_FRUITS : fruitCount;
+        uint8_t endpointCount = treeBranchCount > 0 ? treeBranchCount : 1;
+        for (uint8_t i = 0; i < treeFruitCount; i++) {
+            uint8_t bi = (uint8_t)(treeLCG(s) % endpointCount);
+            const TreeBranch& br = treeBranches[bi];
+            int8_t scatter = 3;
+            treeFruits[i].offsetX = br.x2 + (int8_t)((treeLCG(s) % (scatter * 2 + 1)) - scatter);
+            treeFruits[i].offsetY = br.y2 + (int8_t)((treeLCG(s) % (scatter * 2 + 1)) - scatter);
+            treeFruits[i].radius = fruitRadius;
+            treeFruits[i].bobPhase = (uint8_t)(treeLCG(s) & 0xFF);
+        }
+        return;
+    }
+
+    // Generate new tree and start growing
+    generateTree(fruitCount);
+    treePhase = TreePhase::GROWING;
+    treeGrowth = 0.0f;
+    treeAnimStart = millis();
+}
+
+void Avatar::hideTree() {
+    if (treePhase == TreePhase::HIDDEN || treePhase == TreePhase::COLLAPSING) return;
+
+    // If growing: queue hide for after growth finishes
+    if (treePhase == TreePhase::GROWING) {
+        treePendingHide = true;
+        return;
+    }
+
+    // If alive but minimum time not elapsed: queue hide
+    if (treePhase == TreePhase::ALIVE && (millis() - treeAliveStart < TREE_MIN_ALIVE_MS)) {
+        treePendingHide = true;
+        return;
+    }
+
+    treePhase = TreePhase::COLLAPSING;
+    treeAnimStart = millis();
+    treeGrowth = 1.0f;
+}
+
+bool Avatar::isTreeVisible() {
+    return treePhase != TreePhase::HIDDEN;
+}
+
+void Avatar::dropFruit() {
+    if (treeFruitCount == 0 || treePhase != TreePhase::ALIVE) return;
+
+    // Pick the last fruit
+    uint8_t idx = treeFruitCount - 1;
+    const TreeFruit& f = treeFruits[idx];
+
+    // Compute absolute screen position
+    const int16_t baseY = 106;
+    int16_t bx = treeTrunk.baseX + treeScrollOffset;
+    while (bx > 260) bx -= 300;
+    while (bx < -60) bx += 300;
+
+    // Ambient sway (match drawTree logic)
+    int8_t sway = 0;
+    uint32_t now = millis();
+    int wave = (int)(now % 3000);
+    sway = (wave < 1500) ? (int8_t)((wave - 750) / 750) : (int8_t)((2250 - wave) / 750);
+
+    // Find free dropping slot
+    for (uint8_t i = 0; i < MAX_DROPPING; i++) {
+        if (!droppingFruits[i].active) {
+            droppingFruits[i].x = bx + f.offsetX + sway;
+            droppingFruits[i].y = baseY + f.offsetY;
+            droppingFruits[i].radius = f.radius;
+            droppingFruits[i].dropStart = now;
+            droppingFruits[i].active = true;
+            break;
+        }
+    }
+
+    // Remove fruit from tree
+    treeFruitCount--;
+
+    // Empty tree collapses
+    if (treeFruitCount == 0) {
+        hideTree();
+    }
+}
+
+void Avatar::updateTree() {
+    uint32_t now = millis();
+
+    // ALIVE: check pending hide with minimum alive time
+    if (treePhase == TreePhase::ALIVE) {
+        if (treePendingHide && (now - treeAliveStart >= TREE_MIN_ALIVE_MS)) {
+            treePendingHide = false;
+            treePhase = TreePhase::COLLAPSING;
+            treeAnimStart = now;
+            treeGrowth = 1.0f;
+        }
+        return;
+    }
+
+    if (treePhase == TreePhase::HIDDEN) return;
+
+    uint32_t elapsed = now - treeAnimStart;
+
+    if (treePhase == TreePhase::GROWING) {
+        treeGrowth = (float)elapsed / (float)TREE_GROW_MS;
+        if (treeGrowth >= 1.0f) {
+            treeGrowth = 1.0f;
+            if (treePendingHide) {
+                // Grow finished but hide was requested — collapse immediately
+                treePendingHide = false;
+                treePhase = TreePhase::COLLAPSING;
+                treeAnimStart = now;
+            } else {
+                treePhase = TreePhase::ALIVE;
+                treeAliveStart = now;
+            }
+        }
+    } else if (treePhase == TreePhase::COLLAPSING) {
+        treeGrowth = 1.0f - (float)elapsed / (float)TREE_COLLAPSE_MS;
+        if (treeGrowth <= 0.0f) {
+            treeGrowth = 0.0f;
+            if (treePendingShow) {
+                // Collapse finished but show was requested — grow new tree
+                treePendingShow = false;
+                generateTree(treePendingFruits);
+                treePhase = TreePhase::GROWING;
+                treeAnimStart = now;
+            } else {
+                treePhase = TreePhase::HIDDEN;
+            }
+        }
+    }
+}
+
+void Avatar::drawTree(M5Canvas& canvas) {
+    updateTree();
+
+    // Check if any dropping fruits are still active
+    bool hasDropping = false;
+    for (uint8_t i = 0; i < MAX_DROPPING; i++) {
+        if (droppingFruits[i].active) { hasDropping = true; break; }
+    }
+
+    if (treePhase == TreePhase::HIDDEN && !hasDropping) return;
+
+    uint16_t fg = getDrawColor();
+    uint16_t bg = getBGColor();
+    uint32_t now = millis();
+
+    const int16_t baseY = 106;  // Same as grass baseY
+    int16_t bx = treeTrunk.baseX + treeScrollOffset;
+    // Wrap to screen bounds (tree exits one side, re-enters the other)
+    while (bx > 260) bx -= 300;
+    while (bx < -60) bx += 300;
+
+    // Ambient sway when alive: +-1px, 3s period triangle wave
+    int8_t sway = 0;
+    if (treePhase == TreePhase::ALIVE) {
+        int wave = (int)(now % 3000);
+        sway = (wave < 1500) ? (int8_t)((wave - 750) / 750) : (int8_t)((2250 - wave) / 750);
+    }
+
+    // Sand-drop collapse: collapseT goes 0→1 as tree falls
+    bool collapsing = (treePhase == TreePhase::COLLAPSING);
+    float collapseT = collapsing ? (1.0f - treeGrowth) : 0.0f;
+    float collapseT2 = collapseT * collapseT;  // quadratic acceleration
+
+    // --- Phase 1: Trunk (growth 0.0 - 0.25) ---
+    float trunkProgress = 1.0f;
+    if (!collapsing && treeGrowth < 0.25f) {
+        trunkProgress = treeGrowth / 0.25f;
+    }
+
+    if (trunkProgress > 0.0f) {
+        int16_t trunkH = (int16_t)((float)treeTrunk.trunkHeight * trunkProgress);
+        int8_t lean = treeTrunk.trunkLean + sway;
+
+        // During collapse: trunk melts from top down
+        int16_t trunkTopDrop = 0;
+        if (collapsing) {
+            trunkTopDrop = (int16_t)(collapseT2 * (float)treeTrunk.trunkHeight);
+            trunkH -= trunkTopDrop;
+            if (trunkH <= 0) trunkH = 0;
+        }
+
+        if (trunkH > 0) {
+            int16_t trunkTop = baseY - trunkH;
+
+            // Trunk with slight bottom taper for visual stability
+            uint8_t botWidth = treeTrunk.trunkWidth + 1;  // +1px flare at base
+            int16_t topLeft = bx + lean - treeTrunk.trunkWidth;
+            int16_t topRight = bx + lean + treeTrunk.trunkWidth;
+            int16_t botLeft = bx - botWidth;
+            int16_t botRight = bx + botWidth;
+
+            canvas.fillTriangle(topLeft, trunkTop, botLeft, baseY, botRight, baseY, fg);
+            canvas.fillTriangle(topLeft, trunkTop, topRight, trunkTop, botRight, baseY, fg);
+        }
+    }
+
+    // --- Phase 2: Crown + Branches + Leaves (growth 0.25 - 0.75) ---
+    if (collapsing || treeGrowth >= 0.25f) {
+
+    float branchProgress = 1.0f;
+    if (!collapsing) {
+        branchProgress = (treeGrowth - 0.25f) / 0.5f;
+        if (branchProgress > 1.0f) branchProgress = 1.0f;
+    }
+
+    // Draw branches
+    for (uint8_t i = 0; i < treeBranchCount; i++) {
+        const TreeBranch& br = treeBranches[i];
+        int16_t sx = bx + br.x1 + sway;
+        int16_t sy = baseY + br.y1;
+        int16_t fullEx = bx + br.x2 + sway;
+        int16_t fullEy = baseY + br.y2;
+
+        if (collapsing) {
+            int16_t distFromGround = baseY - fullEy;
+            if (distFromGround < 0) distFromGround = 0;
+            int16_t dropY = (int16_t)(collapseT2 * (float)distFromGround);
+            fullEy += dropY;
+            sy += (int16_t)(collapseT2 * (float)(baseY - sy) * 0.3f);
+            if (fullEy > baseY || sy > baseY) continue;
+        }
+
+        int16_t ex = sx + (int16_t)((float)(fullEx - sx) * branchProgress);
+        int16_t ey = sy + (int16_t)((float)(fullEy - sy) * branchProgress);
+
+        uint8_t th = br.thickness;
+        canvas.fillTriangle(sx - th, sy, sx + th, sy, ex, ey, fg);
+    }
+
+    // --- Phase 3: Fruits (growth 0.75 - 1.0) ---
+    bool showFruits = collapsing || treeGrowth >= 0.75f;
+    if (showFruits && treeFruitCount > 0) {
+        float fruitProgress = 1.0f;
+        if (!collapsing) {
+            fruitProgress = (treeGrowth - 0.75f) / 0.25f;
+            if (fruitProgress > 1.0f) fruitProgress = 1.0f;
+        }
+
+        uint8_t visibleFruits = (uint8_t)((float)treeFruitCount * fruitProgress + 0.5f);
+        if (visibleFruits > treeFruitCount) visibleFruits = treeFruitCount;
+
+        for (uint8_t i = 0; i < visibleFruits; i++) {
+            const TreeFruit& f = treeFruits[i];
+            int16_t fx = bx + f.offsetX + sway;
+            int16_t fy = baseY + f.offsetY;
+
+            // During collapse: fruits plummet first (1.5x multiplier)
+            if (collapsing) {
+                int16_t distFromGround = baseY - fy;
+                if (distFromGround < 0) distFromGround = 0;
+                int16_t fruitDrop = (int16_t)(collapseT2 * (float)distFromGround * 1.5f);
+                fy += fruitDrop;
+                if (fy > baseY) continue;  // past ground
+            }
+
+            // Per-fruit bob when alive: 1px vertical, 2s period, staggered
+            if (treePhase == TreePhase::ALIVE) {
+                uint32_t phase = now + (uint32_t)f.bobPhase * 8;
+                int wave2 = (int)(phase % 2000);
+                int bob = (wave2 < 1000) ? 0 : 1;
+                fy += bob;
+            }
+
+            // BG-colored circle with FG outline (visible on any theme)
+            canvas.fillCircle(fx, fy, f.radius, bg);
+            canvas.drawCircle(fx, fy, f.radius, fg);
+
+            // Fruit radio waves (outgoing rings when alive)
+            if (treePhase == TreePhase::ALIVE) {
+                for (uint8_t w = 0; w < 2; w++) {
+                    uint32_t phaseOff = (uint32_t)f.bobPhase * 8 + w * 600;
+                    float wp = (float)((now + phaseOff) % 1200) / 1200.0f;
+                    if (wp > 0.80f) continue;
+                    float wt = wp / 0.80f;
+                    int16_t wr = f.radius + 2 + (int16_t)(12.0f * wt);
+                    canvas.drawCircle(fx, fy, wr, fg);
+                }
+            }
+        }
+    }
+
+    } // end Phase 2-3 (crown/branches/fruits)
+
+    // --- Dropping fruits (gravity fall after deauth) ---
+    for (uint8_t i = 0; i < MAX_DROPPING; i++) {
+        if (!droppingFruits[i].active) continue;
+
+        float t = (float)(now - droppingFruits[i].dropStart) / 1000.0f;  // seconds
+        int16_t fallDist = (int16_t)(0.5f * 800.0f * t * t);  // 800 px/s^2 gravity
+        int16_t currentY = droppingFruits[i].y + fallDist;
+
+        if (currentY >= 106) {
+            // Hit ground — deactivate and spawn splash particles
+            droppingFruits[i].active = false;
+
+            // Spawn 3-4 splash particles
+            uint8_t splashCount = 3 + (uint8_t)(esp_random() % 2);
+            for (uint8_t s = 0; s < splashCount; s++) {
+                FruitSplash& sp = fruitSplashes[fruitSplashIdx];
+                fruitSplashIdx = (fruitSplashIdx + 1) % FRUIT_SPLASH_COUNT;
+                sp.x = (float)droppingFruits[i].x;
+                sp.y = 104.0f;  // just above ground line
+                sp.vx = ((float)(esp_random() % 600) - 300.0f) / 100.0f;  // -3.0 to +3.0
+                sp.vy = -2.0f - (float)(esp_random() % 300) / 100.0f;     // -2.0 to -5.0
+                sp.size = 1 + (uint8_t)(esp_random() % (droppingFruits[i].radius / 2 + 1));
+                sp.spawnTime = now;
+                sp.active = true;
+            }
+            continue;
+        }
+
+        // Draw falling fruit (same style as tree fruits)
+        canvas.fillCircle(droppingFruits[i].x, currentY, droppingFruits[i].radius, bg);
+        canvas.drawCircle(droppingFruits[i].x, currentY, droppingFruits[i].radius, fg);
     }
 }
 

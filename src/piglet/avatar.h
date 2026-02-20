@@ -19,6 +19,13 @@ enum class WaveMode : uint8_t {
     OUTGOING   // Radiating from nose (deauth/sending)
 };
 
+enum class TreePhase : uint8_t {
+    HIDDEN = 0,   // Not visible
+    GROWING,      // Trunk → canopy → fruits animation
+    ALIVE,        // Fully grown, gentle sway + fruit bob
+    COLLAPSING    // Reverse animation
+};
+
 class Avatar {
 public:
     static void init();
@@ -65,6 +72,12 @@ public:
 
     // Walk wind-up animation (smooth slide for coast-back)
     static void startWindupSlide(int targetX, bool faceRight = false);
+
+    // Fruit tree visualization (juicy channel indicator)
+    static void showTree(uint8_t fruitCount);  // Triggers growth with N fruits
+    static void hideTree();                     // Triggers collapse
+    static bool isTreeVisible();               // True if not HIDDEN
+    static void dropFruit();                   // Detach one fruit, start it falling
 
     // Grass animation control (direction: true=right, false=left)
     static void setGrassMoving(bool moving, bool directionRight = true);
@@ -148,6 +161,62 @@ private:
     static constexpr int16_t GRASS_STRIDE = 8;  // px spacing (240/30)
     static GrassBlade grassBlades[GRASS_BLADE_COUNT];
     static int16_t grassOffset;  // smooth scroll pixel offset
+
+    // Fruit tree state
+    struct TreeFruit {
+        int8_t  offsetX;    // X offset from canopy center (-20..+20)
+        int8_t  offsetY;    // Y offset from canopy top (0..canopyH)
+        uint8_t radius;     // 2-4px
+        uint8_t bobPhase;   // Per-fruit bob phase (0-255)
+    };
+
+    struct TreeBranch {
+        int8_t x1, y1;     // start relative to baseX, baseY
+        int8_t x2, y2;     // end relative to baseX, baseY
+        uint8_t thickness;  // 1-2px (tapers from parent)
+    };
+
+    struct TreeLeafCluster {
+        int8_t cx, cy;      // center relative to baseX, baseY
+        uint8_t radius;     // 4-7px
+    };
+
+    struct TreeTrunk {
+        int16_t baseX;         // ground position
+        uint8_t trunkHeight;   // 67-81px
+        uint8_t trunkWidth;    // half-width 2-3px
+        int8_t  trunkLean;     // -3..+3
+        uint8_t crownRadius;   // 10-16px canopy circle
+    };
+
+    static constexpr uint8_t MAX_BRANCHES = 18;
+    static constexpr uint8_t MAX_LEAF_CLUSTERS = 16;
+    static constexpr uint8_t MAX_TREE_FRUITS = 8;
+    static constexpr uint16_t TREE_GROW_MS = 600;
+    static constexpr uint16_t TREE_COLLAPSE_MS = 350;
+    static constexpr uint16_t TREE_MIN_ALIVE_MS = 4000;  // minimum visible time
+
+    static TreePhase treePhase;
+    static float treeGrowth;
+    static uint32_t treeAnimStart;
+    static TreeTrunk treeTrunk;
+    static TreeBranch treeBranches[MAX_BRANCHES];
+    static uint8_t treeBranchCount;
+    static TreeLeafCluster treeLeaves[MAX_LEAF_CLUSTERS];
+    static uint8_t treeLeafCount;
+    static uint8_t treeEndpointLeafCount;
+    static TreeFruit treeFruits[MAX_TREE_FRUITS];
+    static uint8_t treeFruitCount;
+    static uint32_t treeSeed;
+    static bool treePendingHide;
+    static bool treePendingShow;
+    static uint8_t treePendingFruits;
+    static uint32_t treeAliveStart;
+    static int16_t treeScrollOffset;  // cumulative grass scroll applied to tree X
+
+    static void generateTree(uint8_t fruitCount);
+    static void updateTree();
+    static void drawTree(M5Canvas& canvas);
 
     static WaveMode waveMode;
     static uint32_t waveBurstStart;

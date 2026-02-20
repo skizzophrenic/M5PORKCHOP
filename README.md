@@ -45,7 +45,7 @@
 | [O] OINK MODE     - yoink handshakes. dual-band fangs.       |
 | [D] DO NO HAM     - zero TX. passive recon. zen pig.         |
 | [W] WARHOG        - dual-band wardriving. legs required.     |
-| [H] SPECTRUM      - 2.4 + 5GHz RF. sinc lobes. physics.     |
+| [H] SPECTRUM      - 2.4 + 5GHz RF. sinc lobes. physics.      | 
 | [B] PIGGY BLUES   - BLE spam. YOU DIED. in that order.       |
 | [F] FILE XFER     - web UI. civilization achieved.           |
 | [*] BACON         - fake beacons. via MENU. worth the trip.  |
