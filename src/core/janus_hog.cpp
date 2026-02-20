@@ -274,10 +274,16 @@ void JanusHog::init() {
         return;
     }
 
-    // Handle GPS pin conflict — check any overlap, not just Grove defaults
-    GPSConfig gpsCfg = Config::gps();
+    // Validate UART pins before touching hardware — bad pins cause WDT hang
     uint8_t txPin = Config::c5().uartTxPin;
     uint8_t rxPin = Config::c5().uartRxPin;
+    if (txPin > 48 || rxPin > 48 || txPin == rxPin) {
+        C5_LOGF("Invalid UART pins TX=%d RX=%d, aborting", txPin, rxPin);
+        return;
+    }
+
+    // Handle GPS pin conflict — check any overlap, not just Grove defaults
+    GPSConfig gpsCfg = Config::gps();
 
     if (gpsCfg.enabled &&
         (txPin == gpsCfg.txPin || txPin == gpsCfg.rxPin ||

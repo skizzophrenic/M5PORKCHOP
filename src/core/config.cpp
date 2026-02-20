@@ -213,6 +213,11 @@ static bool readBlobFrom(fs::FS& fs, const char* path, ConfigBlob& b) {
     file.close();
 
     if (got < 8 || b.magic != CONFIG_MAGIC) return false;
+    // Detect stale blobs from older builds (different struct size)
+    if (b.blobSize > 0 && b.blobSize != sizeof(ConfigBlob)) {
+        Serial.printf("[CONFIG] Blob size mismatch: stored=%u expected=%u\n",
+                      b.blobSize, (unsigned)sizeof(ConfigBlob));
+    }
     Serial.printf("[CONFIG] readBlobFrom: '%s' v%u, %u bytes\n", path, b.version, got);
     return true;
 }
@@ -300,6 +305,24 @@ static void sanitizeWiFiConfig(WiFiConfig& cfg) {
     cfg.attackMinRssi = clampI8(cfg.attackMinRssi, -90, -50);
     if (cfg.spectrumTopN > 100) cfg.spectrumTopN = 100;
     cfg.spectrumStaleMs = clampU16(cfg.spectrumStaleMs, 1000, 20000);
+}
+
+static void sanitizeC5Config(C5Config& cfg) {
+    // Valid ESP32-S3 GPIO range: 0-48
+    if (cfg.uartTxPin > 48) cfg.uartTxPin = 2;
+    if (cfg.uartRxPin > 48) cfg.uartRxPin = 1;
+    // Baud rate sanity: 9600-921600
+    if (cfg.baudRate < 9600 || cfg.baudRate > 921600) cfg.baudRate = 115200;
+    // Scan interval: 0 (disabled) or 5000-120000ms
+    if (cfg.scanIntervalMs > 0 && cfg.scanIntervalMs < 5000) cfg.scanIntervalMs = 5000;
+    if (cfg.scanIntervalMs > 120000) cfg.scanIntervalMs = 30000;
+}
+
+static void sanitizeGPSConfig(GPSConfig& cfg) {
+    if (cfg.rxPin > 48) cfg.rxPin = 1;
+    if (cfg.txPin > 48) cfg.txPin = 2;
+    if (cfg.baudRate < 4800 || cfg.baudRate > 921600) cfg.baudRate = 9600;
+    if (static_cast<uint8_t>(cfg.source) >= GPS_SOURCE_COUNT) cfg.source = GPSSource::GROVE;
 }
 
 static void ensureSdSpiReady() {
@@ -661,6 +684,8 @@ bool Config::load() {
     if (sdAvailable && readBlobFrom((fs::FS&)SD, configBinPathSD(), blob)) {
         extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
+        sanitizeC5Config(c5Config);
+        sanitizeGPSConfig(gpsConfig);
         Serial.println("[CONFIG] Loaded binary from SD");
         // Mirror to SPIFFS
         writeBlobTo((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob);
@@ -672,6 +697,8 @@ bool Config::load() {
         if (readBlobFrom((fs::FS&)SD, "/porkchop.dat", blob)) {
             extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
             sanitizeWiFiConfig(wifiConfig);
+            sanitizeC5Config(c5Config);
+            sanitizeGPSConfig(gpsConfig);
             Serial.println("[CONFIG] Loaded binary from legacy SD path, migrating...");
             // Move to new location and mirror to SPIFFS
             writeBlobTo((fs::FS&)SD, configBinPathSD(), blob);
@@ -686,6 +713,8 @@ bool Config::load() {
     if (readBlobFrom((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob)) {
         extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
+        sanitizeC5Config(c5Config);
+        sanitizeGPSConfig(gpsConfig);
         Serial.println("[CONFIG] Loaded binary from SPIFFS");
         return true;
     }
