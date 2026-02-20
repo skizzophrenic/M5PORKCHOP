@@ -584,15 +584,13 @@ void DoNoHamMode::update() {
                 }
             }
             
-            // Look up SSID if missing
+            // Look up SSID if missing — use findNetwork() for atomic lookup+copy
             if (hs.ssid[0] == 0) {
-                int netIdx = NetworkRecon::findNetworkIndex(hs.bssid);
-                NetworkRecon::enterCritical();
-                if (netIdx >= 0 && netIdx < (int)networks().size() && networks()[netIdx].ssid[0] != 0) {
-                    strncpy(hs.ssid, networks()[netIdx].ssid, 32);
+                DetectedNetwork netCopy;
+                if (NetworkRecon::findNetwork(hs.bssid, &netCopy) && netCopy.ssid[0] != 0) {
+                    strncpy(hs.ssid, netCopy.ssid, 32);
                     hs.ssid[32] = 0;
                 }
-                NetworkRecon::exitCritical();
             }
             
             // Check if we just completed a valid pair

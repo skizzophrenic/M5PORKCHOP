@@ -524,14 +524,17 @@ bool WiGLE::fetchStats() {
     // Create WiFiClientSecure
     WiFiClientSecure client;
     client.setInsecure();
-    client.setTimeout(30000);
-    
+    // NOTE: setTimeout() before connect() causes EBADF — socket doesn't exist yet
+
     if (!client.connect(API_HOST, API_PORT, 10000)) {
         strncpy(lastError, "STATS TLS FAILED", sizeof(lastError) - 1);
         Serial.println("[WIGLE] Stats TLS connection failed");
         return false;
     }
-    
+
+    // Set timeout after connect — socket must exist first
+    client.setTimeout(30000);
+
     // Send GET request
     client.printf("GET %s HTTP/1.1\r\n", STATS_PATH);
     client.printf("Host: %s\r\n", API_HOST);

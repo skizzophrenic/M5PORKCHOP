@@ -10,6 +10,7 @@
 #include "../core/config.h"
 #include "../core/sd_layout.h"
 #include "../core/wifi_utils.h"
+#include "../core/network_recon.h"
 #include "../core/heap_health.h"
 #include <esp_heap_caps.h>
 
@@ -42,6 +43,7 @@ uint8_t TracksMenu::syncFailed = 0;
 uint8_t TracksMenu::syncSkipped = 0;
 bool TracksMenu::syncStatsFetched = false;
 char TracksMenu::syncError[48] = "";
+bool TracksMenu::reconWasRunning = false;
 
 namespace {
 
@@ -326,6 +328,10 @@ void TracksMenu::handleInput() {
                 syncModalActive = false;
                 syncState = WigleSyncState::IDLE;
                 scanFiles();  // Rescan files after sync
+                if (reconWasRunning) {
+                    NetworkRecon::resume();
+                    reconWasRunning = false;
+                }
             }
         } else {
             // ESC cancels during sync
@@ -722,7 +728,7 @@ bool TracksMenu::connectToWiFi() {
     Serial.printf("[TRACKS] Connecting to WiFi: %s\n", ssid);
     strncpy(syncStatusText, "CONNECTING WIFI...", sizeof(syncStatusText) - 1);
     
-    WiFi.mode(WIFI_STA);
+    WiFiUtils::hardReset();
     WiFi.begin(ssid, password);
     
     unsigned long startTime = millis();
@@ -777,18 +783,31 @@ void TracksMenu::startSync() {
     files.clear();
     files.shrink_to_fit();
     WiGLE::freeUploadedListMemory();
-    
+
+    // Pause NetworkRecon before WiFi mode changes — promiscuous callbacks
+    // crash if they fire during STA mode transition
+    reconWasRunning = NetworkRecon::isRunning();
+    if (reconWasRunning) {
+        NetworkRecon::pause();
+        NetworkRecon::freeNetworks();  // Release ~19KB for TLS headroom
+    }
+
     Serial.printf("[TRACKS] Heap after freeing: %u\n", (unsigned int)ESP.getFreeHeap());
 }
 
 void TracksMenu::cancelSync() {
     Serial.println("[TRACKS] Sync cancelled");
-    
+
     // Clean up
     disconnectWiFi();
     syncModalActive = false;
     syncState = WigleSyncState::IDLE;
-    
+
+    if (reconWasRunning) {
+        NetworkRecon::resume();
+        reconWasRunning = false;
+    }
+
     // Rescan files
     scanFiles();
 }

@@ -87,7 +87,8 @@ private:
     static uint8_t syncSkipped;
     static bool syncStatsFetched;
     static char syncError[48];
-    
+    static bool reconWasRunning;
+
     // Sync operations
     static void startSync();
     static void processSyncState();

@@ -417,8 +417,10 @@ static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) {
         // Queue for deferred add
         enqueuePendingNetwork(net);
     } else {
-        // Update existing network
+        // Update existing network — re-lookup under lock to avoid stale idx
+        // (cleanupStaleNetworks can erase/shift elements between the two critical sections)
         taskENTER_CRITICAL(&vectorMux);
+        idx = findNetworkInternal(bssid);
         if (idx >= 0 && idx < (int)networks.size()) {
             DetectedNetwork& net = networks[idx];
             net.rssi = rssi;

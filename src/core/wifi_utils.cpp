@@ -90,39 +90,6 @@ bool ensureTlsReserve(size_t bytes) {
     return ok;
 }
 
-bool acquireTlsReserve() {
-    ensureInitialized(); // Make sure all mutexes are initialized
-    
-    if (!reserveMutex) return false;
-    
-    // Use timeout to prevent indefinite blocking
-    if (xSemaphoreTake(reserveMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return false;
-    }
-
-    if ((!tlsReserve || tlsReserveReleased) && tlsReserveSize > 0) {
-        tlsReserve = heap_caps_malloc(tlsReserveSize, MALLOC_CAP_8BIT);
-        if (!tlsReserve) {
-            xSemaphoreGive(reserveMutex);
-            return false;
-        }
-        tlsReserveReleased = false;
-    }
-
-    if (!tlsReserve || tlsReserveSize == 0 || tlsReserveReleased) {
-        xSemaphoreGive(reserveMutex);
-        return false;
-    }
-
-    // Return the pointer to the caller - don't free it here
-    void* acquiredPtr = tlsReserve;
-    tlsReserve = nullptr;
-    tlsReserveReleased = true;
-    
-    xSemaphoreGive(reserveMutex);
-    return acquiredPtr != nullptr;
-}
-
 bool restoreTlsReserve() {
     ensureInitialized(); // Make sure all mutexes are initialized
     
