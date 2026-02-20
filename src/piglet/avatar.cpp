@@ -139,6 +139,23 @@ static inline int16_t snapPx(int16_t v) {
     return (v >= 0) ? (v / PX) * PX : ((v - 2) / PX) * PX;
 }
 
+// Bresenham line on PX grid — stamps PX*PX blocks
+static void fatLine(M5Canvas& canvas, int16_t x1, int16_t y1,
+                    int16_t x2, int16_t y2, uint16_t color) {
+    int gx1 = x1 / PX, gy1 = y1 / PX;
+    int gx2 = x2 / PX, gy2 = y2 / PX;
+    int dx = abs(gx2 - gx1), dy = abs(gy2 - gy1);
+    int sx = (gx1 < gx2) ? 1 : -1, sy = (gy1 < gy2) ? 1 : -1;
+    int err = dx - dy;
+    while (true) {
+        canvas.fillRect(gx1 * PX, gy1 * PX, PX, PX, color);
+        if (gx1 == gx2 && gy1 == gy2) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; gx1 += sx; }
+        if (e2 < dx)  { err += dx; gy1 += sy; }
+    }
+}
+
 // Color helper for thunder flash inversion (matches Sirloin)
 static uint16_t getDrawColor() {
     if (thunderFlashActive) {
@@ -1206,21 +1223,19 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     uint16_t color = getDrawColor();  // Thunder-aware color
     const int16_t baseY = 106;  // Ground line (pixel-adjacent with bottom bar)
 
-    // Solid ground line
-    canvas.fillRect(0, 105, 240, 2, color);
+    // Solid ground line (fat-pixel aligned)
+    canvas.fillRect(0, snapPx(baseY - 1), 240, PX, color);
 
     // Pig body footprint for grass bending (6 chars x 18px at text size 3)
-    // Inset 18px from each edge - bend under the 4 inner spaces, not the parens
     bool pigOnGround = !jumpActive && !attackHopActive;
-    int pigLeft  = currentX;         // left edge of ( cell
-    int pigRight = currentX + 108;   // right edge of ) cell
+    int pigLeft  = currentX;
+    int pigRight = currentX + 108;
     int pigCenter = (pigLeft + pigRight) / 2;
-    int pigHalf  = (pigRight - pigLeft) / 2;  // 54px
+    int pigHalf  = (pigRight - pigLeft) / 2;
 
-    // Draw triangle blades
+    // Draw fat-pixel grass blades (vertical fatLine from base to tip)
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
         int16_t cx = i * GRASS_STRIDE + grassOffset;
-        // Wrap for seamless scrolling
         if (cx < -GRASS_STRIDE) cx += 240 + GRASS_STRIDE;
         if (cx > 240) continue;
 
@@ -1230,11 +1245,10 @@ void Avatar::drawGrass(M5Canvas& canvas) {
 
         // Ambient wind sway - triangle wave, ~2.5s period, per-blade phase
         {
-            uint32_t phase = now + (uint32_t)i * 197;  // stagger per blade
-            int wave = (int)(phase % 2500);             // 0..2499
-            // Triangle wave: ramp up 0..1250, ramp down 1250..2500 -> range -2..+2
+            uint32_t phase = now + (uint32_t)i * 197;
+            int wave = (int)(phase % 2500);
             int sway = (wave < 1250) ? (wave - 625) : (1875 - wave);
-            sway = sway / 312;  // scale to +/-2
+            sway = sway * PX / 625;  // scale to +/- PX
             drawLean += (int8_t)sway;
         }
 
@@ -1242,23 +1256,18 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         if (pigOnGround && cx >= pigLeft && cx <= pigRight) {
             int distFromCenter = cx - pigCenter;
             if (distFromCenter < 0) distFromCenter = -distFromCenter;
-            // 1.0 at center, 0.0 at edges
             float bend = 1.0f - (float)distFromCenter / (float)pigHalf;
-            // Flatten: up to 70% shorter at center
             drawHeight = b.height - (int16_t)((float)b.height * 0.7f * bend);
-            if (drawHeight < 2) drawHeight = 2;
-            // Lean away from pig center
+            if (drawHeight < PX) drawHeight = PX;
             int8_t leanPush = (int8_t)(4.0f * bend);
             drawLean = (cx < pigCenter) ? (b.lean - leanPush) : (b.lean + leanPush);
         }
 
-        int16_t tipX = cx + drawLean;
-        int16_t tipY = baseY - drawHeight;
-        int16_t leftX = cx - b.width;
-        int16_t rightX = cx + b.width;
+        int16_t tipX = snapPx(cx + drawLean);
+        int16_t tipY = snapPx(baseY - drawHeight);
         uint16_t bladeColor = (pigOnGround && cx >= pigLeft && cx <= pigRight)
                              ? getBGColor() : color;
-        canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, bladeColor);
+        fatLine(canvas, snapPx(cx), baseY, tipX, tipY, bladeColor);
     }
 
     // === Trail particles (dust from running pig) ===
@@ -1301,21 +1310,18 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         }
     }
 
-    // Draw trail particles (shrinking circles)
+    // Draw trail particles (fat-pixel squares, grid-snapped)
     for (int i = 0; i < TRAIL_COUNT; i++) {
         if (!trailParticles[i].active) continue;
-        int px = (int)trailParticles[i].x;
-        int py = (int)trailParticles[i].y;
-        if (px < 0 || px >= 240) continue;
+        int tpx = snapPx((int16_t)trailParticles[i].x);
+        int tpy = snapPx((int16_t)trailParticles[i].y);
+        if (tpx < 0 || tpx >= 240) continue;
 
-        float dx = trailParticles[i].x - trailParticles[i].startX;
-        if (dx < 0) dx = -dx;
-        float progress = dx / trailParticles[i].maxDist;
-        if (progress > 1.0f) progress = 1.0f;
-        int r = (int)((float)trailParticles[i].baseSize * (1.0f - progress) + 0.5f);
-        if (r < 1) continue;
+        float tdx = trailParticles[i].x - trailParticles[i].startX;
+        if (tdx < 0) tdx = -tdx;
+        if (tdx >= trailParticles[i].maxDist) continue;
 
-        canvas.fillCircle(px, py, r, color);
+        canvas.fillRect(tpx, tpy, PX, PX, color);
     }
 
     // === Fruit splash particles (burst on ground impact) ===
@@ -1693,23 +1699,6 @@ void Avatar::updateTree() {
     }
 }
 
-// Bresenham line on PX grid — stamps PX*PX blocks
-static void fatLine(M5Canvas& canvas, int16_t x1, int16_t y1,
-                    int16_t x2, int16_t y2, uint16_t color) {
-    int gx1 = x1 / PX, gy1 = y1 / PX;
-    int gx2 = x2 / PX, gy2 = y2 / PX;
-    int dx = abs(gx2 - gx1), dy = abs(gy2 - gy1);
-    int sx = (gx1 < gx2) ? 1 : -1, sy = (gy1 < gy2) ? 1 : -1;
-    int err = dx - dy;
-    while (true) {
-        canvas.fillRect(gx1 * PX, gy1 * PX, PX, PX, color);
-        if (gx1 == gx2 && gy1 == gy2) break;
-        int e2 = 2 * err;
-        if (e2 > -dy) { err -= dy; gx1 += sx; }
-        if (e2 < dx)  { err += dx; gy1 += sy; }
-    }
-}
-
 // Fat-pixel fruit: large=5x5 diamond, small=3x3 cross
 static void fatFruit(M5Canvas& canvas, int16_t cx, int16_t cy, int r,
                      uint16_t fill, uint16_t outline) {
@@ -1878,22 +1867,6 @@ void Avatar::drawTree(M5Canvas& canvas) {
             // Fat-pixel fruit
             fatFruit(canvas, fx, fy, f.radius, bg, fg);
 
-            // Radio waves (circular arcs, same style as pig RX/TX)
-            if (treePhase == TreePhase::ALIVE) {
-                const uint8_t WAVE_COUNT = 3;
-                const uint16_t WAVE_CYCLE = 1200;
-                const int16_t WAVE_R_MIN = f.radius + 3;
-                const int16_t WAVE_R_MAX = f.radius + 18;
-                for (uint8_t w = 0; w < WAVE_COUNT; w++) {
-                    uint32_t phaseOff = (uint32_t)f.bobPhase * 8 + w * (WAVE_CYCLE / WAVE_COUNT);
-                    float wp = (float)((now + phaseOff) % WAVE_CYCLE) / (float)WAVE_CYCLE;
-                    if (wp > 0.80f) continue;
-                    float wt = wp / 0.80f;
-                    int16_t wr = WAVE_R_MIN + (int16_t)((float)(WAVE_R_MAX - WAVE_R_MIN) * wt);
-                    int16_t thick = (wt < 0.5f) ? 2 : 1;
-                    canvas.fillArc(fx, fy, wr + thick, wr, 0, 360, fg);
-                }
-            }
         }
     }
 
