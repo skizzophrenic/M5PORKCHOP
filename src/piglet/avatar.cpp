@@ -132,6 +132,13 @@ static constexpr uint8_t FRUIT_SPLASH_COUNT = 8;
 static FruitSplash fruitSplashes[FRUIT_SPLASH_COUNT] = {{0}};
 static uint8_t fruitSplashIdx = 0;
 
+// Fat pixel size = font scale factor (text size 3 = 3x3 blocks)
+static constexpr int16_t PX = 3;
+
+static inline int16_t snapPx(int16_t v) {
+    return (v >= 0) ? (v / PX) * PX : ((v - 2) / PX) * PX;
+}
+
 // Color helper for thunder flash inversion (matches Sirloin)
 static uint16_t getDrawColor() {
     if (thunderFlashActive) {
@@ -833,7 +840,6 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     updateStars();
     drawStars(canvas);
     drawTree(canvas);  // Fruit tree behind pig
-    fillPigBoundingBox(canvas);
 
     canvas.setTextDatum(top_left);
     canvas.setTextSize(3);
@@ -1327,19 +1333,17 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         }
     }
 
-    // Draw fruit splash particles (shrinking circles)
+    // Draw fruit splash particles (fixed fat-pixel squares, grid-snapped)
     for (uint8_t i = 0; i < FRUIT_SPLASH_COUNT; i++) {
         if (!fruitSplashes[i].active) continue;
-        int spx = (int)fruitSplashes[i].x;
-        int spy = (int)fruitSplashes[i].y;
+        int spx = snapPx((int16_t)fruitSplashes[i].x);
+        int spy = snapPx((int16_t)fruitSplashes[i].y);
         if (spx < 0 || spx >= 240) continue;
 
         float progress = (float)(now - fruitSplashes[i].spawnTime) / 500.0f;
-        if (progress > 1.0f) progress = 1.0f;
-        int sr = (int)((float)fruitSplashes[i].size * (1.0f - progress) + 0.5f);
-        if (sr < 1) continue;
+        if (progress >= 1.0f) continue;
 
-        canvas.fillCircle(spx, spy, sr, color);
+        canvas.fillRect(spx, spy, PX, PX, color);
     }
 }
 
@@ -1612,11 +1616,12 @@ void Avatar::dropFruit() {
     while (bx > 260) bx -= 300;
     while (bx < -60) bx += 300;
 
-    // Ambient sway (match drawTree logic)
+    // Ambient sway (match drawTree logic — fat pixel scale)
     int8_t sway = 0;
     uint32_t now = millis();
     int wave = (int)(now % 3000);
-    sway = (wave < 1500) ? (int8_t)((wave - 750) / 750) : (int8_t)((2250 - wave) / 750);
+    sway = (wave < 1500) ? (int8_t)(((wave - 750) * PX) / 750)
+                         : (int8_t)(((2250 - wave) * PX) / 750);
 
     // Find free dropping slot
     for (uint8_t i = 0; i < MAX_DROPPING; i++) {
@@ -1688,6 +1693,54 @@ void Avatar::updateTree() {
     }
 }
 
+// Bresenham line on PX grid — stamps PX*PX blocks
+static void fatLine(M5Canvas& canvas, int16_t x1, int16_t y1,
+                    int16_t x2, int16_t y2, uint16_t color) {
+    int gx1 = x1 / PX, gy1 = y1 / PX;
+    int gx2 = x2 / PX, gy2 = y2 / PX;
+    int dx = abs(gx2 - gx1), dy = abs(gy2 - gy1);
+    int sx = (gx1 < gx2) ? 1 : -1, sy = (gy1 < gy2) ? 1 : -1;
+    int err = dx - dy;
+    while (true) {
+        canvas.fillRect(gx1 * PX, gy1 * PX, PX, PX, color);
+        if (gx1 == gx2 && gy1 == gy2) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; gx1 += sx; }
+        if (e2 < dx)  { err += dx; gy1 += sy; }
+    }
+}
+
+// Fat-pixel fruit: large=5x5 diamond, small=3x3 cross
+static void fatFruit(M5Canvas& canvas, int16_t cx, int16_t cy, int r,
+                     uint16_t fill, uint16_t outline) {
+    int16_t gx = snapPx(cx), gy = snapPx(cy);
+    if (r >= 6) {
+        // Large: 5x5 grid diamond — FG ring + BG center
+        static const int8_t ring[][2] = {
+            {-1,-2},{0,-2},{1,-2},
+            {-2,-1},{2,-1},
+            {-2, 0},{2, 0},
+            {-2, 1},{2, 1},
+            {-1, 2},{0, 2},{1, 2}
+        };
+        for (auto& p : ring)
+            canvas.fillRect(gx + p[0]*PX, gy + p[1]*PX, PX, PX, outline);
+        // Interior fill (3x3 center)
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+                canvas.fillRect(gx + dx*PX, gy + dy*PX, PX, PX, fill);
+    } else {
+        // Small: 3x3 cross — 4 FG cardinal + 1 BG center
+        canvas.fillRect(gx, gy - PX, PX, PX, outline);
+        canvas.fillRect(gx - PX, gy, PX, PX, outline);
+        canvas.fillRect(gx + PX, gy, PX, PX, outline);
+        canvas.fillRect(gx, gy + PX, PX, PX, outline);
+        canvas.fillRect(gx, gy, PX, PX, fill);
+    }
+}
+
+
+
 void Avatar::drawTree(M5Canvas& canvas) {
     updateTree();
 
@@ -1709,11 +1762,12 @@ void Avatar::drawTree(M5Canvas& canvas) {
     while (bx > 260) bx -= 300;
     while (bx < -60) bx += 300;
 
-    // Ambient sway when alive: +-1px, 3s period triangle wave
+    // Ambient sway when alive: +-1 fat pixel, 3s period triangle wave
     int8_t sway = 0;
     if (treePhase == TreePhase::ALIVE) {
         int wave = (int)(now % 3000);
-        sway = (wave < 1500) ? (int8_t)((wave - 750) / 750) : (int8_t)((2250 - wave) / 750);
+        sway = (wave < 1500) ? (int8_t)(((wave - 750) * PX) / 750)
+                             : (int8_t)(((2250 - wave) * PX) / 750);
     }
 
     // Sand-drop collapse: collapseT goes 0→1 as tree falls
@@ -1742,15 +1796,16 @@ void Avatar::drawTree(M5Canvas& canvas) {
         if (trunkH > 0) {
             int16_t trunkTop = baseY - trunkH;
 
-            // Trunk with slight bottom taper for visual stability
-            uint8_t botWidth = treeTrunk.trunkWidth + 1;  // +1px flare at base
-            int16_t topLeft = bx + lean - treeTrunk.trunkWidth;
-            int16_t topRight = bx + lean + treeTrunk.trunkWidth;
-            int16_t botLeft = bx - botWidth;
-            int16_t botRight = bx + botWidth;
-
-            canvas.fillTriangle(topLeft, trunkTop, botLeft, baseY, botRight, baseY, fg);
-            canvas.fillTriangle(topLeft, trunkTop, topRight, trunkTop, botRight, baseY, fg);
+            // Fat-pixel trunk: PX-grid column
+            for (int16_t row = 0; row < trunkH; row += PX) {
+                float t = (float)row / (float)(trunkH > 1 ? trunkH - 1 : 1);
+                int16_t rowLean = snapPx(lean - (int16_t)((float)lean * t));
+                int hwFat = 1 + (int)(t * 1.0f + 0.5f);  // 1 at top, 2 at bottom
+                int16_t h = (row + PX > trunkH) ? (trunkH - row) : PX;
+                for (int dx = -hwFat; dx <= hwFat; dx++) {
+                    canvas.fillRect(snapPx(bx + rowLean) + dx * PX, trunkTop + row, PX, h, fg);
+                }
+            }
         }
     }
 
@@ -1783,8 +1838,7 @@ void Avatar::drawTree(M5Canvas& canvas) {
         int16_t ex = sx + (int16_t)((float)(fullEx - sx) * branchProgress);
         int16_t ey = sy + (int16_t)((float)(fullEy - sy) * branchProgress);
 
-        uint8_t th = br.thickness;
-        canvas.fillTriangle(sx - th, sy, sx + th, sy, ex, ey, fg);
+        fatLine(canvas, sx, sy, ex, ey, fg);
     }
 
     // --- Phase 3: Fruits (growth 0.75 - 1.0) ---
@@ -1813,27 +1867,31 @@ void Avatar::drawTree(M5Canvas& canvas) {
                 if (fy > baseY) continue;  // past ground
             }
 
-            // Per-fruit bob when alive: 1px vertical, 2s period, staggered
+            // Per-fruit bob when alive: 1 fat pixel vertical, 2s period, staggered
             if (treePhase == TreePhase::ALIVE) {
                 uint32_t phase = now + (uint32_t)f.bobPhase * 8;
                 int wave2 = (int)(phase % 2000);
-                int bob = (wave2 < 1000) ? 0 : 1;
+                int bob = (wave2 < 1000) ? 0 : PX;
                 fy += bob;
             }
 
-            // BG-colored circle with FG outline (visible on any theme)
-            canvas.fillCircle(fx, fy, f.radius, bg);
-            canvas.drawCircle(fx, fy, f.radius, fg);
+            // Fat-pixel fruit
+            fatFruit(canvas, fx, fy, f.radius, bg, fg);
 
-            // Fruit radio waves (outgoing rings when alive)
+            // Radio waves (circular arcs, same style as pig RX/TX)
             if (treePhase == TreePhase::ALIVE) {
-                for (uint8_t w = 0; w < 2; w++) {
-                    uint32_t phaseOff = (uint32_t)f.bobPhase * 8 + w * 600;
-                    float wp = (float)((now + phaseOff) % 1200) / 1200.0f;
+                const uint8_t WAVE_COUNT = 3;
+                const uint16_t WAVE_CYCLE = 1200;
+                const int16_t WAVE_R_MIN = f.radius + 3;
+                const int16_t WAVE_R_MAX = f.radius + 18;
+                for (uint8_t w = 0; w < WAVE_COUNT; w++) {
+                    uint32_t phaseOff = (uint32_t)f.bobPhase * 8 + w * (WAVE_CYCLE / WAVE_COUNT);
+                    float wp = (float)((now + phaseOff) % WAVE_CYCLE) / (float)WAVE_CYCLE;
                     if (wp > 0.80f) continue;
                     float wt = wp / 0.80f;
-                    int16_t wr = f.radius + 2 + (int16_t)(12.0f * wt);
-                    canvas.drawCircle(fx, fy, wr, fg);
+                    int16_t wr = WAVE_R_MIN + (int16_t)((float)(WAVE_R_MAX - WAVE_R_MIN) * wt);
+                    int16_t thick = (wt < 0.5f) ? 2 : 1;
+                    canvas.fillArc(fx, fy, wr + thick, wr, 0, 360, fg);
                 }
             }
         }
@@ -1869,9 +1927,8 @@ void Avatar::drawTree(M5Canvas& canvas) {
             continue;
         }
 
-        // Draw falling fruit (same style as tree fruits)
-        canvas.fillCircle(droppingFruits[i].x, currentY, droppingFruits[i].radius, bg);
-        canvas.drawCircle(droppingFruits[i].x, currentY, droppingFruits[i].radius, fg);
+        // Draw falling fruit (fat-pixel, same style as tree fruits)
+        fatFruit(canvas, droppingFruits[i].x, currentY, droppingFruits[i].radius, bg, fg);
     }
 }
 
@@ -1975,20 +2032,6 @@ void Avatar::updateStars() {
     }
 }
 
-void Avatar::fillPigBoundingBox(M5Canvas& canvas) {
-    if (!starsActive || starCount == 0) return;
-
-    int boxX = currentX - 25;
-    int boxW = 155;  // covers tail + 7 chars + margin
-    int boxY = 26;   // base y (38) minus jump headroom (12)
-    int boxH = 81;   // stops above grass near y107
-
-    // Clamp to screen
-    if (boxX < 0) { boxW += boxX; boxX = 0; }
-    if (boxX + boxW > 240) boxW = 240 - boxX;
-
-    canvas.fillRect(boxX, boxY, boxW, boxH, getBGColor());
-}
 
 void Avatar::drawStars(M5Canvas& canvas) {
     if (!starsActive || starCount == 0) return;

@@ -119,7 +119,6 @@ private:
     static void initStarPositions();
     static void updateStars();
     static void drawStars(M5Canvas& canvas);
-    static void fillPigBoundingBox(M5Canvas& canvas);
     static AvatarState currentState;
     static bool isBlinking;
     static bool isSniffing;
