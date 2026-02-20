@@ -125,8 +125,16 @@ public:
     // Screenshot
     static bool takeScreenshot();     // Save screen to SD card, returns success
     static bool isSnapping() { return snapping; }  // True during screenshot save
-    
+
+    // Screen shake effect (captures, impacts)
+    static void triggerScreenShake(uint8_t intensity = 3, uint16_t durationMs = 200);
+
 private:
+    // Screen shake state
+    static bool screenShakeActive;
+    static uint32_t screenShakeStart;
+    static uint16_t screenShakeDuration;
+    static uint8_t screenShakeIntensity;
     static M5Canvas topBar;
     static M5Canvas mainCanvas;
     static M5Canvas bottomBar;

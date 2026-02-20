@@ -46,6 +46,26 @@ static const uint32_t TRANSITION_DURATION_MS = 1200;  // 1.2s slow relaxed walk 
 static uint32_t lastGrassStopTime = 0;
 static const uint32_t GRASS_REST_COOLDOWN_MS = 3000;  // 3 second chill period after grass stops
 
+// Ear twitch micro-animation state
+bool Avatar::earTwitchActive = false;
+uint32_t Avatar::earTwitchStart = 0;
+uint32_t Avatar::nextEarTwitch = 0;
+
+// Sparkle particle pool
+Avatar::SparkleParticle Avatar::sparkles[MAX_SPARKLES] = {};
+
+// Event reaction animation states
+bool Avatar::perkUpActive = false;
+uint32_t Avatar::perkUpStart = 0;
+bool Avatar::flinchActive = false;
+uint32_t Avatar::flinchStart = 0;
+bool Avatar::spinActive = false;
+uint32_t Avatar::spinStart = 0;
+bool Avatar::pawScratchActive = false;
+uint32_t Avatar::pawScratchStart = 0;
+bool Avatar::tailWiggleActive = false;
+uint32_t Avatar::tailWiggleStart = 0;
+
 // Grass wander state (random roaming toward center while treadmill runs)
 static uint32_t grassWanderTimer = 0;
 static uint32_t grassWanderInterval = 4000;
@@ -125,6 +145,88 @@ static uint16_t getBGColor() {
         return getColorFG();  // Inverted while flashing
     }
     return getColorBG();
+}
+
+// Draws an ASCII pig line with filled body interior.
+// Parens ( ) drawn in FG. Interior filled with FG rect.
+// Non-space interior chars drawn in BG (negative-space holes).
+static void drawFilledPigLine(M5Canvas& canvas, const char* line, int x, int y,
+                              uint16_t fgColor, uint16_t bgColor, int lineIndex = -1) {
+    const int charW = 18;  // char width at text size 3
+    const int charH = 22;  // line height
+    int len = strlen(line);
+
+    // Find paren positions
+    int openIdx = -1, closeIdx = -1;
+    for (int i = 0; i < len; i++) {
+        if (line[i] == '(' && openIdx < 0) openIdx = i;
+        if (line[i] == ')') closeIdx = i;
+    }
+
+    if (openIdx < 0 || closeIdx <= openIdx) {
+        // No parens — draw normally (ear line, etc.)
+        canvas.setTextColor(fgColor);
+        canvas.drawString(line, x, y);
+        return;
+    }
+
+    // Draw prefix chars (tail "z"/"~") in FG
+    canvas.setTextColor(fgColor);
+    for (int i = 0; i < openIdx; i++) {
+        canvas.drawChar(line[i], x + i * charW, y);
+    }
+
+    // Draw ( in FG
+    canvas.drawChar('(', x + openIdx * charW, y);
+
+    // Fill interior with FG, following ( ) glyph curves per font-pixel row
+    // Pixel offsets from cell left edge where fill starts/ends (interior side of glyph)
+    static const int8_t openCurve[7]  = {12, 9, 6, 6, 6, 9, 12};  // px from ( cell left
+    static const int8_t closeCurve[7] = { 3, 6, 9, 9, 9, 6,  3};  // px from ) cell left
+
+    int parenLX = x + openIdx * charW;   // left edge of ( cell
+    int parenRX = x + closeIdx * charW;  // left edge of ) cell
+
+    for (int r = 0; r < 7; r++) {
+        int sy = y + r * 3;
+        int sh = (r < 6) ? 3 : (charH - 18);  // last row = 4px (22 - 6*3)
+
+        int li = openCurve[r];
+        int ri = closeCurve[r];
+
+        int fX = parenLX + li;
+        int fW = (parenRX + ri) - fX;
+        if (fW > 0) canvas.fillRect(fX, sy, fW, sh, fgColor);
+    }
+
+    // Connection bumps: small nubs that bridge to ears (top) and ground (bottom)
+    int bodyCenter = (parenLX + parenRX + charW) / 2;
+    if (lineIndex == 1) {
+        // Head top bump — bridges gap between ears above
+        int bw = 56;
+        canvas.fillRect(bodyCenter - bw / 2, y - 2, bw, 2, fgColor);
+    } else if (lineIndex == 2) {
+        // Body bottom bump — connects pig to ground
+        int bw = 56;
+        canvas.fillRect(bodyCenter - bw / 2, y + charH, bw, 2, fgColor);
+    }
+
+    // Draw non-space interior chars in BG (holes/details)
+    canvas.setTextColor(bgColor);
+    for (int i = openIdx + 1; i < closeIdx; i++) {
+        if (line[i] != ' ') {
+            canvas.drawChar(line[i], x + i * charW, y);
+        }
+    }
+
+    // Draw ) in FG
+    canvas.setTextColor(fgColor);
+    canvas.drawChar(')', x + closeIdx * charW, y);
+
+    // Draw suffix chars (tail "z"/"~") in FG
+    for (int i = closeIdx + 1; i < len; i++) {
+        canvas.drawChar(line[i], x + i * charW, y);
+    }
 }
 
 // Grass animation state
@@ -254,6 +356,8 @@ void Avatar::init() {
     earsUp = true;
     lastBlinkTime = millis();
     blinkInterval = random(4000, 8000);
+    earTwitchActive = false;
+    nextEarTwitch = millis() + random(8000, 15001);
 
     // Init direction - start at LEFT or RIGHT edge (not center)
     // This ensures bubble can float beside pig from the start
@@ -384,6 +488,68 @@ bool Avatar::isAttackHopping() {
     return attackHopActive;
 }
 
+void Avatar::perkUp() {
+    if (attackHopActive || spinActive) return;  // Don't interrupt bigger animations
+    perkUpActive = true;
+    perkUpStart = millis();
+}
+
+void Avatar::flinch() {
+    if (attackHopActive || spinActive) return;
+    flinchActive = true;
+    flinchStart = millis();
+}
+
+void Avatar::spin() {
+    if (attackHopActive) return;
+    spinActive = true;
+    spinStart = millis();
+}
+
+void Avatar::pawScratch() {
+    if (attackHopActive || spinActive || perkUpActive || transitioning) return;
+    pawScratchActive = true;
+    pawScratchStart = millis();
+}
+
+void Avatar::triggerTailWiggle() {
+    tailWiggleActive = true;
+    tailWiggleStart = millis();
+}
+
+void Avatar::triggerSparkles(uint8_t count) {
+    // Burst spawn sparkles from pig center
+    int cx = currentX + 40;  // Rough center of pig
+    int cy = 50;             // Middle of pig vertical space
+    for (uint8_t i = 0; i < MAX_SPARKLES && count > 0; i++) {
+        if (sparkles[i].life == 0) {
+            sparkles[i].x = cx + random(-10, 11);
+            sparkles[i].y = cy + random(-10, 11);
+            sparkles[i].vx = random(-3, 4);
+            sparkles[i].vy = random(-4, 1);  // Bias upward
+            sparkles[i].life = random(10, 18);  // ~330-600ms at 30fps
+            count--;
+        }
+    }
+}
+
+void Avatar::updateAndDrawSparkles(M5Canvas& canvas) {
+    uint16_t fg = getColorFG();
+    for (uint8_t i = 0; i < MAX_SPARKLES; i++) {
+        if (sparkles[i].life == 0) continue;
+        // Update position
+        sparkles[i].x += sparkles[i].vx;
+        sparkles[i].y += sparkles[i].vy;
+        sparkles[i].life--;
+        // Draw: 1-2px dot depending on remaining life
+        if (sparkles[i].life > 6) {
+            canvas.fillRect(sparkles[i].x, sparkles[i].y, 2, 2, fg);
+        } else {
+            canvas.drawPixel(sparkles[i].x, sparkles[i].y, fg);
+        }
+    }
+}
+
 void Avatar::draw(M5Canvas& canvas) {
     uint32_t now = millis();
 
@@ -396,6 +562,20 @@ void Avatar::draw(M5Canvas& canvas) {
         } else {
             sniffFrame = ((now - sniffStartTime) / 100) % 3;  // 3 frames: oo, oO, Oo
         }
+    }
+
+    // Event reaction animation timeouts
+    if (perkUpActive && (now - perkUpStart >= PERK_UP_DURATION_MS)) {
+        perkUpActive = false;
+    }
+    if (flinchActive && (now - flinchStart >= FLINCH_DURATION_MS)) {
+        flinchActive = false;
+    }
+    if (spinActive && (now - spinStart >= SPIN_DURATION_MS)) {
+        spinActive = false;
+    }
+    if (pawScratchActive && (now - pawScratchStart >= PAW_SCRATCH_DURATION_MS)) {
+        pawScratchActive = false;
     }
 
     // Handle walk transition animation
@@ -461,6 +641,17 @@ void Avatar::draw(M5Canvas& canvas) {
         isBlinking = true;
         lastBlinkTime = now;
         blinkInterval = random(minBlink, maxBlink);
+    }
+
+    // Ear twitch micro-animation: random brief ear perk
+    if (earTwitchActive) {
+        if (now - earTwitchStart >= EAR_TWITCH_DURATION_MS) {
+            earTwitchActive = false;
+            nextEarTwitch = now + random(8000, 15001);
+        }
+    } else if (now >= nextEarTwitch && !transitioning && !attackHopActive) {
+        earTwitchActive = true;
+        earTwitchStart = now;
     }
 
     // Calculate intensity-adjusted intervals
@@ -711,6 +902,32 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         // Combat shake: random +/-4px (normal) / +/-6px (strong)
         const int amp = attackShakeStrong ? 6 : 4;
         shakeY = (esp_random() % 2 == 0) ? amp : -amp;
+    } else if (spinActive) {
+        // Spin: rapid direction flips + cute jump arc
+        uint32_t elapsed = now - spinStart;
+        float t = (float)elapsed / (float)SPIN_DURATION_MS;
+        float arc = 4.0f * t * (1.0f - t);
+        shakeY = -(int)(arc * JUMP_HEIGHT);
+        // Flip facing direction every SPIN_DURATION_MS / SPIN_FLIPS
+        uint8_t flipPhase = elapsed / (SPIN_DURATION_MS / SPIN_FLIPS);
+        facingRight = (flipPhase % 2 == 0);
+    } else if (perkUpActive) {
+        // Perk up: quick upward bounce, parabolic arc
+        uint32_t elapsed = now - perkUpStart;
+        float t = (float)elapsed / (float)PERK_UP_DURATION_MS;
+        float arc = 4.0f * t * (1.0f - t);
+        shakeY = -(int)(arc * PERK_UP_HEIGHT);
+    } else if (flinchActive) {
+        // Flinch: duck down first 150ms, then jitter for remaining 150ms
+        uint32_t elapsed = now - flinchStart;
+        if (elapsed < 150) {
+            shakeY = 3;  // Duck down
+        } else {
+            shakeY = (esp_random() % 2 == 0) ? 2 : -2;  // Horizontal-feel jitter
+        }
+    } else if (pawScratchActive) {
+        // Paw scratch: small X oscillation (handled below in startX)
+        // No Y offset, just X jitter
     } else if (transitioning || grassMoving) {
         // Heavy walk bounce: 4-phase weighted pattern (heavier landing feel)
         // Phase: down(0) -> up-overshoot(-3) -> settle-low(-1) -> settle-mid(-2)
@@ -718,11 +935,31 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         static const int bouncePattern[4] = {0, -3, -1, -2};
         int phase = (now / 80) % 4;
         shakeY = bouncePattern[phase];
+    } else {
+        // Idle breathing: subtle triangle wave, 3s period, +/- 2px
+        // Makes pig feel alive at rest (Tamagotchi-style micro-animation)
+        uint32_t breathePhase = now % 3000;
+        uint32_t quarter = 750;
+        if (breathePhase < quarter) {
+            shakeY = -(int)(breathePhase * 2 / quarter);       // 0 to -2
+        } else if (breathePhase < quarter * 2) {
+            shakeY = -(int)((quarter * 2 - breathePhase) * 2 / quarter);  // -2 to 0
+        } else if (breathePhase < quarter * 3) {
+            shakeY = (int)((breathePhase - quarter * 2) * 2 / quarter);   // 0 to +2
+        } else {
+            shakeY = (int)((3000 - breathePhase) * 2 / quarter);          // +2 to 0
+        }
     }
 
     // Use animated currentX position (set during transition or at rest)
     int startX = currentX;
+    // Paw scratch: small X oscillation when bored
+    if (pawScratchActive) {
+        uint32_t elapsed = now - pawScratchStart;
+        startX += ((elapsed / 100) % 2 == 0) ? 2 : -2;
+    }
     int startY = 38 + shakeY;  // Apply shake offset (shifted down so grass meets bottom bar)
+
     int lineHeight = 22;
 
     for (uint8_t i = 0; i < lines; i++) {
@@ -748,19 +985,37 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
                     strncpy(bodyLine, "(    )z", sizeof(bodyLine));  // Tail trails on right
                 }
             } else {
-                // Stationary: always show tail based on facing direction
+                // Stationary: static 'z' tail, burst wiggle on celebrations only
+                char tail = 'z';
+                if (tailWiggleActive) {
+                    if ((now - tailWiggleStart) < TAIL_WIGGLE_DURATION_MS) {
+                        // Fast z/~ at 120ms cycle (~4 waggles/sec)
+                        tail = ((now / 120) % 2 == 0) ? 'z' : '~';
+                    } else {
+                        tailWiggleActive = false;
+                    }
+                }
                 if (faceRight) {
-                    strncpy(bodyLine, "z(    )", sizeof(bodyLine));  // Facing right, tail on left
+                    snprintf(bodyLine, sizeof(bodyLine), "%c(    )", tail);
                     tailOnLeft = true;
                 } else {
-                    strncpy(bodyLine, "(    )z", sizeof(bodyLine));  // Facing left, tail on right
+                    snprintf(bodyLine, sizeof(bodyLine), "(    )%c", tail);
                 }
             }
             bodyLine[sizeof(bodyLine) - 1] = '\0';
             // When tail is on left (z prefix), offset X back by 1 char width (18px at size 3)
             // to keep body aligned with head
             int bodyX = tailOnLeft ? (startX - 18) : startX;
-            canvas.drawString(bodyLine, bodyX, startY + i * lineHeight);
+            drawFilledPigLine(canvas, bodyLine, bodyX, startY + i * lineHeight, getDrawColor(), getBGColor(), 2);
+        } else if (i == 0 && (earTwitchActive || perkUpActive)) {
+            // Ear twitch / perk up: briefly replace ears with ^ ^ regardless of state
+            char earLine[16];
+            strncpy(earLine, frame[i], sizeof(earLine) - 1);
+            earLine[sizeof(earLine) - 1] = '\0';
+            // Ears are typically at positions 1 and 4 in " X  X " format
+            earLine[1] = '^';
+            earLine[4] = '^';
+            drawFilledPigLine(canvas, earLine, startX, startY + i * lineHeight, getDrawColor(), getBGColor(), 0);
         } else if (i == 1 && (blink || sniff)) {
             // Face line - modify eye and/or nose
             // Face format: "(X 00)" for right-facing, "(00 X)" for left-facing
@@ -797,11 +1052,14 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
                 }
             }
 
-            canvas.drawString(modifiedLine, startX, startY + i * lineHeight);
+            drawFilledPigLine(canvas, modifiedLine, startX, startY + i * lineHeight, getDrawColor(), getBGColor(), 1);
         } else {
-            canvas.drawString(frame[i], startX, startY + i * lineHeight);
+            drawFilledPigLine(canvas, frame[i], startX, startY + i * lineHeight, getDrawColor(), getBGColor(), i);
         }
     }
+
+    // Draw sparkle particles (celebrations)
+    updateAndDrawSparkles(canvas);
 
     // Draw wave ripples (radio activity feedback)
     drawWaveRipples(canvas, faceRight, startX, startY);
@@ -948,10 +1206,10 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     // Pig body footprint for grass bending (6 chars x 18px at text size 3)
     // Inset 18px from each edge - bend under the 4 inner spaces, not the parens
     bool pigOnGround = !jumpActive && !attackHopActive;
-    int pigLeft  = currentX - 18;   // extend bend zone left of pig
-    int pigRight = currentX + 126;  // extend bend zone right of pig
+    int pigLeft  = currentX;         // left edge of ( cell
+    int pigRight = currentX + 108;   // right edge of ) cell
     int pigCenter = (pigLeft + pigRight) / 2;
-    int pigHalf  = (pigRight - pigLeft) / 2;  // 72px
+    int pigHalf  = (pigRight - pigLeft) / 2;  // 54px
 
     // Draw triangle blades
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
@@ -992,7 +1250,9 @@ void Avatar::drawGrass(M5Canvas& canvas) {
         int16_t tipY = baseY - drawHeight;
         int16_t leftX = cx - b.width;
         int16_t rightX = cx + b.width;
-        canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, color);
+        uint16_t bladeColor = (pigOnGround && cx >= pigLeft && cx <= pigRight)
+                             ? getBGColor() : color;
+        canvas.fillTriangle(tipX, tipY, leftX, baseY, rightX, baseY, bladeColor);
     }
 
     // === Trail particles (dust from running pig) ===
@@ -1844,6 +2104,20 @@ void Avatar::startWindupSlide(int targetX, bool faceRight) {
         transitionToX = targetX;
         transitionStartTime = millis();
         transitionToFacingRight = faceRight;
+
+        // Dust burst on walk start: spawn 4 trail particles at pig's feet
+        for (int b = 0; b < 4; b++) {
+            TrailParticle& p = trailParticles[trailSpawnIdx];
+            trailSpawnIdx = (trailSpawnIdx + 1) % TRAIL_COUNT;
+            p.x = (float)(currentX + 40 + random(-15, 16));
+            p.y = (float)(96 + random(0, 8));
+            p.vx = (float)(random(-20, 21)) / 10.0f;
+            p.vy = -(0.5f + (float)random(0, 10) / 10.0f);
+            p.startX = p.x;
+            p.maxDist = 20.0f + (float)random(0, 21);
+            p.baseSize = random(1, 3);
+            p.active = true;
+        }
     }
     // Set facing direction for when transition completes
     facingRight = faceRight;

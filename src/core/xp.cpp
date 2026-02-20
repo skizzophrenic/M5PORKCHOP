@@ -8,6 +8,7 @@
 #include "../ui/display.h"
 #include "../ui/flexes_screen.h"
 #include "../audio/sfx.h"
+#include "../piglet/avatar.h"
 #include <M5Unified.h>
 #include <SD.h>
 #include <esp_mac.h>
@@ -763,6 +764,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (handshake at <10% battery)
@@ -784,6 +786,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (PMKID at <10% battery)
@@ -900,6 +903,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
 
@@ -998,6 +1002,7 @@ void XP::addXP(uint16_t amount) {
             }
             Display::showToast("JACKPOT!");
             SFX::play(SFX::JACKPOT_XP);  // Non-blocking celebration
+            Avatar::triggerTailWiggle();
         } else if (roll >= 90) {
             // Bonus! 8% chance for 2x
             // Prevent overflow by checking before multiplication
@@ -1429,6 +1434,7 @@ void XP::processAchievementQueue() {
         snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
         Display::showToast(toastMsg);
         SFX::play(SFX::ACHIEVEMENT);
+        Avatar::triggerTailWiggle();
     }
 }
 

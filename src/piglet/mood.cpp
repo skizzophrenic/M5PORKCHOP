@@ -1456,10 +1456,12 @@ void Mood::onHandshakeCaptured(const char* apName) {
     happiness = min(happiness + 10, 100);  // Smaller permanent boost
     applyMomentumBoost(30);  // Big temporary excitement!
     lastActivityTime = millis();
-    
-    // Sniff + multi-hop pounce celebration!
+
+    // Screen shake + sniff + multi-hop pounce + tail wiggle celebration!
+    Display::triggerScreenShake(4, 250);
     Avatar::sniff();
     Avatar::attackHop();
+    Avatar::triggerTailWiggle();
 
     // Award XP for handshake capture
     XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
@@ -1537,10 +1539,12 @@ void Mood::onPMKIDCaptured(const char* apName) {
     happiness = min(happiness + 15, 100);  // Slightly bigger permanent boost
     applyMomentumBoost(40);  // Even more temporary excitement!
     lastActivityTime = millis();
-    
-    // Sniff + multi-hop pounce celebration!
+
+    // Screen shake + sniff + multi-hop pounce + tail wiggle celebration!
+    Display::triggerScreenShake(5, 300);
     Avatar::sniff();
     Avatar::attackHop();
+    Avatar::triggerTailWiggle();
 
     // Award XP for PMKID capture
     // If in DO NO HAM mode, award the rare ghost PMKID XP (100 XP!)
@@ -1606,10 +1610,8 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     lastActivityTime = millis();
     isBoredState = false;  // Clear bored state - found something!
     
-    // Audio feedback - soft blip for new network
-    SFX::play(SFX::NETWORK_NEW);
-    
-    // Sniff animation - found a truffle!
+    // Perk up + sniff animation - found a truffle!
+    Avatar::perkUp();
     Avatar::sniff();
     
     // Award XP for network discovery
@@ -2954,6 +2956,12 @@ void Mood::onBored(uint16_t networkCount) {
     }
     lastPhraseChange = millis();
     
+    // Occasional grunt + paw scratch when bored (30% chance)
+    if (random(0, 100) < 30) {
+        SFX::play(SFX::OINK_GRUNT);
+        Avatar::pawScratch();
+    }
+
     // Set avatar to sleepy/bored state (will be maintained by updateAvatarState)
     Avatar::setState(AvatarState::SLEEPY);
 }

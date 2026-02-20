@@ -432,6 +432,20 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
     }
     
+    // Mode transition sound feedback
+    // Exit sound for "real" modes (not sub-menus returning to parent)
+    bool isSubMenu = (mode == PorkchopMode::IDLE || mode == PorkchopMode::MENU);
+    bool wasSubMenu = (oldMode == PorkchopMode::MENU || oldMode == PorkchopMode::SETTINGS ||
+                       oldMode == PorkchopMode::ABOUT || oldMode == PorkchopMode::BADGES ||
+                       oldMode == PorkchopMode::HASHES || oldMode == PorkchopMode::TRACKS ||
+                       oldMode == PorkchopMode::FLEXES || oldMode == PorkchopMode::BOAR_BROS ||
+                       oldMode == PorkchopMode::UNLOCKABLES || oldMode == PorkchopMode::BOUNTY);
+    if (wasSubMenu && isSubMenu) {
+        SFX::play(SFX::BACK_NAV);
+    } else if (!isSubMenu) {
+        SFX::play(SFX::MODE_ENTER);
+    }
+
     // Init new mode
     switch (currentMode) {
         case PorkchopMode::IDLE:

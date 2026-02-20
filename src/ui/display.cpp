@@ -172,6 +172,13 @@ uint32_t Display::lastActivityTime = 0;
 bool Display::dimmed = false;
 bool Display::screenForcedOff = false;
 bool Display::snapping = false;
+
+// Screen shake state
+bool Display::screenShakeActive = false;
+uint32_t Display::screenShakeStart = 0;
+uint16_t Display::screenShakeDuration = 200;
+uint8_t Display::screenShakeIntensity = 3;
+
 char Display::toastMessage[160] = {0};
 uint32_t Display::toastStartTime = 0;
 uint32_t Display::toastDurationMs = 2000;
@@ -601,11 +608,33 @@ void Display::clear() {
     pushAll();
 }
 
+void Display::triggerScreenShake(uint8_t intensity, uint16_t durationMs) {
+    screenShakeActive = true;
+    screenShakeStart = millis();
+    screenShakeDuration = durationMs;
+    screenShakeIntensity = intensity;
+}
+
 void Display::pushAll() {
+    int offsetX = 0, offsetY = 0;
+    if (screenShakeActive) {
+        uint32_t elapsed = millis() - screenShakeStart;
+        if (elapsed >= screenShakeDuration) {
+            screenShakeActive = false;
+        } else {
+            // Exponential decay shake
+            float decay = 1.0f - (float)elapsed / screenShakeDuration;
+            int amp = (int)(screenShakeIntensity * decay);
+            if (amp > 0) {
+                offsetX = (int)(esp_random() % (amp * 2 + 1)) - amp;
+                offsetY = (int)(esp_random() % (amp * 2 + 1)) - amp;
+            }
+        }
+    }
     M5.Display.startWrite();
-    topBar.pushSprite(0, 0);
-    mainCanvas.pushSprite(0, TOP_BAR_H);
-    bottomBar.pushSprite(0, DISPLAY_H - BOTTOM_BAR_H);
+    topBar.pushSprite(offsetX, offsetY);
+    mainCanvas.pushSprite(offsetX, TOP_BAR_H + offsetY);
+    bottomBar.pushSprite(offsetX, DISPLAY_H - BOTTOM_BAR_H + offsetY);
     M5.Display.endWrite();
 
     if (topBarMessageTwoLineActive) {
@@ -1659,7 +1688,13 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     
     // Celebratory beep sequence - non-blocking
     SFX::play(SFX::LEVEL_UP);
-    
+
+    // Spin + jump + sparkles celebration!
+    Avatar::spin();
+    Avatar::cuteJump();
+    Avatar::triggerSparkles(6);
+    Avatar::triggerTailWiggle();
+
     // Auto-dismiss after 2.5 seconds or on any key press
     uint32_t startTime = millis();
     while ((millis() - startTime) < 2500) {

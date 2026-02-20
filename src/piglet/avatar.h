@@ -45,6 +45,16 @@ public:
     static void wiggleEars();
     static void cuteJump();  // Trigger cute celebratory jump (higher than walk bounce)
 
+    // Event reaction animations
+    static void perkUp();       // Ears pop up + quick upward bounce (new network)
+    static void flinch();       // Duck down + horizontal jitter (error/heap critical)
+    static void spin();         // Rapid direction flips (level-up celebration)
+    static void pawScratch();   // Small X oscillation (bored)
+    static void triggerTailWiggle();  // Burst tail wag on celebrations
+
+    // Sparkle particles (achievements, level-up celebrations)
+    static void triggerSparkles(uint8_t count = 6);
+
     // Direction control
     static void setFacingLeft();
     static void setFacingRight();
@@ -225,4 +235,47 @@ private:
     static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink = false, bool faceRight = true, bool sniff = false);
     static void drawGrass(M5Canvas& canvas);
     static void updateGrass();
+
+    // Ear twitch micro-animation (random idle twitch)
+    static bool earTwitchActive;
+    static uint32_t earTwitchStart;
+    static uint32_t nextEarTwitch;
+    static constexpr uint16_t EAR_TWITCH_DURATION_MS = 80;
+
+    // Perk up animation (ears pop + quick bounce on new network)
+    static bool perkUpActive;
+    static uint32_t perkUpStart;
+    static constexpr uint16_t PERK_UP_DURATION_MS = 200;
+    static constexpr int PERK_UP_HEIGHT = 3;
+
+    // Flinch animation (duck down + jitter on error)
+    static bool flinchActive;
+    static uint32_t flinchStart;
+    static constexpr uint16_t FLINCH_DURATION_MS = 300;
+
+    // Spin animation (rapid direction flips for level-up)
+    static bool spinActive;
+    static uint32_t spinStart;
+    static constexpr uint16_t SPIN_DURATION_MS = 600;
+    static constexpr uint8_t SPIN_FLIPS = 4;
+
+    // Paw scratch animation (X oscillation when bored)
+    static bool pawScratchActive;
+    static uint32_t pawScratchStart;
+    static constexpr uint16_t PAW_SCRATCH_DURATION_MS = 800;
+
+    // Tail wiggle burst animation (celebrations)
+    static bool tailWiggleActive;
+    static uint32_t tailWiggleStart;
+    static constexpr uint16_t TAIL_WIGGLE_DURATION_MS = 800;
+
+    // Sparkle particle system (achievements, level-up)
+    struct SparkleParticle {
+        int16_t x, y;
+        int8_t vx, vy;
+        uint8_t life;       // frames remaining (0 = inactive)
+    };
+    static constexpr uint8_t MAX_SPARKLES = 8;
+    static SparkleParticle sparkles[MAX_SPARKLES];
+    static void updateAndDrawSparkles(M5Canvas& canvas);
 };

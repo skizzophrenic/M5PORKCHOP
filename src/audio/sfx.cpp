@@ -267,6 +267,97 @@ static const Note SND_YOU_DIED[] = {
     {0, 0, 0}
 };
 
+// ==[ UI FEEDBACK SOUNDS ]==
+
+// MODE_ENTER: Quick ascending pair - entering new mode
+static const Note SND_MODE_ENTER[] = {
+    {700, 30, 10},
+    {1000, 40, 0},
+    {0, 0, 0}
+};
+
+// MODE_EXIT: Quick descending pair - leaving mode
+static const Note SND_MODE_EXIT[] = {
+    {900, 30, 10},
+    {600, 40, 0},
+    {0, 0, 0}
+};
+
+// CONFIRM: Warm double tap - settings saved, action confirmed
+static const Note SND_CONFIRM[] = {
+    {800, 40, 15},
+    {1100, 50, 0},
+    {0, 0, 0}
+};
+
+// TYPING_KEY: Ultra-short keystroke tick
+static const Note SND_TYPING_KEY[] = {
+    {1200, 4, 0},
+    {0, 0, 0}
+};
+
+// BACK_NAV: Soft descending - going back
+static const Note SND_BACK_NAV[] = {
+    {800, 25, 0},
+    {0, 0, 0}
+};
+
+// ==[ PIG VOCALIZATIONS ]==
+// Stepped pitch descent creates nasal "oink" quality (bfxr-inspired)
+
+// OINK_HAPPY: Nasal descending - satisfied pig
+static const Note SND_OINK_HAPPY[] = {
+    {300, 40, 0},
+    {220, 30, 0},
+    {150, 20, 0},
+    {0, 0, 0}
+};
+
+// OINK_GRUNT: Low guttural burst - bored/annoyed
+static const Note SND_OINK_GRUNT[] = {
+    {120, 30, 5},
+    {100, 25, 0},
+    {0, 0, 0}
+};
+
+// OINK_SQUEAL: High ascending alarm - excitement/capture
+static const Note SND_OINK_SQUEAL[] = {
+    {800, 35, 0},
+    {1000, 35, 0},
+    {1200, 40, 0},
+    {0, 0, 0}
+};
+
+// OINK_CURIOUS: Questioning upward glide - new discovery
+static const Note SND_OINK_CURIOUS[] = {
+    {400, 40, 10},
+    {600, 50, 0},
+    {0, 0, 0}
+};
+
+// ==[ AMBIENT SCANNING SOUNDS ]==
+
+// SONAR_PING: Minimal single blip - periodic scan feedback
+static const Note SND_SONAR_PING[] = {
+    {1000, 20, 0},
+    {0, 0, 0}
+};
+
+// RADAR_SWEEP: Subtle rising sweep - longer scan feedback
+static const Note SND_RADAR_SWEEP[] = {
+    {200, 30, 0},
+    {350, 30, 0},
+    {500, 30, 0},
+    {700, 40, 0},
+    {0, 0, 0}
+};
+
+// SCAN_TICK: Quiet periodic tick - background scanning
+static const Note SND_SCAN_TICK[] = {
+    {600, 8, 0},
+    {0, 0, 0}
+};
+
 // ==[ MORSE REMOVED ]==
 // Morse GG was too long (600ms+), replaced with warm resolve in HANDSHAKE
 
@@ -447,6 +538,45 @@ bool update() {
                 break;
             case YOU_DIED:
                 startSequence(SND_YOU_DIED);
+                break;
+            // UI feedback
+            case MODE_ENTER:
+                startSequence(SND_MODE_ENTER);
+                break;
+            case MODE_EXIT:
+                startSequence(SND_MODE_EXIT);
+                break;
+            case CONFIRM:
+                startSequence(SND_CONFIRM);
+                break;
+            case TYPING_KEY:
+                startSequence(SND_TYPING_KEY);
+                break;
+            case BACK_NAV:
+                startSequence(SND_BACK_NAV);
+                break;
+            // Pig vocalizations
+            case OINK_HAPPY:
+                startSequence(SND_OINK_HAPPY);
+                break;
+            case OINK_GRUNT:
+                startSequence(SND_OINK_GRUNT);
+                break;
+            case OINK_SQUEAL:
+                startSequence(SND_OINK_SQUEAL);
+                break;
+            case OINK_CURIOUS:
+                startSequence(SND_OINK_CURIOUS);
+                break;
+            // Ambient scanning
+            case SONAR_PING:
+                startSequence(SND_SONAR_PING);
+                break;
+            case RADAR_SWEEP:
+                startSequence(SND_RADAR_SWEEP);
+                break;
+            case SCAN_TICK:
+                startSequence(SND_SCAN_TICK);
                 break;
             default:
                 break;

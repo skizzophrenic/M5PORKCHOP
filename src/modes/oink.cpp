@@ -17,6 +17,7 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
+#include "../audio/sfx.h"
 #include "../ui/flexes_screen.h"
 #include <WiFi.h>
 #include <esp_wifi.h>

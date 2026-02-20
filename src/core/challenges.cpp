@@ -5,6 +5,7 @@
 #include "config.h"
 #include "../ui/display.h"
 #include "../audio/sfx.h"
+#include "../piglet/avatar.h"
 #include <M5Unified.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
@@ -335,6 +336,7 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
 
         // Rising tones for challenge complete - non-blocking
         SFX::play(SFX::CHALLENGE_COMPLETE);
+        Avatar::triggerTailWiggle();
 
         Serial.printf("[CHALLENGES] pig pleased. '%s' complete. +%d XP.\\n",
                       notices[i].name, notices[i].xpReward);
