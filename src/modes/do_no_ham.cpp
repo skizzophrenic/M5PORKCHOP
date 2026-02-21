@@ -292,8 +292,9 @@ void DoNoHamMode::stop() {
     running = false;
     dnhBusy = true;
     
-    // Stop grass animation
+    // Stop grass animation, tree, and wave ripples
     Avatar::setGrassMoving(false);
+    Avatar::hideTree();
     Avatar::waveRipple(WaveMode::NONE);
 
     bool pausedByUs = false;
@@ -655,6 +656,32 @@ void DoNoHamMode::update() {
         Avatar::setGrassMoving(isHopping);
     }
     lastGrassState = state;
+
+    // Sync fruit tree with HUNTING state
+    {
+        bool isHunting = (state == DNHState::HUNTING);
+        static bool hadTree = false;
+
+        if (isHunting && !hadTree) {
+            // ~40% chance to spawn tree — variable-ratio schedule makes trees noteworthy
+            if (esp_random() % 100 < 40) {
+                uint8_t fruits = 0;
+                uint8_t ch = currentChannel;
+                NetworkRecon::enterCritical();
+                for (size_t i = 0; i < NetworkRecon::getNetworks().size() && fruits < 8; i++) {
+                    const auto& n = NetworkRecon::getNetworks()[i];
+                    if (n.channel != ch) continue;
+                    if (n.authmode == WIFI_AUTH_OPEN) continue;
+                    if (NetworkRecon::estimateClientCount(n) > 0) fruits++;
+                }
+                NetworkRecon::exitCritical();
+                Avatar::showTree(max((uint8_t)1, fruits));
+            }
+        } else if (!isHunting && hadTree) {
+            Avatar::hideTree();
+        }
+        hadTree = isHunting;
+    }
 
     switch (state) {
         case DNHState::HOPPING:
