@@ -128,6 +128,9 @@ public:
 
     // Screen shake effect (captures, impacts)
     static void triggerScreenShake(uint8_t intensity = 3, uint16_t durationMs = 200);
+    static bool isShaking();
+    static float getShakeDecay();      // 1.0 at start → 0.0 at end
+    static uint8_t getShakeIntensity();
 
 private:
     // Screen shake state

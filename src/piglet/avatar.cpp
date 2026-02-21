@@ -1252,6 +1252,11 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     uint16_t color = getDrawColor();  // Thunder-aware color
     const int16_t baseY = 106;  // Ground line (pixel-adjacent with bottom bar)
 
+    // Query shake state once per frame
+    bool shakeActive = Display::isShaking();
+    float shakeDecay = shakeActive ? Display::getShakeDecay() : 0.0f;
+    uint8_t shakeIntensity = shakeActive ? Display::getShakeIntensity() : 0;
+
     // Solid ground line (fat-pixel aligned)
     canvas.fillRect(0, snapPx(baseY - 1), 240, PX, color);
 
@@ -1261,6 +1266,11 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     int pigRight = currentX + 99;  // Inside ) curve at widest
     int pigCenter = (pigLeft + pigRight) / 2;
     int pigHalf  = (pigRight - pigLeft) / 2;
+
+    // Tree screen X for grass collision ripple
+    int16_t treeScreenX = treeTrunk.baseX + treeScrollOffset;
+    while (treeScreenX > 260) treeScreenX -= 300;
+    while (treeScreenX < -60) treeScreenX += 300;
 
     // Draw fat-pixel grass blades (vertical fatLine from base to tip)
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
@@ -1292,10 +1302,46 @@ void Avatar::drawGrass(M5Canvas& canvas) {
             drawLean = (cx < pigCenter) ? (b.lean - leanPush) : (b.lean + leanPush);
         }
 
+        // Shake impact: jitter from center, dissipates toward edges
+        bool bladeInverted = false;
+        if (shakeActive && shakeDecay > 0.05f) {
+            // 1.0 at center (x=120), 0.0 at screen edges
+            float edgeDist = 1.0f - (float)(cx > 120 ? cx - 120 : 120 - cx) / 120.0f;
+            if (edgeDist < 0.0f) edgeDist = 0.0f;
+            float impact = edgeDist * shakeDecay * ((float)shakeIntensity / 5.0f);
+
+            if (impact > 0.15f) {
+                // Rapid ±PX alternation matching tree-collision jitter
+                int8_t jitter = ((now / 33) % 2 == 0) ? PX : -PX;
+                drawLean += jitter;
+            }
+            if (impact > 0.5f) bladeInverted = true;
+        }
+
+        // Tree collision: radial jitter ripple from tree trunk
+        if (treeColliding) {
+            int16_t dist = cx > treeScreenX ? cx - treeScreenX : treeScreenX - cx;
+            // Effect radius: 3x crown radius (~70px), full jitter near trunk
+            int16_t radius = (int16_t)treeTrunk.crownRadius * 3;
+            if (dist < radius) {
+                float falloff = 1.0f - (float)dist / (float)radius;
+                // Per-blade phase: stagger the ±PX flip so blades don't all move together
+                uint32_t phase = now + (uint32_t)(dist * 7);
+                int8_t jitter = ((phase / 33) % 2 == 0) ? PX : -PX;
+                drawLean += (int8_t)((float)jitter * falloff);
+            }
+        }
+
         int16_t tipX = snapPx(cx + drawLean);
         int16_t tipY = snapPx(baseY - drawHeight);
-        uint16_t bladeColor = (pigOnGround && cx >= pigLeft && cx <= pigRight)
-                             ? getBGColor() : color;
+        uint16_t bladeColor;
+        if (bladeInverted) {
+            bladeColor = getBGColor();
+        } else if (pigOnGround && cx >= pigLeft && cx <= pigRight) {
+            bladeColor = getBGColor();
+        } else {
+            bladeColor = color;
+        }
         fatLine(canvas, snapPx(cx), baseY, tipX, tipY, bladeColor);
     }
 
@@ -2105,6 +2151,13 @@ void Avatar::waveRipple(WaveMode mode) {
     waveBurstStart = millis();
 }
 
+// Right-facing arc: 12 evenly-spaced points from 300° to 60° (cos*256, sin*256)
+static const int16_t wave_arc_lut[12][2] = {
+    { 128, -222}, { 168, -193}, { 201, -158}, { 228, -117},
+    { 246,  -72}, { 255,  -25}, { 255,   25}, { 246,   72},
+    { 228,  117}, { 201,  158}, { 168,  193}, { 128,  222}
+};
+
 void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY) {
     if (waveMode == WaveMode::NONE) return;
 
@@ -2119,9 +2172,6 @@ void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int s
 
     int waveCX = faceRight ? (startX + 85) : (startX + 23);
     int waveCY = startY + 31;
-
-    float arcStart = faceRight ? 300.0f : 120.0f;
-    float arcEnd   = faceRight ?  60.0f : 240.0f;
 
     const uint8_t  COUNT    = 3;
     const uint16_t CYCLE_MS = 1200;
@@ -2140,7 +2190,20 @@ void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int s
             : R_MAX - (int16_t)((float)(R_MAX - R_MIN) * t);
 
         int16_t thick = (t < 0.5f) ? 2 : 1;
-        canvas.fillArc(waveCX, waveCY, r + thick, r, arcStart, arcEnd, color);
+
+        for (uint8_t s = 0; s < 12; s++) {
+            int16_t cx_off = faceRight ? wave_arc_lut[s][0] : -wave_arc_lut[s][0];
+            int16_t cy_off = wave_arc_lut[s][1];
+            int16_t px = snapPx(waveCX + (int16_t)((int32_t)r * cx_off / 256));
+            int16_t py = snapPx(waveCY + (int16_t)((int32_t)r * cy_off / 256));
+            canvas.fillRect(px, py, PX, PX, color);
+            if (thick == 2) {  // Double-thick early life: second ring at r+PX
+                int16_t r2 = r + PX;
+                px = snapPx(waveCX + (int16_t)((int32_t)r2 * cx_off / 256));
+                py = snapPx(waveCY + (int16_t)((int32_t)r2 * cy_off / 256));
+                canvas.fillRect(px, py, PX, PX, color);
+            }
+        }
     }
 }
 

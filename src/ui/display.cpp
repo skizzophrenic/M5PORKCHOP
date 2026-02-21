@@ -615,6 +615,19 @@ void Display::triggerScreenShake(uint8_t intensity, uint16_t durationMs) {
     screenShakeIntensity = intensity;
 }
 
+bool Display::isShaking() { return screenShakeActive; }
+
+float Display::getShakeDecay() {
+    if (!screenShakeActive) return 0.0f;
+    uint32_t elapsed = millis() - screenShakeStart;
+    if (elapsed >= screenShakeDuration) return 0.0f;
+    return 1.0f - (float)elapsed / (float)screenShakeDuration;
+}
+
+uint8_t Display::getShakeIntensity() {
+    return screenShakeActive ? screenShakeIntensity : 0;
+}
+
 void Display::pushAll() {
     int offsetX = 0, offsetY = 0;
     if (screenShakeActive) {
