@@ -230,9 +230,10 @@ static void drawFilledPigLine(M5Canvas& canvas, const char* line, int x, int y,
         int bw = 56;
         canvas.fillRect(bodyCenter - bw / 2, y - 2, bw, 2, fgColor);
     } else if (lineIndex == 2) {
-        // Body bottom bump — connects pig to ground
-        int bw = 56;
-        canvas.fillRect(bodyCenter - bw / 2, y + charH, bw, 2, fgColor);
+        // Body bottom fill — full width pixel-art belly line
+        int fillLeft = parenLX + openCurve[6];     // Inside ( at bottom row
+        int fillRight = parenRX + closeCurve[6];   // Inside ) at bottom row
+        canvas.fillRect(fillLeft, y + charH, fillRight - fillLeft, 2, fgColor);
     }
 
     // Draw non-space interior chars in BG (holes/details)
@@ -959,18 +960,13 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         int phase = (now / 80) % 4;
         shakeY = bouncePattern[phase];
     } else {
-        // Idle breathing: subtle triangle wave, 3s period, +/- 2px
-        // Makes pig feel alive at rest (Tamagotchi-style micro-animation)
+        // Idle breathing: triangle wave, 3s period, 0 to -2px (lift only)
+        // Pig rests on ground at shakeY=0, breathing lifts upward
         uint32_t breathePhase = now % 3000;
-        uint32_t quarter = 750;
-        if (breathePhase < quarter) {
-            shakeY = -(int)(breathePhase * 2 / quarter);       // 0 to -2
-        } else if (breathePhase < quarter * 2) {
-            shakeY = -(int)((quarter * 2 - breathePhase) * 2 / quarter);  // -2 to 0
-        } else if (breathePhase < quarter * 3) {
-            shakeY = (int)((breathePhase - quarter * 2) * 2 / quarter);   // 0 to +2
+        if (breathePhase < 1500) {
+            shakeY = -(int)(breathePhase * 2 / 1500);       // 0 to -2 (inhale)
         } else {
-            shakeY = (int)((3000 - breathePhase) * 2 / quarter);          // +2 to 0
+            shakeY = -(int)((3000 - breathePhase) * 2 / 1500);  // -2 to 0 (exhale)
         }
     }
 
@@ -981,7 +977,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         uint32_t elapsed = now - pawScratchStart;
         startX += ((elapsed / 100) % 2 == 0) ? 2 : -2;
     }
-    int startY = 38 + shakeY;  // Apply shake offset (shifted down so grass meets bottom bar)
+    int startY = 40 + shakeY;  // Apply shake offset (pig bottom=106 aligns with grass ground)
 
     int lineHeight = 22;
 
@@ -1228,8 +1224,8 @@ void Avatar::drawGrass(M5Canvas& canvas) {
 
     // Pig body footprint for grass bending (6 chars x 18px at text size 3)
     bool pigOnGround = !jumpActive && !attackHopActive;
-    int pigLeft  = currentX;
-    int pigRight = currentX + 108;
+    int pigLeft  = currentX + 9;   // Inside ( curve
+    int pigRight = currentX + 99;  // Inside ) curve at widest
     int pigCenter = (pigLeft + pigRight) / 2;
     int pigHalf  = (pigRight - pigLeft) / 2;
 

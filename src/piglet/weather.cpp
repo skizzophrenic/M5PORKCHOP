@@ -134,6 +134,7 @@ static int getActiveCloudCount() {
 }
 
 static int getTargetCloudCount() {
+    if (rainActive) return MAX_CLOUDS;  // Full cloud cover during rain
     // mood >= 20 -> 0, mood <= -80 -> 8, linear between
     int target = (20 - currentMood) * 8 / 100;
     if (target < 0) target = 0;
@@ -536,26 +537,43 @@ bool isRaining() {
 }
 
 // === DRAWING ===
+
+// Pixel-art circle: 3-band stepped rectangle (blocky puff)
+static void drawPixelPuff(M5Canvas& canvas, int cx, int cy, int r, uint16_t color) {
+    if (r <= 1) {
+        canvas.fillRect(cx - 1, cy - 1, 3, 3, color);
+        return;
+    }
+    int inset = (r + 1) / 2;
+    // Wide center band
+    canvas.fillRect(cx - r, cy - r + inset, r * 2, r * 2 - inset * 2, color);
+    // Narrower top row
+    canvas.fillRect(cx - r + inset, cy - r, (r - inset) * 2, inset, color);
+    // Narrower bottom row
+    canvas.fillRect(cx - r + inset, cy + r - inset, (r - inset) * 2, inset, color);
+}
+
 void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
     // During thunder flash, use inverted color (matches sirloin's getDrawColor)
     uint16_t drawColor = isThunderFlashing() ? getColorBG() : colorFG;
 
+    float rainBoost = rainActive ? 1.8f : 1.0f;
     for (int i = 0; i < MAX_CLOUDS; i++) {
         if (!clouds[i].active || clouds[i].scale == 0) continue;
         float scaleFactor = (float)clouds[i].scale / 255.0f;
 
         for (int p = 0; p < clouds[i].puffCount; p++) {
-            int r = (int)((float)clouds[i].puffs[p].radius * scaleFactor + 0.5f);
+            int r = (int)((float)clouds[i].puffs[p].radius * scaleFactor * rainBoost + 0.5f);
             if (r < 1) continue;
             int cx = (int)(clouds[i].x + clouds[i].puffs[p].dx);
             int cy = clouds[i].y + clouds[i].puffs[p].dy;
-            canvas.fillCircle(cx, cy, r, drawColor);
+            drawPixelPuff(canvas, cx, cy, r, drawColor);
 
             // Draw wrap ghost if near screen edges for seamless scrolling
             if (cx - r < 20 && clouds[i].x < 0) {
-                canvas.fillCircle(cx + 320, cy, r, drawColor);
+                drawPixelPuff(canvas, cx + 320, cy, r, drawColor);
             } else if (cx + r > 220 && clouds[i].x > 240) {
-                canvas.fillCircle(cx - 320, cy, r, drawColor);
+                drawPixelPuff(canvas, cx - 320, cy, r, drawColor);
             }
         }
     }
