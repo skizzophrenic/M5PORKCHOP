@@ -1239,7 +1239,13 @@ const char* PHRASES_RARE[] = {
     "horse vibin hard",
     "miss u horse",
     "horse WAS the barn",
-    "check on da horse"
+    "check on da horse",
+    "valleytech sent u here?",
+    "khal would rate this mid",
+    "sas left footprints here",
+    "pig believes in sas",
+    "squirrel in ur tree",
+    "squirrel in ur tree. notorious."
 };
 
 void Mood::init() {

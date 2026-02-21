@@ -110,6 +110,10 @@ uint8_t Avatar::treePendingFruits = 0;
 uint32_t Avatar::treeAliveStart = 0;
 int16_t Avatar::treeScrollOffset = 0;
 
+// Tree-pig collision state (pig bumps into tree → both shake)
+static bool treeColliding = false;
+static int8_t treeCollisionShake = 0;  // rapid jitter applied to tree X
+
 // Dropping fruit system (individual fruit falls on deauth success)
 struct DroppingFruit {
     int16_t x, y;         // absolute screen position at detach
@@ -905,6 +909,28 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         }
     }
 
+    // --- Tree-pig collision detection ---
+    // Pig body spans currentX+9 to currentX+99 (inside parens)
+    // Tree effective X = baseX + scrollOffset (wrapped)
+    treeColliding = false;
+    treeCollisionShake = 0;
+    if (treePhase == TreePhase::ALIVE || treePhase == TreePhase::GROWING) {
+        int16_t tbx = treeTrunk.baseX + treeScrollOffset;
+        while (tbx > 260) tbx -= 300;
+        while (tbx < -60) tbx += 300;
+        // Tree collision zone: trunk center ± crown radius
+        int16_t treeLeft  = tbx - treeTrunk.crownRadius;
+        int16_t treeRight = tbx + treeTrunk.crownRadius;
+        int16_t pigL = currentX + 18;   // snug body left
+        int16_t pigR = currentX + 90;   // snug body right
+        // Overlap check
+        if (pigR > treeLeft && pigL < treeRight) {
+            treeColliding = true;
+            // Rapid alternating jitter for tree: ±PX at ~60Hz
+            treeCollisionShake = ((now / 33) % 2 == 0) ? PX : -PX;
+        }
+    }
+
     // Calculate vertical shake/jump offset
     int shakeY = 0;
     if (attackHopActive) {
@@ -952,6 +978,9 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     } else if (pawScratchActive) {
         // Paw scratch: small X oscillation (handled below in startX)
         // No Y offset, just X jitter
+    } else if (treeColliding) {
+        // Tree collision: rapid Y jitter (bonking into tree)
+        shakeY = ((now / 40) % 3 == 0) ? -2 : ((now / 40) % 3 == 1) ? 2 : 0;
     } else if (transitioning || grassMoving) {
         // Heavy walk bounce: 4-phase weighted pattern (heavier landing feel)
         // Phase: down(0) -> up-overshoot(-3) -> settle-low(-1) -> settle-mid(-2)
@@ -976,6 +1005,10 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     if (pawScratchActive) {
         uint32_t elapsed = now - pawScratchStart;
         startX += ((elapsed / 100) % 2 == 0) ? 2 : -2;
+    }
+    // Tree collision: rapid X jitter (pig bonking into trunk)
+    if (treeColliding) {
+        startX += ((now / 50) % 2 == 0) ? PX : -PX;
     }
     int startY = 40 + shakeY;  // Apply shake offset (pig bottom=106 aligns with grass ground)
 
@@ -1753,6 +1786,11 @@ void Avatar::drawTree(M5Canvas& canvas) {
         int wave = (int)(now % 3000);
         sway = (wave < 1500) ? (int8_t)(((wave - 750) * PX) / 750)
                              : (int8_t)(((2250 - wave) * PX) / 750);
+    }
+
+    // Tree-pig collision: add rapid jitter on top of ambient sway
+    if (treeColliding) {
+        sway += treeCollisionShake;
     }
 
     // Sand-drop collapse: collapseT goes 0→1 as tree falls
