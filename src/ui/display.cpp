@@ -67,6 +67,7 @@ const PorkTheme THEMES[THEME_COUNT] = {
     {"L1TTL3M1XY", 0x0360, 0x95AA}, // OG Game Boy LCD - RGB332-quantized
     {"B4NSH33",   0x27E0, 0x0000},  // P1 phosphor green CRT - RGB332-quantized
     {"M1XYL1TTL3", 0x95AA, 0x0360}, // Inverted Game Boy LCD - RGB332-quantized
+    {"jader0xF2", 0xD81F, 0x0000},  // Bright purple on black
 };
 
 uint16_t getColorFG() {
@@ -126,6 +127,12 @@ char Display::pendingTopBarMessageBuf[96] = {0};
 uint32_t Display::pendingTopBarDurationMs = 0;
 bool Display::navBlinkActive = false;
 uint32_t Display::navBlinkStartMs = 0;
+
+// Screen shake state
+bool Display::screenShakeActive = false;
+uint32_t Display::screenShakeStart = 0;
+uint16_t Display::screenShakeDuration = 200;
+uint8_t Display::screenShakeIntensity = 3;
 
 // Upload progress tracking
 bool Display::uploadInProgress = false;
@@ -1122,11 +1129,30 @@ void Display::clear() {
     pushAll();
 }
 
+void Display::triggerScreenShake(uint8_t intensity, uint16_t durationMs) {
+    screenShakeActive = true;
+    screenShakeStart = millis();
+    screenShakeIntensity = intensity;
+    screenShakeDuration = durationMs;
+}
+
 void Display::pushAll() {
+    int16_t offsetX = 0, offsetY = 0;
+    if (screenShakeActive) {
+        uint32_t elapsed = millis() - screenShakeStart;
+        if (elapsed >= screenShakeDuration) {
+            screenShakeActive = false;
+        } else {
+            int amp = (int)screenShakeIntensity;
+            offsetX = (int16_t)((esp_random() % (amp * 2 + 1)) - amp);
+            offsetY = (int16_t)((esp_random() % (amp * 2 + 1)) - amp);
+        }
+    }
+
     M5.Display.startWrite();
-    topBar.pushSprite(0, 0);
-    mainCanvas.pushSprite(0, TOP_BAR_H);
-    bottomBar.pushSprite(0, DISPLAY_H - BOTTOM_BAR_H);
+    topBar.pushSprite(offsetX, offsetY);
+    mainCanvas.pushSprite(offsetX, TOP_BAR_H + offsetY);
+    bottomBar.pushSprite(offsetX, DISPLAY_H - BOTTOM_BAR_H + offsetY);
     M5.Display.endWrite();
 
     if (topBarMessageTwoLineActive) {

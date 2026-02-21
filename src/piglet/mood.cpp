@@ -1659,9 +1659,11 @@ void Mood::onHandshakeCaptured(const char* apName) {
     applyMomentumBoost(30);  // Big temporary excitement!
     lastActivityTime = millis();
     
-    // Sniff + multi-hop pounce celebration!
+    // Screen shake + sniff + multi-hop pounce celebration!
+    Display::triggerScreenShake(4, 250);
     Avatar::sniff();
     Avatar::attackHop();
+    Avatar::triggerTailWiggle();
 
     // Award XP for handshake capture
     NarrativeEngine::pushEvent(EVT_HANDSHAKE);
@@ -1741,9 +1743,11 @@ void Mood::onPMKIDCaptured(const char* apName) {
     applyMomentumBoost(40);  // Even more temporary excitement!
     lastActivityTime = millis();
     
-    // Sniff + multi-hop pounce celebration!
+    // Screen shake + sniff + multi-hop pounce celebration!
+    Display::triggerScreenShake(5, 300);
     Avatar::sniff();
     Avatar::attackHop();
+    Avatar::triggerTailWiggle();
 
     // Award XP for PMKID capture
     NarrativeEngine::pushEvent(EVT_PMKID);
@@ -1812,10 +1816,11 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     
     // Piglet pip — subtle audio + tick haptic
     Feedback::play(SFX::NETWORK_NEW);
-    
-    // Sniff animation - found a truffle!
+
+    // Perk up + sniff animation - found a truffle!
+    Avatar::perkUp();
     Avatar::sniff();
-    
+
     // Award XP for network discovery
     // Check if in DO NO HAM mode for different XP event
     bool isPassive = (porkchop.getMode() == PorkchopMode::DNH_MODE);
@@ -3230,6 +3235,11 @@ void Mood::onBored(uint16_t networkCount) {
 
     // Set bored flag so updateAvatarState() shows SLEEPY instead of HUNTING
     isBoredState = true;
+
+    // 30% chance: bored paw scratch
+    if (random(0, 100) < 30) {
+        Avatar::pawScratch();
+    }
 
     // Decrease happiness slightly (but not too much)
     happiness = max(happiness - 1, -50);
