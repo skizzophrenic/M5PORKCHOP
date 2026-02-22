@@ -515,7 +515,10 @@ void BaconMode::draw(M5Canvas& canvas) {
     // === STANDARD LAYOUT: Avatar + Mood (XP shows in top bar on gain) ===
     Avatar::draw(canvas);
     Mood::draw(canvas);
-    
+
+    // Draw ambient birds between avatar and clouds
+    Weather::drawBirds(canvas, COLOR_FG);
+
     // Draw clouds above stars/pig before rain
     Weather::drawClouds(canvas, COLOR_FG);
 

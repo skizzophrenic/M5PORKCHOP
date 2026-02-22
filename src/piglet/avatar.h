@@ -71,10 +71,13 @@ public:
     static bool isThunderFlashing();
 
     // Wave ripple animation (radio activity feedback)
-    // Burst-based: each call starts a 1500ms burst, re-triggering resets timer
+    // Burst-based: each call extends a 2700ms burst without resetting phase.
     // OUTGOING priority: active OUTGOING burst can't be overridden by INCOMING
-    static void waveRipple(WaveMode mode);
+    static void waveRipple(WaveMode mode, uint8_t intensity = 3);  // intensity: 1-5 rings
     static WaveMode getWaveMode() { return waveMode; }
+
+    // Bird-wave collision check (called by Weather bird system)
+    static bool checkBirdWaveCollision(int16_t bx, int16_t by);
 
     // Night sky star system (RTC-based)
     static bool isNightTime();           // check rtc for night hours, 20:00-06:00
@@ -227,6 +230,7 @@ private:
 
     static WaveMode waveMode;
     static uint32_t waveBurstStart;
+    static uint32_t waveBurstEnd;
     static void drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY);
 
     static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink = false, bool faceRight = true, bool sniff = false);

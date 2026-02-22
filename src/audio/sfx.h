@@ -70,7 +70,11 @@ enum Event {
     // === AMBIENT SCANNING ===
     SONAR_PING,         // minimal single blip
     RADAR_SWEEP,        // subtle rising sweep
-    SCAN_TICK           // quiet periodic tick
+    SCAN_TICK,          // quiet periodic tick
+
+    // === AMBIENT BIRDS ===
+    BIRD_HIT,           // wave zaps bird - short electric zap
+    BIRD_IMPACT         // bird hits ground - low thud + crackle
 };
 
 // Initialize audio system (call once at startup)

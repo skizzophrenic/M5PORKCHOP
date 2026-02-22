@@ -118,7 +118,7 @@ struct PersonalityConfig {
     float curiosity = 0.7f;
     float aggression = 0.3f;
     float patience = 0.5f;
-    bool soundEnabled = true;
+    uint8_t soundLevel = 1;    // 0=off, 1-5 volume steps
     uint8_t brightness = 80;            // Display brightness 0-100%
     uint8_t dimLevel = 20;              // Dimmed brightness 0-100% (0 = off)
     uint16_t dimTimeout = 30;           // Seconds before dimming (0 = never)

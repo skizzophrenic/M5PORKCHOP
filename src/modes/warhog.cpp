@@ -388,8 +388,18 @@ void WarhogMode::update() {
     bool hasGPSFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
     if (hasGPSFix != lastGPSState) {
         Avatar::setGrassMoving(hasGPSFix);
-        if (hasGPSFix) Avatar::waveRipple(WaveMode::INCOMING);
         lastGPSState = hasGPSFix;
+    }
+
+    // Continuous sat-stream waves: pulse INCOMING while GPS active
+    static uint32_t lastWaveRefresh = 0;
+    if (hasGPSFix && now - lastWaveRefresh >= 2400) {  // match CYCLE_MS
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
+        uint8_t sats = gps.satellites;
+        // Map sat count to wave intensity (ring count 1-3)
+        uint8_t intensity = (sats >= 8) ? 3 : (sats >= 5) ? 2 : 1;
+        Avatar::waveRipple(WaveMode::INCOMING, intensity);
+        lastWaveRefresh = now;
     }
 
     // Distance tracking for XP (every 5 seconds when GPS is available)

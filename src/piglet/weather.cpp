@@ -3,7 +3,10 @@
 
 #include "weather.h"
 #include "avatar.h"
+#include "mood.h"
 #include "../ui/display.h"
+#include "../core/xp.h"
+#include "../audio/sfx.h"
 #include <esp_random.h>
 
 namespace Weather {
@@ -79,6 +82,230 @@ static uint32_t lastWindUpdate = 0;
 // === MOOD-BASED WEATHER CONTROL ===
 static int currentMood = 50;  // Cached mood level
 
+// === BIRD SYSTEM ===
+struct SkyBird {
+    float x;           // horizontal position (-20 to 260)
+    int8_t y;          // sky zone (3-14)
+    int8_t vx;         // speed: -2 to +2 px/tick (never 0)
+    uint8_t sinePhase; // vertical wobble counter
+    bool active;
+    bool falling;
+    float fallVy, fallX, fallY;
+    float fallStartY;  // Y when fall began (for whistle pitch interpolation)
+};
+
+struct BirdSpark {
+    float x, y, vx, vy;
+    uint8_t life;      // ticks remaining (0=inactive)
+};
+
+struct BirdExplosion {
+    float x, y;           // impact center
+    uint8_t radius;        // current blast radius (grows from 0)
+    uint8_t maxRadius;     // target radius (9-12px)
+    uint8_t life;          // ticks remaining
+    bool active;
+};
+
+struct ImpactSplash {
+    float x, y, vx, vy;
+    uint8_t life;
+    bool active;
+};
+
+static SkyBird birds[2];
+static BirdSpark sparks[6];
+static BirdExplosion explosions[2];     // max 2 concurrent (matches bird pool)
+static ImpactSplash impactSplashes[6];  // shared splash pool
+static int8_t whistlingBird = -1;       // index of bird currently whistling (-1 = none)
+static uint32_t lastBirdUpdate = 0;
+static uint32_t nextBirdSpawn = 0;
+
+static void spawnBird() {
+    // Find inactive slot
+    int slot = -1;
+    for (int i = 0; i < 2; i++) {
+        if (!birds[i].active) { slot = i; break; }
+    }
+    if (slot < 0) return;
+
+    SkyBird& b = birds[slot];
+    b.y = (int8_t)random(3, 15);
+    b.sinePhase = 0;
+    b.active = true;
+    b.falling = false;
+
+    // Random direction and speed
+    bool goRight = random(0, 2) == 0;
+    b.vx = goRight ? (int8_t)random(1, 3) : (int8_t)random(-2, 0);
+    if (b.vx == 0) b.vx = 1;
+
+    // Enter from off-screen edge opposite to travel direction
+    b.x = goRight ? -20.0f : 260.0f;
+}
+
+static void updateBirds(uint32_t now) {
+    // Guard: skip entirely during rain
+    if (rainActive) {
+        for (int i = 0; i < 2; i++) birds[i].active = false;
+        for (int i = 0; i < 6; i++) sparks[i].life = 0;
+        for (int i = 0; i < 2; i++) explosions[i].active = false;
+        for (int i = 0; i < 6; i++) impactSplashes[i].active = false;
+        whistlingBird = -1;
+        nextBirdSpawn = now + random(15000, 30001);
+        return;
+    }
+
+    // 50ms tick rate (~20fps)
+    if (now - lastBirdUpdate < 50) return;
+    lastBirdUpdate = now;
+
+    // Spawn check
+    if (now >= nextBirdSpawn) {
+        spawnBird();
+        nextBirdSpawn = now + random(15000, 30001);
+    }
+
+    // Update flying and falling birds
+    for (int i = 0; i < 2; i++) {
+        if (!birds[i].active) continue;
+        SkyBird& b = birds[i];
+
+        if (!b.falling) {
+            // Flying: advance position
+            b.x += (float)b.vx;
+            b.sinePhase++;
+
+            // Deactivate when off-screen
+            if (b.x < -25.0f || b.x > 265.0f) {
+                b.active = false;
+                continue;
+            }
+
+            // Check wave collision
+            int16_t drawY = b.y + ((b.sinePhase & 0x08) ? 1 : 0);  // 1px bob
+            if (Avatar::checkBirdWaveCollision((int16_t)b.x, drawY)) {
+                b.falling = true;
+                b.fallVy = -1.5f;  // initial upward flick
+                b.fallX = b.x;
+                b.fallY = (float)drawY;
+                b.fallStartY = (float)drawY;  // remember start for whistle pitch
+
+                // Hit zap SFX
+                SFX::play(SFX::BIRD_HIT);
+
+                // Claim whistle slot if available
+                if (whistlingBird < 0) whistlingBird = (int8_t)i;
+
+                // Spawn 3 sparks
+                int spawned = 0;
+                for (int s = 0; s < 6 && spawned < 3; s++) {
+                    if (sparks[s].life == 0) {
+                        sparks[s].x = b.fallX;
+                        sparks[s].y = b.fallY;
+                        sparks[s].vx = (float)random(-20, 21) / 10.0f;  // -2.0 to +2.0
+                        sparks[s].vy = -1.0f - (float)random(0, 15) / 10.0f;  // -1.0 to -2.5
+                        sparks[s].life = random(10, 18);
+                        spawned++;
+                    }
+                }
+
+                // XP reward scaled to pig level: level*1 to level*3
+                uint8_t lvl = XP::getLevel();
+                if (lvl < 1) lvl = 1;
+                uint16_t xp = (uint16_t)(lvl * random(1, 4));
+                XP::addXP(xp);
+
+                // Pig celebrates the kill
+                Mood::onBirdKill();
+            }
+        } else {
+            // Falling: gravity + drift
+            b.fallVy += 0.4f;
+            b.fallY += b.fallVy;
+            b.fallX += (float)b.vx * 0.5f;
+
+            // Bomb whistle: descending pitch tracks Y position
+            if (whistlingBird == i && b.fallY < 106.0f) {
+                float range = 106.0f - b.fallStartY;
+                float progress = (range > 0.0f) ? (b.fallY - b.fallStartY) / range : 1.0f;
+                if (progress < 0.0f) progress = 0.0f;
+                if (progress > 1.0f) progress = 1.0f;
+                uint16_t freq = (uint16_t)(1200.0f - progress * 1000.0f);  // 1200Hz → 200Hz
+                SFX::tone(freq, 60);
+            }
+
+            // Ground impact
+            if (b.fallY > 106.0f) {
+                // Impact SFX
+                SFX::play(SFX::BIRD_IMPACT);
+
+                // Release whistle
+                if (whistlingBird == i) whistlingBird = -1;
+
+                // Spawn explosion
+                for (int e = 0; e < 2; e++) {
+                    if (!explosions[e].active) {
+                        explosions[e].x = b.fallX;
+                        explosions[e].y = 106.0f;
+                        explosions[e].radius = 0;
+                        explosions[e].maxRadius = (uint8_t)random(9, 13);
+                        explosions[e].life = 12;
+                        explosions[e].active = true;
+                        break;
+                    }
+                }
+
+                // Spawn 4 impact splashes
+                int splashed = 0;
+                for (int s = 0; s < 6 && splashed < 4; s++) {
+                    if (!impactSplashes[s].active) {
+                        impactSplashes[s].x = b.fallX + (float)random(-6, 7);
+                        impactSplashes[s].y = 106.0f;
+                        impactSplashes[s].vx = (float)random(-30, 31) / 10.0f;  // -3.0 to +3.0
+                        impactSplashes[s].vy = -1.0f - (float)random(0, 16) / 10.0f;  // -1.0 to -2.5
+                        impactSplashes[s].life = (uint8_t)random(12, 19);
+                        impactSplashes[s].active = true;
+                        splashed++;
+                    }
+                }
+
+                b.active = false;
+            }
+        }
+    }
+
+    // Update sparks
+    for (int s = 0; s < 6; s++) {
+        if (sparks[s].life == 0) continue;
+        sparks[s].x += sparks[s].vx;
+        sparks[s].y += sparks[s].vy;
+        sparks[s].vy += 0.25f;  // lighter gravity
+        sparks[s].life--;
+    }
+
+    // Update explosions
+    for (int e = 0; e < 2; e++) {
+        if (!explosions[e].active) continue;
+        if (explosions[e].radius < explosions[e].maxRadius) {
+            explosions[e].radius++;
+        } else {
+            explosions[e].life--;
+            if (explosions[e].life == 0) explosions[e].active = false;
+        }
+    }
+
+    // Update impact splashes
+    for (int s = 0; s < 6; s++) {
+        if (!impactSplashes[s].active) continue;
+        impactSplashes[s].x += impactSplashes[s].vx;
+        impactSplashes[s].y += impactSplashes[s].vy;
+        impactSplashes[s].vy += 0.3f;  // gravity
+        impactSplashes[s].life--;
+        if (impactSplashes[s].life == 0) impactSplashes[s].active = false;
+    }
+}
+
 // Forward declarations
 static void generateCloudPuffs(CloudShape& cloud);
 static void activateCloud();
@@ -95,6 +322,15 @@ void init() {
     for (int i = 0; i < 6; i++) {
         windParticles[i].active = false;
     }
+
+    // Init bird system
+    for (int i = 0; i < 2; i++) birds[i].active = false;
+    for (int i = 0; i < 6; i++) sparks[i].life = 0;
+    for (int i = 0; i < 2; i++) explosions[i].active = false;
+    for (int i = 0; i < 6; i++) impactSplashes[i].active = false;
+    whistlingBird = -1;
+    lastBirdUpdate = 0;
+    nextBirdSpawn = millis() + random(5000, 15001);
 
     lastCloudUpdate = millis();
     lastCloudParallax = lastCloudUpdate;
@@ -313,6 +549,9 @@ void update() {
 
     // Update wind gusts (periodic)
     updateWind(now);
+
+    // Update ambient birds
+    updateBirds(now);
 }
 
 static void updateClouds(uint32_t now) {
@@ -578,46 +817,136 @@ void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
     }
 }
 
-void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
-    // During thunder flash, invert colors for rain/wind (matches sirloin)
-    uint16_t drawColor = isThunderFlashing() ? colorBG : colorFG;
+// Fat pixel size matching avatar grid (3x3 blocks)
+static constexpr int16_t BIRD_PX = 3;
 
-    // Draw rain
-    if (rainActive) {
-        for (int i = 0; i < RAIN_DROP_COUNT; i++) {
-            int x = (int)rainDrops[i].x;
-            int y = (int)rainDrops[i].y;
+static inline int16_t birdSnap(int16_t v) {
+    return (v >= 0) ? (v / BIRD_PX) * BIRD_PX : ((v - 2) / BIRD_PX) * BIRD_PX;
+}
 
-            // Skip if above visible area (drops falling into view)
-            if (y < 0) continue;
+void drawBirds(M5Canvas& canvas, uint16_t colorFG) {
+    // During thunder flash, invert color like clouds do
+    uint16_t drawColor = isThunderFlashing() ? getColorBG() : colorFG;
 
-            // Draw 6-pixel tall x 2-pixel wide raindrop (slightly taller for visibility)
-            for (int dy = 0; dy < 6; dy++) {
-                if (y + dy < 103) {  // Clip 3px above grass (grass starts at Y=106)
-                    canvas.drawPixel(x, y + dy, drawColor);
-                    if (x + 1 < DISPLAY_W) canvas.drawPixel(x + 1, y + dy, drawColor);
-                }
+    for (int i = 0; i < 2; i++) {
+        if (!birds[i].active) continue;
+        const SkyBird& b = birds[i];
+
+        if (!b.falling) {
+            // Flying bird: body (center) + 2 wing pixels that flap up/down
+            int16_t bx = birdSnap((int16_t)b.x);
+            int16_t bodyY = birdSnap(b.y + ((b.sinePhase & 0x08) ? BIRD_PX : 0));
+            bool wingsUp = (b.sinePhase & 0x04) != 0;  // flap faster than bob
+            int16_t wingY = wingsUp ? (bodyY - BIRD_PX) : (bodyY + BIRD_PX);
+            canvas.fillRect(bx, wingY, BIRD_PX, BIRD_PX, drawColor);                       // left wing
+            canvas.fillRect(bx + 2 * BIRD_PX, wingY, BIRD_PX, BIRD_PX, drawColor);         // right wing
+            canvas.fillRect(bx + BIRD_PX, bodyY, BIRD_PX, BIRD_PX, drawColor);             // body
+        } else {
+            // Falling bird: tumbling 2-block dot on PX grid
+            int16_t fx = birdSnap((int16_t)b.fallX);
+            int16_t fy = birdSnap((int16_t)b.fallY);
+            if (fy >= 0 && fy < 107) {
+                canvas.fillRect(fx, fy, BIRD_PX, BIRD_PX, drawColor);
+                canvas.fillRect(fx + BIRD_PX, fy, BIRD_PX, BIRD_PX, drawColor);
             }
         }
     }
 
-    // Draw wind particles (shrinking filled circles)
+    // Draw sparks as fat pixels
+    for (int s = 0; s < 6; s++) {
+        if (sparks[s].life == 0) continue;
+        // Flicker-fade: skip draw when life < 4 and even
+        if (sparks[s].life < 4 && (sparks[s].life % 2 == 0)) continue;
+        int16_t sx = birdSnap((int16_t)sparks[s].x);
+        int16_t sy = birdSnap((int16_t)sparks[s].y);
+        if (sx >= 0 && sx < 240 && sy >= 0 && sy < 107) {
+            canvas.fillRect(sx, sy, BIRD_PX, BIRD_PX, drawColor);
+        }
+    }
+
+    // Draw explosions: expanding pixelated ring using 8-point circle outline
+    for (int e = 0; e < 2; e++) {
+        if (!explosions[e].active) continue;
+        // Flicker when life < 4
+        if (explosions[e].life < 4 && (explosions[e].life % 2 == 0)) continue;
+        int16_t cx = birdSnap((int16_t)explosions[e].x);
+        int16_t cy = birdSnap((int16_t)explosions[e].y);
+        int16_t r = (int16_t)explosions[e].radius;
+        // 8-point circle: cardinal + diagonal offsets snapped to grid
+        const int16_t pts[][2] = {
+            {0, (int16_t)(-r)}, {0, r}, {(int16_t)(-r), 0}, {r, 0},
+            {(int16_t)(r * 7 / 10), (int16_t)(-r * 7 / 10)},
+            {(int16_t)(-r * 7 / 10), (int16_t)(-r * 7 / 10)},
+            {(int16_t)(r * 7 / 10), (int16_t)(r * 7 / 10)},
+            {(int16_t)(-r * 7 / 10), (int16_t)(r * 7 / 10)}
+        };
+        for (int p = 0; p < 8; p++) {
+            int16_t px = birdSnap(cx + pts[p][0]);
+            int16_t py = birdSnap(cy + pts[p][1]);
+            if (px >= 0 && px < 240 && py >= 0 && py < 107) {
+                canvas.fillRect(px, py, BIRD_PX, BIRD_PX, drawColor);
+            }
+        }
+    }
+
+    // Draw impact splashes as fat pixels
+    for (int s = 0; s < 6; s++) {
+        if (!impactSplashes[s].active) continue;
+        // Flicker-fade same as sparks
+        if (impactSplashes[s].life < 4 && (impactSplashes[s].life % 2 == 0)) continue;
+        int16_t sx = birdSnap((int16_t)impactSplashes[s].x);
+        int16_t sy = birdSnap((int16_t)impactSplashes[s].y);
+        if (sx >= 0 && sx < 240 && sy >= 0 && sy < 107) {
+            canvas.fillRect(sx, sy, BIRD_PX, BIRD_PX, drawColor);
+        }
+    }
+}
+
+void draw(M5Canvas& canvas, uint16_t colorFG, uint16_t colorBG) {
+    // During thunder flash, invert colors for rain/wind (matches sirloin)
+    uint16_t drawColor = isThunderFlashing() ? colorBG : colorFG;
+
+    // Draw rain as fat pixel columns (2 blocks tall, grid-snapped)
+    if (rainActive) {
+        for (int i = 0; i < RAIN_DROP_COUNT; i++) {
+            int16_t rx = birdSnap((int16_t)rainDrops[i].x);
+            int16_t ry = birdSnap((int16_t)rainDrops[i].y);
+
+            if (ry < 0) continue;
+
+            // 2-block vertical streak
+            if (ry < 103) {
+                canvas.fillRect(rx, ry, BIRD_PX, BIRD_PX, drawColor);
+            }
+            if (ry + BIRD_PX < 103) {
+                canvas.fillRect(rx, ry + BIRD_PX, BIRD_PX, BIRD_PX, drawColor);
+            }
+        }
+    }
+
+    // Draw wind particles as grid-snapped fat pixels (shrink from multi-block to single)
     if (windActive) {
         for (int i = 0; i < 6; i++) {
             if (!windParticles[i].active) continue;
-            int x = (int)windParticles[i].x;
-            int y = (int)windParticles[i].y;
-            if (x < -3 || x > DISPLAY_W + 3) continue;
+            int16_t wx = birdSnap((int16_t)windParticles[i].x);
+            int16_t wy = birdSnap((int16_t)windParticles[i].y);
+            if (wx < -BIRD_PX || wx > DISPLAY_W + BIRD_PX) continue;
 
-            // Size shrinks to 0 over maxTravel distance
+            // Block count shrinks over travel distance: 3→2→1 blocks
             float dist = windParticles[i].x - windParticles[i].spawnX;
             if (dist < 0) dist = -dist;
             float progress = dist / windParticles[i].maxTravel;
             if (progress > 1.0f) progress = 1.0f;
-            int r = (int)((float)windParticles[i].baseSize * (1.0f - progress) + 0.5f);
-            if (r < 1) continue;
+            int blocks = (int)((float)windParticles[i].baseSize * (1.0f - progress) + 0.5f);
+            if (blocks < 1) continue;
 
-            canvas.fillCircle(x, y, r, drawColor);
+            // Horizontal streak of fat pixels
+            for (int b = 0; b < blocks; b++) {
+                int16_t bx = windParticles[i].dirRight ? (wx + b * BIRD_PX) : (wx - b * BIRD_PX);
+                if (bx >= 0 && bx < DISPLAY_W && wy >= 0 && wy < 107) {
+                    canvas.fillRect(bx, wy, BIRD_PX, BIRD_PX, drawColor);
+                }
+            }
         }
     }
 }

@@ -319,6 +319,7 @@ void Display::update() {
     switch (mode) {
         case PorkchopMode::IDLE:
             Avatar::draw(mainCanvas);
+            Weather::drawBirds(mainCanvas, fg);
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);
@@ -329,6 +330,7 @@ void Display::update() {
         case PorkchopMode::WARHOG_MODE:
         case PorkchopMode::PIGGYBLUES_MODE:
             Avatar::draw(mainCanvas);
+            Weather::drawBirds(mainCanvas, fg);
             Weather::drawClouds(mainCanvas, fg);
             Weather::draw(mainCanvas, fg, bg);
             Mood::draw(mainCanvas);

@@ -3,6 +3,7 @@
 #include "avatar.h"
 #include "weather.h"
 #include "../ui/display.h"
+#include "../audio/sfx.h"
 #include <time.h>
 
 // Static members
@@ -90,6 +91,12 @@ bool Avatar::cachedNightMode = false;
 // Wave ripple state
 WaveMode Avatar::waveMode = WaveMode::NONE;
 uint32_t Avatar::waveBurstStart = 0;
+uint32_t Avatar::waveBurstEnd = 0;
+static uint8_t waveIntensity = 3;  // 1-5 rings for INCOMING
+
+// Wave-tree shake state (OUTGOING ring hits tree)
+static bool     waveTreeShaking = false;
+static uint32_t waveTreeShakeStart = 0;
 
 // Fruit tree state
 TreePhase Avatar::treePhase = TreePhase::HIDDEN;
@@ -112,6 +119,7 @@ int16_t Avatar::treeScrollOffset = 0;
 
 // Tree-pig collision state (pig bumps into tree → both shake)
 static bool treeColliding = false;
+static bool wasTreeColliding = false;  // edge detection for grunt sound
 static int8_t treeCollisionShake = 0;  // rapid jitter applied to tree X
 
 // Dropping fruit system (individual fruit falls on deauth success)
@@ -141,6 +149,17 @@ static constexpr int16_t PX = 3;
 
 static inline int16_t snapPx(int16_t v) {
     return (v >= 0) ? (v / PX) * PX : ((v - 2) / PX) * PX;
+}
+
+// Iterative edge reflection — folds off-screen coordinates back on-screen.
+// Returns reflected coordinate; increments `bounces` for each fold.
+static inline int16_t reflectAxis(int16_t v, int16_t hi, uint8_t& bounces) {
+    for (uint8_t i = 0; i < 4; i++) {
+        if (v >= 0 && v <= hi) return v;
+        if (v < 0) { v = -v;           bounces++; }
+        else       { v = hi + hi - v;   bounces++; }
+    }
+    return (v < 0) ? 0 : (v > hi) ? hi : v;  // safety clamp
 }
 
 // Bresenham line on PX grid — stamps PX*PX blocks
@@ -932,6 +951,12 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         }
     }
 
+    // Grunt on first frame of tree collision (edge detect)
+    if (treeColliding && !wasTreeColliding) {
+        SFX::play(SFX::OINK_GRUNT);
+    }
+    wasTreeColliding = treeColliding;
+
     // Calculate vertical shake/jump offset
     int shakeY = 0;
     if (attackHopActive) {
@@ -1014,6 +1039,10 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     int startY = 40 + shakeY;  // Apply shake offset (pig bottom=106 aligns with grass ground)
 
     int lineHeight = 22;
+    const int earDropPx = 5;  // Shift ears down to sit snug against head
+
+    // Draw wave ripples behind pig (radio activity feedback)
+    drawWaveRipples(canvas, faceRight, startX, startY);
 
     for (uint8_t i = 0; i < lines; i++) {
         // Handle body line (i=2) for dynamic tail
@@ -1068,7 +1097,7 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
             // Ears are typically at positions 1 and 4 in " X  X " format
             earLine[1] = '^';
             earLine[4] = '^';
-            drawFilledPigLine(canvas, earLine, startX, startY + i * lineHeight, getDrawColor(), getBGColor(), 0);
+            drawFilledPigLine(canvas, earLine, startX, startY + earDropPx, getDrawColor(), getBGColor(), 0);
         } else if (i == 1 && (blink || sniff)) {
             // Face line - modify eye and/or nose
             // Face format: "(X 00)" for right-facing, "(00 X)" for left-facing
@@ -1107,15 +1136,13 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
 
             drawFilledPigLine(canvas, modifiedLine, startX, startY + i * lineHeight, getDrawColor(), getBGColor(), 1);
         } else {
-            drawFilledPigLine(canvas, frame[i], startX, startY + i * lineHeight, getDrawColor(), getBGColor(), i);
+            int ly = (i == 0) ? (startY + earDropPx) : (startY + i * lineHeight);
+            drawFilledPigLine(canvas, frame[i], startX, ly, getDrawColor(), getBGColor(), i);
         }
     }
 
     // Draw sparkle particles (celebrations)
     updateAndDrawSparkles(canvas);
-
-    // Draw wave ripples (radio activity feedback)
-    drawWaveRipples(canvas, faceRight, startX, startY);
 
     // Draw grass below piglet
     drawGrass(canvas);
@@ -1844,6 +1871,18 @@ void Avatar::drawTree(M5Canvas& canvas) {
         sway += treeCollisionShake;
     }
 
+    // Wave-tree shake: OUTGOING ring impact
+    if (waveTreeShaking) {
+        uint32_t elapsed = now - waveTreeShakeStart;
+        if (elapsed < 300) {
+            int8_t jitter = ((elapsed / 33) % 2 == 0) ? PX : -PX;
+            if (elapsed > 150) jitter /= 2;  // decay
+            sway += jitter;
+        } else {
+            waveTreeShaking = false;
+        }
+    }
+
     // Sand-drop collapse: collapseT goes 0→1 as tree falls
     bool collapsing = (treePhase == TreePhase::COLLAPSING);
     float collapseT = collapsing ? (1.0f - treeGrowth) : 0.0f;
@@ -2141,77 +2180,194 @@ bool Avatar::isThunderFlashing() {
 }
 
 // --- Wave ripple animation (radio activity feedback) ---
-// Burst-based: each call starts a 1500ms burst (just over one 1200ms ripple cycle).
-// Re-triggering resets the timer. OUTGOING priority prevents INCOMING flicker.
-void Avatar::waveRipple(WaveMode mode) {
+// Burst-based: each call extends the burst deadline without resetting phase.
+// waveBurstStart only sets on NONE→active transition (keeps rings phase-coherent).
+// OUTGOING priority prevents INCOMING flicker.
+void Avatar::waveRipple(WaveMode mode, uint8_t intensity) {
     if (mode == WaveMode::NONE) {
         waveMode = WaveMode::NONE;
         return;
     }
+    uint32_t now = millis();
     // OUTGOING priority: don't let INCOMING override an active OUTGOING burst
     if (mode == WaveMode::INCOMING && waveMode == WaveMode::OUTGOING) {
-        if (millis() - waveBurstStart < 1500) return;  // OUTGOING still active
+        if (now < waveBurstEnd) return;  // OUTGOING still active
     }
+    bool alreadyActive = (waveMode != WaveMode::NONE && now < waveBurstEnd);
     waveMode = mode;
-    waveBurstStart = millis();
+    waveBurstEnd = now + 4000;  // extend deadline (longer for 1.5x slower cycle)
+    if (!alreadyActive) {
+        waveBurstStart = now;   // phase origin only on fresh start
+    }
+    waveIntensity = intensity;
 }
 
-// Right-facing arc: 12 evenly-spaced points from 300° to 60° (cos*256, sin*256)
-static const int16_t wave_arc_lut[12][2] = {
-    { 128, -222}, { 168, -193}, { 201, -158}, { 228, -117},
-    { 246,  -72}, { 255,  -25}, { 255,   25}, { 246,   72},
-    { 228,  117}, { 201,  158}, { 168,  193}, { 128,  222}
-};
+// Midpoint circle on PX grid with edge reflection and bounce-based dissipation.
+// reflect=true folds off-screen points back via reflectAxis; reflect=false clips.
+static void drawCircleRing(M5Canvas& canvas, int16_t cx, int16_t cy,
+                            int16_t r, uint16_t color, bool reflect,
+                            int16_t maxPxX, int16_t maxPxY) {
+    int16_t gr = r / PX;
+    if (gr < 1) return;
+    cx = snapPx(cx);
+    cy = snapPx(cy);
+    int16_t gx = gr, gy = 0, d = 1 - gr;
+
+    while (gx >= gy) {
+        const int16_t ox[8] = { gx, (int16_t)-gx,  gx, (int16_t)-gx,  gy, (int16_t)-gy,  gy, (int16_t)-gy };
+        const int16_t oy[8] = { gy,  gy, (int16_t)-gy, (int16_t)-gy,  gx,  gx, (int16_t)-gx, (int16_t)-gx };
+        for (uint8_t p = 0; p < 8; p++) {
+            int16_t px = cx + ox[p] * PX;
+            int16_t py = cy + oy[p] * PX;
+            if (reflect) {
+                uint8_t bounces = 0;
+                px = reflectAxis(px, maxPxX, bounces);
+                py = reflectAxis(py, maxPxY, bounces);
+                if (bounces >= 4) continue;
+                if (bounces == 3 && ((px / PX + py / PX) & 1)) continue;       // 50%
+                if (bounces == 2 && ((px / PX + py / PX) % 3 == 0)) continue;  // ~67%
+            } else {
+                if (px < 0 || px > maxPxX || py < 0 || py > maxPxY) continue;
+            }
+            canvas.fillRect(px, py, PX, PX, color);
+        }
+        gy++;
+        if (d < 0) { d += 2 * gy + 1; }
+        else       { gx--; d += 2 * (gy - gx) + 1; }
+    }
+}
 
 void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int startY) {
     if (waveMode == WaveMode::NONE) return;
 
     uint32_t now = millis();
 
-    // Auto-expire burst after 1500ms of no re-triggering
-    if (now - waveBurstStart >= 1500) {
-        waveMode = WaveMode::NONE;
-        return;
+    // Geiger-counter clicks while waves are actively bursting
+    static uint32_t nextGeigerClick = 0;
+    if (now < waveBurstEnd && now >= nextGeigerClick) {
+        uint16_t freq = (uint16_t)random(800, 1600);
+        SFX::tone(freq, random(3, 8));
+        nextGeigerClick = now + random(80, 300);
+    }
+
+    // Gradual fade: after burst ends, suppress young rings over one cycle
+    const uint16_t FADE_MS = 3600;
+    float minProgress = 0.0f;
+    if (now >= waveBurstEnd) {
+        uint32_t fadeElapsed = now - waveBurstEnd;
+        if (fadeElapsed >= FADE_MS) { waveMode = WaveMode::NONE; return; }
+        minProgress = (float)fadeElapsed / (float)FADE_MS * 0.80f;
     }
     uint16_t color = getDrawColor();
 
+    const bool outgoing = (waveMode == WaveMode::OUTGOING);
+
+    // Both modes originate from nose/mouth tip
     int waveCX = faceRight ? (startX + 85) : (startX + 23);
     int waveCY = startY + 31;
 
-    const uint8_t  COUNT    = 3;
-    const uint16_t CYCLE_MS = 1200;
-    const int16_t  R_MIN    = 12;
-    const int16_t  R_MAX    = 50;
+    // Both modes: simple propagating circles that clip at screen edges
+    const uint8_t  COUNT    = outgoing ? 5 : waveIntensity;
+    const uint16_t CYCLE_MS = 3600;  // 1.5x slower than original 2400
+    const int16_t  R_MIN    = 0;     // start from mouth (gradual emergence)
+    const int16_t  R_MAX    = 130;   // large enough to originate/terminate off-screen
+    const int16_t  MAX_PX_X = DISPLAY_W - PX;  // max drawable X
+    const int16_t  MAX_PX_Y = MAIN_H - PX;     // max drawable Y
+
+    // Grid-radius steps from R_MIN to R_MAX in PX increments
+    const int16_t GRID_STEPS = (R_MAX - R_MIN) / PX;
+
+    // Burst-relative elapsed time (phase-coherent across re-triggers)
+    uint32_t elapsed = now - waveBurstStart;
 
     for (uint8_t i = 0; i < COUNT; i++) {
         uint32_t phaseOffset = i * (CYCLE_MS / COUNT);
-        float progress = (float)((now + phaseOffset) % CYCLE_MS) / (float)CYCLE_MS;
+        uint32_t phase = (elapsed + phaseOffset) % CYCLE_MS;
+        float progress = (float)phase / (float)CYCLE_MS;
 
+        if (progress < minProgress) continue;  // suppress young rings during fade
         if (progress > 0.80f) continue;  // Gap in last 20%
         float t = progress / 0.80f;
 
-        int16_t r = (waveMode == WaveMode::OUTGOING)
-            ? R_MIN + (int16_t)((float)(R_MAX - R_MIN) * t)
-            : R_MAX - (int16_t)((float)(R_MAX - R_MIN) * t);
+        // Snap radius to PX grid — eliminates doubled rings
+        int16_t gridStep = (int16_t)(t * GRID_STEPS);
+        int16_t rRaw = R_MIN + gridStep * PX;
+        int16_t r = outgoing
+            ? snapPx(rRaw)
+            : snapPx(R_MIN + R_MAX - rRaw);
 
-        int16_t thick = (t < 0.5f) ? 2 : 1;
+        bool earlyLife = (t < 0.5f);
 
-        for (uint8_t s = 0; s < 12; s++) {
-            int16_t cx_off = faceRight ? wave_arc_lut[s][0] : -wave_arc_lut[s][0];
-            int16_t cy_off = wave_arc_lut[s][1];
-            int16_t px = snapPx(waveCX + (int16_t)((int32_t)r * cx_off / 256));
-            int16_t py = snapPx(waveCY + (int16_t)((int32_t)r * cy_off / 256));
-            if (px < 0 || px + PX > DISPLAY_W || py < 0 || py + PX > MAIN_H) continue;
-            canvas.fillRect(px, py, PX, PX, color);
-            if (thick == 2) {  // Double-thick early life: second ring at r+PX
-                int16_t r2 = r + PX;
-                px = snapPx(waveCX + (int16_t)((int32_t)r2 * cx_off / 256));
-                py = snapPx(waveCY + (int16_t)((int32_t)r2 * cy_off / 256));
-                if (px < 0 || px + PX > DISPLAY_W || py < 0 || py + PX > MAIN_H) continue;
-                canvas.fillRect(px, py, PX, PX, color);
+        if (outgoing) {
+            // --- OUTGOING: expanding circles, clip at edges ---
+            drawCircleRing(canvas, waveCX, waveCY, r, color, false, MAX_PX_X, MAX_PX_Y);
+            if (earlyLife)
+                drawCircleRing(canvas, waveCX, waveCY, r + PX, color, false, MAX_PX_X, MAX_PX_Y);
+
+            // Tree shake detection: check if ring intersects tree
+            if (!waveTreeShaking && (treePhase == TreePhase::ALIVE || treePhase == TreePhase::GROWING)) {
+                int16_t tbx = treeTrunk.baseX + treeScrollOffset;
+                while (tbx > 260) tbx -= 300;
+                while (tbx < -60) tbx += 300;
+                int32_t dx = tbx - waveCX;
+                int32_t dy = 106 - waveCY;          // tree baseY = 106
+                int32_t dist2 = dx * dx + dy * dy;
+                int32_t rOuter = r + treeTrunk.crownRadius;
+                int32_t rInner = r - treeTrunk.crownRadius;
+                if (rInner < 0) rInner = 0;
+                if (dist2 <= rOuter * rOuter && dist2 >= rInner * rInner) {
+                    waveTreeShaking = true;
+                    waveTreeShakeStart = now;
+                }
             }
+        } else {
+            // --- INCOMING: full radial circle, clipped at edges (no reflection) ---
+            drawCircleRing(canvas, waveCX, waveCY, r, color, false, MAX_PX_X, MAX_PX_Y);
+            if (earlyLife)
+                drawCircleRing(canvas, waveCX, waveCY, r + PX, color, false, MAX_PX_X, MAX_PX_Y);
         }
     }
+}
+
+// --- Bird-wave collision check (called by Weather bird system) ---
+bool Avatar::checkBirdWaveCollision(int16_t bx, int16_t by) {
+    if (waveMode != WaveMode::OUTGOING) return false;
+
+    uint32_t now = millis();
+    if (now >= waveBurstEnd) return false;  // burst already fading
+
+    // Compute wave origin (mirrors drawWaveRipples logic)
+    bool faceR = facingRight;
+    int waveCX = faceR ? (currentX + 85) : (currentX + 23);
+    int waveCY = 40 + 31;  // nominal startY=40
+
+    // Burst-relative elapsed time
+    uint32_t elapsed = now - waveBurstStart;
+    const uint16_t CYCLE_MS = 3600;
+    const int16_t  R_MIN = 0;
+    const int16_t  R_MAX = 130;
+    const uint8_t  COUNT = 5;
+
+    int32_t dx = (int32_t)bx - waveCX;
+    int32_t dy = (int32_t)by - waveCY;
+    int32_t dist2 = dx * dx + dy * dy;
+
+    for (uint8_t i = 0; i < COUNT; i++) {
+        uint32_t phaseOffset = i * (CYCLE_MS / COUNT);
+        uint32_t phase = (elapsed + phaseOffset) % CYCLE_MS;
+        float progress = (float)phase / (float)CYCLE_MS;
+        if (progress > 0.80f) continue;
+        float t = progress / 0.80f;
+
+        int16_t r = (int16_t)(R_MIN + t * (R_MAX - R_MIN));
+        int32_t rOuter = r + 4;
+        int32_t rInner = r - 4;
+        if (rInner < 0) rInner = 0;
+        if (dist2 <= rOuter * rOuter && dist2 >= rInner * rInner) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // --- Phase 6: Windup slide for coast-back ---

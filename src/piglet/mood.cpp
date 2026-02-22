@@ -849,7 +849,7 @@ enum class PhraseCategory : uint8_t {
     HAPPY, EXCITED, HUNTING, SLEEPY, SAD, WARHOG, WARHOG_FOUND,
     PIGGYBLUES_TARGETED, PIGGYBLUES_STATUS, PIGGYBLUES_IDLE,
     DEAUTH, DEAUTH_SUCCESS, PMKID, SNIFFING, PASSIVE_RECON, MENU_IDLE, RARE, RARE_LORE, DYNAMIC,
-    BORED,
+    BORED, BIRD_KILL,
     // Situational awareness categories
     SA_HEAP, SA_TIME, SA_DENSITY, SA_CHALLENGE, SA_GPS, SA_FATIGUE, SA_ENCRYPT, SA_BUFF, SA_CHARGING, SA_WEATHER,
     COUNT  // Must be last
@@ -1143,6 +1143,25 @@ const char* PHRASES_WARHOG_FOUND[] = {
     "enemy network catalogued",
     "position marked sir"
 };
+
+// Bird kill phrases - pig celebrates shooting down a bird
+static const char* const PHRASES_BIRD_KILL[] = {
+    "BIRD DOWN I REPEAT",
+    "THE BIIRD IS DOWN",
+    "have u heard?",
+    "bird is the word",
+    "ba ba ba bird bird",
+    "fowl play heh",
+    "air defense active",
+    "no fly zone enforced",
+    "piggies cant fly either",
+    "skeet skeet",
+    "PULL!",
+    "duck season",
+    "target neutralized sir",
+    "angry birds irl"
+};
+static const int PHRASES_BIRD_KILL_COUNT = 14;
 
 // Piggy Blues BLE spam phrases - RuPaul drag queen eleganza
 // All phrases use %s=vendor and %d=rssi
@@ -1534,7 +1553,8 @@ void Mood::onHandshakeCaptured(const char* apName) {
     lastPhraseChange = millis();
     queuePhrases(buf2, buf3);
 
-    // Celebratory beep for handshake capture - non-blocking via SFX engine
+    // Pig squeals with excitement, then victory arpeggio confirms the capture
+    SFX::play(SFX::OINK_SQUEAL);
     SFX::play(SFX::HANDSHAKE);
     
     // Force mood peek to show EXCITED face regardless of threshold
@@ -1619,6 +1639,7 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     // Perk up + sniff animation - found a truffle!
     Avatar::perkUp();
     Avatar::sniff();
+    SFX::play(SFX::OINK_CURIOUS);   // Pig sniffs the air — what's that?
     
     // Award XP for network discovery
     // Check if in DO NO HAM mode for different XP event
@@ -2989,11 +3010,22 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     
     // Sniff animation - found a truffle!
     Avatar::sniff();
-    
+    SFX::play(SFX::OINK_HAPPY);     // Found a truffle while wardriving!
+
     // XP awarded in warhog.cpp when network is logged (authoritative source)
     
     int idx = pickPhraseIdx(PhraseCategory::WARHOG_FOUND, sizeof(PHRASES_WARHOG_FOUND) / sizeof(PHRASES_WARHOG_FOUND[0]));
     SET_PHRASE(currentPhrase, PHRASES_WARHOG_FOUND[idx]);
+    lastPhraseChange = millis();
+}
+
+void Mood::onBirdKill() {
+    happiness = min(happiness + 2, 100);
+    applyMomentumBoost(8);
+    lastActivityTime = millis();
+
+    int idx = pickPhraseIdx(PhraseCategory::BIRD_KILL, PHRASES_BIRD_KILL_COUNT);
+    SET_PHRASE(currentPhrase, PHRASES_BIRD_KILL[idx]);
     lastPhraseChange = millis();
 }
 

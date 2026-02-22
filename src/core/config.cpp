@@ -794,7 +794,14 @@ bool Config::loadPersonality() {
     personalityConfig.curiosity = doc["curiosity"] | 0.7f;
     personalityConfig.aggression = doc["aggression"] | 0.3f;
     personalityConfig.patience = doc["patience"] | 0.5f;
-    personalityConfig.soundEnabled = doc["soundEnabled"] | true;
+    // Migration: old boolean soundEnabled → new soundLevel
+    if (doc.containsKey("soundLevel")) {
+        personalityConfig.soundLevel = doc["soundLevel"] | 1;
+        if (personalityConfig.soundLevel > 5) personalityConfig.soundLevel = 5;
+    } else {
+        bool oldEnabled = doc["soundEnabled"] | true;
+        personalityConfig.soundLevel = oldEnabled ? 1 : 0;
+    }
     personalityConfig.brightness = doc["brightness"] | 80;
     personalityConfig.dimLevel = doc["dimLevel"] | 20;
     personalityConfig.dimTimeout = doc["dimTimeout"] | 30;
@@ -810,10 +817,10 @@ bool Config::loadPersonality() {
     }
     personalityConfig.bootMode = static_cast<BootMode>(bootMode);
 
-    Serial.printf("[CONFIG] Personality: %s (mood: %d, sound: %s, bright: %d%%, dim: %ds, theme: %d)\n",
+    Serial.printf("[CONFIG] Personality: %s (mood: %d, sound: %d, bright: %d%%, dim: %ds, theme: %d)\n",
                   personalityConfig.name,
                   personalityConfig.mood,
-                  personalityConfig.soundEnabled ? "ON" : "OFF",
+                  personalityConfig.soundLevel,
                   personalityConfig.brightness,
                   personalityConfig.dimTimeout,
                   personalityConfig.themeIndex);
@@ -829,7 +836,7 @@ void Config::savePersonalityToSPIFFS() {
     doc["curiosity"] = personalityConfig.curiosity;
     doc["aggression"] = personalityConfig.aggression;
     doc["patience"] = personalityConfig.patience;
-    doc["soundEnabled"] = personalityConfig.soundEnabled;
+    doc["soundLevel"] = personalityConfig.soundLevel;
     doc["brightness"] = personalityConfig.brightness;
     doc["dimLevel"] = personalityConfig.dimLevel;
     doc["dimTimeout"] = personalityConfig.dimTimeout;
@@ -841,8 +848,8 @@ void Config::savePersonalityToSPIFFS() {
     if (file) {
         serializeJsonPretty(doc, file);
         file.close();
-        Serial.printf("[CONFIG] Saved personality to SPIFFS (sound: %s)\n",
-                      personalityConfig.soundEnabled ? "ON" : "OFF");
+        Serial.printf("[CONFIG] Saved personality to SPIFFS (sound: %d)\n",
+                      personalityConfig.soundLevel);
     } else {
         Serial.println("[CONFIG] Failed to save personality to SPIFFS");
     }
@@ -896,7 +903,7 @@ bool Config::createDefaultPersonality() {
     personalityConfig.curiosity = 0.7f;
     personalityConfig.aggression = 0.3f;
     personalityConfig.patience = 0.5f;
-    personalityConfig.soundEnabled = true;
+    personalityConfig.soundLevel = 1;
     personalityConfig.g0Action = G0Action::SCREEN_TOGGLE;
     personalityConfig.bootMode = BootMode::IDLE;
     return true;

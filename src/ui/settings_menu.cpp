@@ -92,7 +92,7 @@ struct EntryData {
 static const EntryData kDirectEntries[] = {
     {SET_THEME, "THEME", SettingType::VALUE, 0, (int)THEME_COUNT - 1, 1, "", "CYCLE COLORS"},
     {SET_BRIGHTNESS, "BRIGHTNESS", SettingType::VALUE, 10, 100, 10, "%", "SCREEN GLOW LEVEL"},
-    {SET_SOUND, "SOUND", SettingType::TOGGLE, 0, 1, 1, "", "BEEPS AND BOOPS"},
+    {SET_SOUND, "SOUND", SettingType::VALUE, 0, 5, 1, "", "0=OFF 1-5=VOLUME"},
     {SET_DIM_AFTER, "DIM AFTER", SettingType::VALUE, 0, 300, 10, "S", "0 = NEVER DIM"},
     {SET_DIM_LEVEL, "DIM LEVEL", SettingType::VALUE, 0, 50, 5, "%", "0 = SCREEN OFF"},
     {SET_G0_ACTION, "G0 ACTION", SettingType::VALUE, 0, (int)G0_ACTION_COUNT - 1, 1, "", "G0 HOTKEY"},
@@ -103,7 +103,7 @@ static const EntryData kDirectEntries[] = {
 static const RootEntry kRootEntries[] = {
     {"THEME", "CYCLE COLORS", false, GROUP_NONE, SET_THEME},
     {"BRIGHTNESS", "SCREEN GLOW LEVEL", false, GROUP_NONE, SET_BRIGHTNESS},
-    {"SOUND", "BEEPS AND BOOPS", false, GROUP_NONE, SET_SOUND},
+    {"SOUND", "0=OFF 1-5=VOLUME", false, GROUP_NONE, SET_SOUND},
     {"DIM AFTER", "0 = NEVER DIM", false, GROUP_NONE, SET_DIM_AFTER},
     {"DIM LEVEL", "0 = SCREEN OFF", false, GROUP_NONE, SET_DIM_LEVEL},
     {"G0 ACTION", "G0 HOTKEY", false, GROUP_NONE, SET_G0_ACTION},
@@ -533,7 +533,7 @@ static int getSettingValue(SettingId id) {
         case SET_BRIGHTNESS:
             return Config::personality().brightness;
         case SET_SOUND:
-            return Config::personality().soundEnabled ? 1 : 0;
+            return Config::personality().soundLevel;
         case SET_DIM_AFTER:
             return Config::personality().dimTimeout;
         case SET_DIM_LEVEL:
@@ -618,9 +618,10 @@ static bool setSettingValue(SettingId id, int value) {
             return true;
         }
         case SET_SOUND: {
-            bool enabled = value != 0;
-            if (Config::personality().soundEnabled == enabled) return false;
-            Config::personality().soundEnabled = enabled;
+            uint8_t level = static_cast<uint8_t>(value);
+            if (level > 5) level = 5;
+            if (Config::personality().soundLevel == level) return false;
+            Config::personality().soundLevel = level;
             return true;
         }
         case SET_DIM_AFTER: {
