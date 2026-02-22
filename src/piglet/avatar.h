@@ -150,8 +150,6 @@ private:
     static int transitionToX;
     static bool transitionToFacingRight;
     static int currentX;  // Animated X position
-    static constexpr uint16_t TRANSITION_DURATION_MS = 400;  // Walk across time
-
     // Grass animation state
     static bool grassMoving;
     static bool grassDirection;  // true = grass scrolls right, false = scrolls left

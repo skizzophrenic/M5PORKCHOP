@@ -541,9 +541,11 @@ void Display::update() {
         if (boxW < 200) boxW = 200;
         if (boxW > DISPLAY_W - 8) boxW = DISPLAY_W - 8;
         int boxH = padH * 2 + lineCount * lineH;
+        if (boxH > MAIN_H - 4) boxH = MAIN_H - 4;
         int boxX = (DISPLAY_W - boxW) / 2;
         // Center in pig area (between top bar and grass line at y=106)
         int boxY = (106 - boxH) / 2;
+        if (boxY < 0) boxY = 0;
 
         // Inverted toast: fg border, bg fill, fg text
         mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, fg);
@@ -609,6 +611,7 @@ void Display::clear() {
 }
 
 void Display::triggerScreenShake(uint8_t intensity, uint16_t durationMs) {
+    if (intensity > 5) intensity = 5;
     screenShakeActive = true;
     screenShakeStart = millis();
     screenShakeDuration = durationMs;
@@ -651,7 +654,7 @@ void Display::pushAll() {
     M5.Display.endWrite();
 
     if (topBarMessageTwoLineActive) {
-        drawTopBarMessageTwoLineDirect();
+        drawTopBarMessageTwoLineDirect(offsetX, offsetY);
     }
 }
 
@@ -894,7 +897,7 @@ void Display::drawTopBar() {
     topBar.drawString(rightBuf, DISPLAY_W - 2, 2);
 }
 
-void Display::drawTopBarMessageTwoLineDirect() {
+void Display::drawTopBarMessageTwoLineDirect(int offsetX, int offsetY) {
     if (topBarMessage[0] == '\0') return;
 
     const char* msg = topBarMessage;
@@ -936,13 +939,13 @@ void Display::drawTopBarMessageTwoLineDirect() {
 
     uint16_t fg = getColorFG();
     uint16_t bg = getColorBG();
-    M5Cardputer.Display.fillRect(0, 0, DISPLAY_W, TOP_BAR_H * 2, fg);
+    M5Cardputer.Display.fillRect(offsetX, offsetY, DISPLAY_W, TOP_BAR_H * 2, fg);
     M5Cardputer.Display.setTextColor(bg, fg);
     M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setCursor(2, 3);
+    M5Cardputer.Display.setCursor(2 + offsetX, 3 + offsetY);
     M5Cardputer.Display.setFont(&fonts::Font0);
     M5Cardputer.Display.print(line1Buf);
-    M5Cardputer.Display.setCursor(2, TOP_BAR_H + 3);
+    M5Cardputer.Display.setCursor(2 + offsetX, TOP_BAR_H + 3 + offsetY);
     M5Cardputer.Display.print(line2Buf);
 }
 
@@ -1507,6 +1510,7 @@ void Display::showToast(const String& message, uint32_t durationMs) {
     showToast(message.c_str(), durationMs);
 }
 
+// NOTE: toasts do not queue; new toast immediately replaces current one.
 void Display::showToast(const char* message, uint32_t durationMs) {
     if (!message || message[0] == '\0') return;
     strncpy(toastMessage, message, sizeof(toastMessage) - 1);
@@ -1709,6 +1713,7 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     Avatar::triggerTailWiggle();
 
     // Auto-dismiss after 2.5 seconds or on any key press
+    // Re-render avatar each frame so spin/sparkle animations are visible
     uint32_t startTime = millis();
     while ((millis() - startTime) < 2500) {
         M5.update();
@@ -1716,7 +1721,22 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
         if (M5Cardputer.Keyboard.isChange()) {
             break;  // Any key dismisses
         }
-        delay(50);
+        // Mini render cycle: redraw avatar + popup overlay at ~30fps
+        mainCanvas.fillSprite(COLOR_BG);
+        Avatar::draw(mainCanvas);
+        // Re-draw popup on top of avatar
+        mainCanvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_FG);
+        mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_BG);
+        mainCanvas.setTextColor(COLOR_FG, COLOR_BG);
+        mainCanvas.setTextDatum(top_center);
+        mainCanvas.setTextSize(1);
+        mainCanvas.setFont(&fonts::Font0);
+        mainCanvas.drawString("* LEVEL UP! *", centerX, boxY + 8);
+        mainCanvas.drawString(levelStr, centerX, boxY + 22);
+        mainCanvas.drawString(title, centerX, boxY + 36);
+        mainCanvas.drawString(LEVELUP_PHRASES[phraseIdx], centerX, boxY + 52);
+        pushAll();
+        delay(33);
         yield();  // Feed watchdog during long celebration
     }
 }

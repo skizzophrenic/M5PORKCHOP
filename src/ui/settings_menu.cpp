@@ -1429,11 +1429,12 @@ void SettingsMenu::draw(M5Canvas& canvas) {
         }
 
         canvas.setTextColor(COLOR_BG);
-        canvas.setTextDatum(top_center);
         if (rootScroll > 0) {
-            canvas.drawString("^", DISPLAY_W / 2, 0);
+            canvas.setTextDatum(top_right);
+            canvas.drawString("^", DISPLAY_W - 2, 2);
         }
         if (rootScroll + VISIBLE_ROOT_ITEMS < rootCount) {
+            canvas.setTextDatum(top_center);
             canvas.drawString("v", DISPLAY_W / 2, MAIN_H - 10);
         }
         return;

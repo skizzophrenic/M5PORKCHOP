@@ -531,6 +531,7 @@ void Avatar::flinch() {
 
 void Avatar::spin() {
     if (attackHopActive) return;
+    jumpActive = false;  // Cancel in-flight jump; spin owns the Y arc
     spinActive = true;
     spinStart = millis();
 }
@@ -1221,6 +1222,7 @@ void Avatar::updateGrass() {
                 grassBlades[i] = grassBlades[i - 1];
             }
             grassBlades[0] = last;
+            if (treeScrollOffset > 300) treeScrollOffset -= 300;
         }
     } else {
         grassOffset--;
@@ -1233,6 +1235,7 @@ void Avatar::updateGrass() {
                 grassBlades[i] = grassBlades[i + 1];
             }
             grassBlades[GRASS_BLADE_COUNT - 1] = first;
+            if (treeScrollOffset < -300) treeScrollOffset += 300;
         }
     }
 
@@ -1276,7 +1279,7 @@ void Avatar::drawGrass(M5Canvas& canvas) {
     for (int i = 0; i < GRASS_BLADE_COUNT; i++) {
         int16_t cx = i * GRASS_STRIDE + grassOffset;
         if (cx < -GRASS_STRIDE) cx += 240 + GRASS_STRIDE;
-        if (cx > 240) continue;
+        if (cx >= 240) continue;
 
         const GrassBlade& b = grassBlades[i];
         int16_t drawHeight = b.height;
@@ -1708,7 +1711,9 @@ void Avatar::dropFruit() {
     for (uint8_t i = 0; i < MAX_DROPPING; i++) {
         if (!droppingFruits[i].active) {
             droppingFruits[i].x = bx + f.offsetX + sway;
-            droppingFruits[i].y = baseY + f.offsetY;
+            int16_t dropY = (int16_t)baseY + (int16_t)f.offsetY;
+            if (dropY < 0) dropY = 0;
+            droppingFruits[i].y = dropY;
             droppingFruits[i].radius = f.radius;
             droppingFruits[i].dropStart = now;
             droppingFruits[i].active = true;
@@ -2196,11 +2201,13 @@ void Avatar::drawWaveRipples(M5Canvas& canvas, bool faceRight, int startX, int s
             int16_t cy_off = wave_arc_lut[s][1];
             int16_t px = snapPx(waveCX + (int16_t)((int32_t)r * cx_off / 256));
             int16_t py = snapPx(waveCY + (int16_t)((int32_t)r * cy_off / 256));
+            if (px < 0 || px + PX > DISPLAY_W || py < 0 || py + PX > MAIN_H) continue;
             canvas.fillRect(px, py, PX, PX, color);
             if (thick == 2) {  // Double-thick early life: second ring at r+PX
                 int16_t r2 = r + PX;
                 px = snapPx(waveCX + (int16_t)((int32_t)r2 * cx_off / 256));
                 py = snapPx(waveCY + (int16_t)((int32_t)r2 * cy_off / 256));
+                if (px < 0 || px + PX > DISPLAY_W || py < 0 || py + PX > MAIN_H) continue;
                 canvas.fillRect(px, py, PX, PX, color);
             }
         }

@@ -56,6 +56,7 @@ static uint8_t thunderFlashesRemaining = 0;
 static uint8_t thunderFlashState = 0;  // 0=off, 1=on
 static uint32_t thunderMinInterval = 50000;  // 50-90s between storms (adjusts with mood)
 static uint32_t thunderMaxInterval = 90000;
+static uint32_t nextThunderInterval = 70000;  // Pre-rolled interval for next storm
 
 // === WIND STATE ===
 struct WindParticle {
@@ -101,6 +102,7 @@ void init() {
     lastScaleUpdate = lastCloudUpdate;
     lastWindGust = millis();
     lastThunderStorm = millis();
+    nextThunderInterval = random(thunderMinInterval, thunderMaxInterval);
 }
 
 static void generateCloudPuffs(CloudShape& cloud) {
@@ -421,13 +423,10 @@ static void updateRain(uint32_t now) {
 static void updateThunder(uint32_t now) {
     // Check if time for new storm
     if (!thunderFlashing && thunderFlashesRemaining == 0) {
-        if (now - lastThunderStorm > thunderMinInterval) {
-            uint32_t interval = random(thunderMinInterval, thunderMaxInterval);
-            if (now - lastThunderStorm >= interval) {
-                // Start new storm
-                thunderFlashesRemaining = random(2, 4);  // 2-3 flashes
-                lastThunderStorm = now;
-            }
+        if (now - lastThunderStorm >= nextThunderInterval) {
+            thunderFlashesRemaining = random(2, 4);  // 2-3 flashes
+            lastThunderStorm = now;
+            nextThunderInterval = random(thunderMinInterval, thunderMaxInterval);
         }
     }
 
@@ -484,7 +483,7 @@ static void updateWind(uint32_t now) {
                     : ((float)DISPLAY_W + 5.0f + random(0, 40));
                 windParticles[i].x = spawnX;
                 windParticles[i].spawnX = spawnX;
-                windParticles[i].y = (float)random(20, 105);
+                windParticles[i].y = (float)random(20, 88);
                 windParticles[i].speed = 2.0f + (float)random(0, 30) / 10.0f;  // 2.0-5.0
                 windParticles[i].maxTravel = (float)random(180, 281);
                 windParticles[i].baseSize = random(1, 4);  // 1-3 px radius
@@ -570,9 +569,9 @@ void drawClouds(M5Canvas& canvas, uint16_t colorFG) {
             drawPixelPuff(canvas, cx, cy, r, drawColor);
 
             // Draw wrap ghost if near screen edges for seamless scrolling
-            if (cx - r < 20 && clouds[i].x < 0) {
+            if (cx - r < 20) {
                 drawPixelPuff(canvas, cx + 320, cy, r, drawColor);
-            } else if (cx + r > 220 && clouds[i].x > 240) {
+            } else if (cx + r > 220) {
                 drawPixelPuff(canvas, cx - 320, cy, r, drawColor);
             }
         }

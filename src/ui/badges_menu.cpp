@@ -229,7 +229,7 @@ void BadgesMenu::draw(M5Canvas& canvas) {
 }
 
 void BadgesMenu::drawDetail(M5Canvas& canvas) {
-    canvas.fillScreen(COLOR_BG);
+    canvas.fillSprite(COLOR_BG);
     
     bool hasIt = (XP::getAchievements() & ACHIEVEMENTS[selectedIndex].flag) != 0;
     

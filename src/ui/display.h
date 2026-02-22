@@ -172,7 +172,7 @@ private:
     
     static void drawTopBar();
     static void drawBottomBar();
-    static void drawTopBarMessageTwoLineDirect();
+    static void drawTopBarMessageTwoLineDirect(int offsetX = 0, int offsetY = 0);
     static void drawModeInfo(M5Canvas& canvas, PorkchopMode mode);
     static void drawSettingsScreen(M5Canvas& canvas);
     static void drawAboutScreen(M5Canvas& canvas);
