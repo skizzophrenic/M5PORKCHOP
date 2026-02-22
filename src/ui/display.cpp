@@ -865,7 +865,9 @@ void Display::drawTopBar() {
     }
     int battLevel = lastBattLevel;
     char statusBuf[4];
-    statusBuf[0] = (gpsStatus || JanusHog::hasC5GPSFix()) ? 'G' : '-';
+    statusBuf[0] = (gpsStatus || JanusHog::hasC5GPSFix())
+                    ? (GPS::isCoasting() ? 'g' : 'G')
+                    : '-';
     statusBuf[1] = wifiStatus ? 'W' : '-';
     statusBuf[2] = JanusHog::isConnected() ? '5' : '-';
     statusBuf[3] = '\0';

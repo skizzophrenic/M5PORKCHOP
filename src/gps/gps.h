@@ -18,7 +18,20 @@ struct GPSData {
     uint32_t time;
     bool valid;
     bool fix;
-    uint32_t age;  // Age of last fix in ms
+    bool coasting;  // True when holding last known good position after fix loss
+    uint32_t age;   // Age of last fix in ms
+};
+
+struct GPSStats {
+    uint32_t validSentences;
+    uint32_t failedChecksum;
+    uint32_t rxOverflow;
+    uint32_t overlong;
+    uint32_t bytesDropped;
+    uint32_t coastEvents;
+    uint32_t qualityRejects;
+    uint32_t fixLostCount;
+    uint32_t fixGainCount;
 };
 
 class GPS {
@@ -45,6 +58,8 @@ public:
     // Statistics
     static uint32_t getFixCount();
     static uint32_t getLastFixTime();
+    static GPSStats getStats();
+    static bool isCoasting();
     
 private:
     static TinyGPSPlus gps;

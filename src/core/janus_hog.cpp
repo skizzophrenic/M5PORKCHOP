@@ -11,6 +11,7 @@
 #include "heap_gates.h"
 #include "network_recon.h"
 #include "../gps/gps.h"
+#include "../gps/gps_quality.h"
 #include <TinyGPSPlus.h>
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
@@ -137,6 +138,9 @@ static bool        c5GpsConfigSent = false;       // gps_set sent, waiting befor
 static uint32_t    c5GpsConfigSentMs = 0;         // when gps_set was sent
 static uint32_t    c5GpsLastFixMs = 0;
 static uint32_t    c5GpsAwaitingSentMs = 0;       // when start_gps_raw was sent (for timeout)
+static GPSData     c5CoastSnapshot = {0};         // last known good C5 GPS position for coasting
+static uint32_t    c5CoastStartMs = 0;
+static bool        c5CoastActive = false;
 
 static constexpr uint32_t GPS_AWAITING_TIMEOUT_MS = 10000;   // re-queue if no NMEA in 10s
 static constexpr uint32_t GPS_CONFIG_SETTLE_MS    = 200;     // let gps_set reconfigure before start
@@ -553,6 +557,8 @@ void JanusHog::shutdown() {
     c5GpsConfigSentMs = 0;
     c5GpsAwaitingSentMs = 0;
     memset(&c5GpsData, 0, sizeof(c5GpsData));
+    c5CoastActive = false;
+    c5CoastSnapshot.valid = false;
 
     if (gpsPaused) {
         GPS::wake();
@@ -911,6 +917,8 @@ static void enterDisconnected(const char* reason) {
         // Without this, a brief disconnect (<30s) could expose stale coordinates
         // for ~1-2s until new NMEA overwrites the TinyGPSPlus state.
         memset(&c5GpsData, 0, sizeof(c5GpsData));
+        c5CoastActive = false;
+        c5CoastSnapshot.valid = false;
         c5Gps = TinyGPSPlus();
     }
 }
@@ -1982,31 +1990,81 @@ static void updateC5GpsData() {
     bool prevFix = c5GpsData.fix;
     bool valid = c5Gps.location.isValid();
     uint32_t age = c5Gps.location.age();
-    bool fix = valid && (age < 30000);
+    uint8_t satellites = c5Gps.satellites.value();
+    uint16_t hdop = c5Gps.hdop.value();
 
-    c5GpsData.latitude   = c5Gps.location.lat();
-    c5GpsData.longitude  = c5Gps.location.lng();
-    c5GpsData.altitude   = c5Gps.altitude.meters();
-    c5GpsData.speed      = c5Gps.speed.kmph();
-    c5GpsData.course     = c5Gps.course.deg();
-    c5GpsData.satellites  = c5Gps.satellites.value();
-    c5GpsData.hdop       = c5Gps.hdop.value();
-    c5GpsData.date       = c5Gps.date.isValid() ? c5Gps.date.value() : 0;
-    c5GpsData.time       = c5Gps.time.isValid() ? c5Gps.time.value() : 0;
+    // Quality-gated fix (same logic as local GPS)
+    bool rawFix = valid && (age < GPSQuality::MAX_AGE_MS);
+    bool qualityOk = GPSQuality::isFixAcceptable(satellites, hdop);
+    bool fix = rawFix && qualityOk;
+
+    double latitude  = c5Gps.location.lat();
+    double longitude = c5Gps.location.lng();
+    double altitude  = c5Gps.altitude.meters();
+    float  speed     = c5Gps.speed.kmph();
+    float  course    = c5Gps.course.deg();
+    uint32_t date    = c5Gps.date.isValid() ? c5Gps.date.value() : 0;
+    uint32_t time    = c5Gps.time.isValid() ? c5Gps.time.value() : 0;
+
+    // Coasting logic
+    bool coasting = false;
+    uint32_t now = millis();
+
+    if (fix) {
+        if (GPSQuality::isCoastWorthy(satellites, hdop)) {
+            c5CoastSnapshot.latitude  = latitude;
+            c5CoastSnapshot.longitude = longitude;
+            c5CoastSnapshot.altitude  = altitude;
+            c5CoastSnapshot.speed     = speed;
+            c5CoastSnapshot.course    = course;
+            c5CoastSnapshot.satellites = satellites;
+            c5CoastSnapshot.hdop      = hdop;
+            c5CoastSnapshot.valid     = true;
+            c5CoastSnapshot.fix       = true;
+            c5CoastSnapshot.coasting  = false;
+            c5CoastStartMs = now;
+        }
+        c5CoastActive = false;
+    } else if (c5CoastSnapshot.valid && (now - c5CoastStartMs) < GPSQuality::COAST_MS) {
+        if (!c5CoastActive) c5CoastActive = true;
+        coasting = true;
+        fix = true;
+        latitude  = c5CoastSnapshot.latitude;
+        longitude = c5CoastSnapshot.longitude;
+        altitude  = c5CoastSnapshot.altitude;
+        speed     = c5CoastSnapshot.speed;
+        course    = c5CoastSnapshot.course;
+    } else {
+        if (c5CoastActive) {
+            c5CoastActive = false;
+            c5CoastSnapshot.valid = false;
+        }
+    }
+
+    c5GpsData.latitude   = latitude;
+    c5GpsData.longitude  = longitude;
+    c5GpsData.altitude   = altitude;
+    c5GpsData.speed      = speed;
+    c5GpsData.course     = course;
+    c5GpsData.satellites = satellites;
+    c5GpsData.hdop       = hdop;
+    c5GpsData.date       = date;
+    c5GpsData.time       = time;
     c5GpsData.age        = age;
     c5GpsData.valid      = valid;
     c5GpsData.fix        = fix;
+    c5GpsData.coasting   = coasting;
 
-    if (fix) {
-        c5GpsLastFixMs = millis();
-        if (!prevFix) {
-            GPS::maybeSyncSystemTime(c5GpsData.date, c5GpsData.time);
-            char buf[40];
-            snprintf(buf, sizeof(buf), "C5 GPS FIX %dSAT", c5GpsData.satellites);
-            Display::notify(NoticeKind::STATUS, buf, 2500, NoticeChannel::TOP_BAR);
-            C5_LOGF("GPS fix acquired: %.6f,%.6f sats=%d",
-                     c5GpsData.latitude, c5GpsData.longitude, c5GpsData.satellites);
-        }
+    if (fix && !prevFix) {
+        c5GpsLastFixMs = now;
+        GPS::maybeSyncSystemTime(c5GpsData.date, c5GpsData.time);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "C5 GPS FIX %dSAT", c5GpsData.satellites);
+        Display::notify(NoticeKind::STATUS, buf, 2500, NoticeChannel::TOP_BAR);
+        C5_LOGF("GPS fix acquired: %.6f,%.6f sats=%d",
+                 c5GpsData.latitude, c5GpsData.longitude, c5GpsData.satellites);
+    } else if (fix) {
+        c5GpsLastFixMs = now;
     } else if (prevFix) {
         Display::notify(NoticeKind::WARNING, "C5 GPS FIX LOST", 2000, NoticeChannel::TOP_BAR);
         C5_LOGF("GPS fix lost (valid=%d age=%lu)", valid, (unsigned long)age);

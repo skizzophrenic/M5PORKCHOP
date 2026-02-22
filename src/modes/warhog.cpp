@@ -778,6 +778,7 @@ void WarhogMode::processScanResults() {
                 
                 // WiGLE format export (HDOP * 5 as rough accuracy estimate in meters)
                 double accuracy = gpsData.hdop > 0 ? gpsData.hdop * 5.0 : 10.0;
+                if (gpsData.coasting && accuracy < 30.0) accuracy = 30.0;
                 appendWigleEntry(bssidPtr, ssid, rssi, channel, authmode,
                                 gpsData.latitude, gpsData.longitude, gpsData.altitude, accuracy);
                 
@@ -870,6 +871,7 @@ void WarhogMode::processScanResults() {
                                gpsData.latitude, gpsData.longitude, gpsData.altitude);
 
                 double accuracy = gpsData.hdop > 0 ? gpsData.hdop * 5.0 : 10.0;
+                if (gpsData.coasting && accuracy < 30.0) accuracy = 30.0;
                 appendWigleEntry(cn.bssid, cn.ssid, cn.rssi, cn.channel, cn.authmode,
                                  gpsData.latitude, gpsData.longitude, gpsData.altitude, accuracy);
 
