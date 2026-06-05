@@ -41,6 +41,7 @@
 #include "unlockables_menu.h"
 #include "bounty_status_menu.h"
 #include "sd_format_menu.h"
+#include "ext_display.h"
 #include "../core/heap_health.h"
 
 // Theme color getters - read from config
@@ -205,6 +206,8 @@ void Display::showLoot(const String& ssid) {
 extern Porkchop porkchop;
 
 void Display::init() {
+    extInit();   // bring up external ILI9341 (shares SD SPI bus)
+    extBootIntro();   // one-time matrix->pig reveal on the external screen
     M5.Display.setRotation(1);
     
     // CRITICAL: Set 8-bit mode for display AND sprites to avoid color conversion crashes
@@ -471,12 +474,49 @@ void Display::clear() {
     pushAll();
 }
 
+// While a menu/text screen is on the built-in display, keep the pig alive on
+// the TFT: render the idle avatar scene into the scale buffer and push it.
+void Display::renderLivingBackdrop() {
+    // Menu / text screens live on the built-in display, so the external TFT shows a
+    // big animated pig instead. Drawn directly to the panel (no 32KB scale buffer).
+    extMenuPig();
+}
+
+// Modes that own the big TFT full-screen. Everything else (menu + text
+// screens) renders on the built-in screen only; unknown modes default here.
+static bool isBigScreenMode(PorkchopMode m) {
+    switch (m) {
+        case PorkchopMode::IDLE:
+        case PorkchopMode::OINK_MODE:
+        case PorkchopMode::DNH_MODE:
+        case PorkchopMode::WARHOG_MODE:
+        case PorkchopMode::PIGGYBLUES_MODE:
+        case PorkchopMode::SPECTRUM_MODE:
+        case PorkchopMode::BACON_MODE:
+        case PorkchopMode::FILE_TRANSFER:
+        case PorkchopMode::PIGSYNC_CALL:
+        case PorkchopMode::CHARGING:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void Display::pushAll() {
+    // Built-in screen: always shows the current view at native 240x135.
     M5.Display.startWrite();
     topBar.pushSprite(0, 0);
     mainCanvas.pushSprite(0, TOP_BAR_H);
     bottomBar.pushSprite(0, DISPLAY_H - BOTTOM_BAR_H);
     M5.Display.endWrite();
+
+    // External TFT: full-screen (fit) for action modes; for menus/text screens
+    // (which live on the built-in screen) keep the idle pig animating instead.
+    if (isBigScreenMode(porkchop.getMode())) {
+        extPushScaledFit(topBar, mainCanvas, bottomBar);
+    } else {
+        renderLivingBackdrop();   // keep the pig animating on the TFT during menus
+    }
 
     if (topBarMessageTwoLineActive) {
         drawTopBarMessageTwoLineDirect();

@@ -3,6 +3,7 @@
 #include "porkchop.h"
 #include <M5Cardputer.h>
 #include "../ui/display.h"
+#include "../ui/ext_display.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/captures_menu.h"
@@ -728,6 +729,18 @@ void Porkchop::handleInput() {
             Display::takeScreenshot();
         }
         return;
+    }
+
+    // Cycle the external-TFT band effect with left/right in the avatar/action
+    // modes. Spectrum owns ',' and '/' for panning, so it is excluded.
+    if (currentMode == PorkchopMode::IDLE ||
+        currentMode == PorkchopMode::OINK_MODE ||
+        currentMode == PorkchopMode::DNH_MODE ||
+        currentMode == PorkchopMode::WARHOG_MODE ||
+        currentMode == PorkchopMode::PIGGYBLUES_MODE ||
+        currentMode == PorkchopMode::BACON_MODE) {
+        if (M5Cardputer.Keyboard.isKeyPressed(',')) { extCycleBandEffect(-1); return; }
+        if (M5Cardputer.Keyboard.isKeyPressed('/')) { extCycleBandEffect(+1); return; }
     }
     
     // T key stress test cycle disabled
