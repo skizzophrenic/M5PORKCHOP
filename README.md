@@ -1,4 +1,8 @@
-```
+This is the fork of Porkchop that I built to add the dual screen functionality to the 
+Cardputer ADV!  It's actually slightly improved from the build in the video because it
+had a heap memory issue, so you might notice some differences.  Have fun!
+
+
                     Volume Zero, Issue 3, Phile 1 of 1
 
                           M5PORKCHOP README
