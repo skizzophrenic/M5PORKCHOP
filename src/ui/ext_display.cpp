@@ -551,7 +551,7 @@ static void fxSquachCam() {
     // ---- bottom band: night-vision wash + roaming squach ----
     scamWash(BOT_Y);
     extDisplay.setTextColor(SCAM_DIM, TFT_BLACK);
-    extDisplay.setCursor(SCR_W - 64, BOT_Y + BAND_H - 9);
+    extDisplay.setCursor(SCR_W - 70, BOT_Y + BAND_H - 9);   // 11 chars * 6px = 66px -> fits w/ margin
     extDisplay.print("NIGHTVISION");
 
     if (scamHidden) {
