@@ -15,6 +15,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+// Set by the menu audio-reactive code; when true the mic owns the shared I2S bus.
+extern volatile bool g_audioMicActive;
+
 namespace SFX {
 
 // ==[ SOUND DEFINITIONS ]== arrays of {freq, duration, pause}
@@ -307,8 +310,7 @@ void play(Event event) {
                        event == CHALLENGE_SWEEP);
     if (isPriority && currentSequence != nullptr) {
         // Interrupt current sound for priority feedback
-        M5.Speaker.stop();
-        delayMicroseconds(100);  // Brief settle time for audio driver stability
+        if (!g_audioMicActive) { M5.Speaker.stop(); delayMicroseconds(100); }  // settle
         currentSequence = nullptr;
         currentStep = 0;
         // Clear queue on priority
@@ -336,7 +338,7 @@ static void startSequence(const Note* seq) {
     inNote = true;
     
     // Start first note
-    if (seq[0].freq > 0 && seq[0].duration > 0) {
+    if (seq[0].freq > 0 && seq[0].duration > 0 && !g_audioMicActive) {
         M5.Speaker.tone(seq[0].freq, seq[0].duration);
     }
 }
@@ -351,7 +353,10 @@ bool update() {
         currentSequence = nullptr;
         return false;
     }
-    
+
+    // Mic owns the shared I2S bus (menu audio-reactive) -> never touch the speaker
+    if (g_audioMicActive) return false;
+
     // Process queued event if nothing playing
     taskENTER_CRITICAL(&queueMutex);
     bool hasEvents = (queueTail != queueHead && currentSequence == nullptr);
@@ -524,11 +529,12 @@ void stop() {
     taskENTER_CRITICAL(&queueMutex);
     queueHead = queueTail = 0;
     taskEXIT_CRITICAL(&queueMutex);
-    M5.Speaker.stop();
+    if (!g_audioMicActive) M5.Speaker.stop();
 }
 
 void tone(uint16_t freq, uint16_t duration) {
     if (!Config::personality().soundEnabled) return;
+    if (g_audioMicActive) return;
     M5.Speaker.tone(freq, duration);
 }
 

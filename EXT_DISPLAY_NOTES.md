@@ -100,3 +100,29 @@ bands; only the menu uses the full-screen rain.
   Mic and speaker share I2S on the Cardputer, so menu SFX are silent while the mic is live;
   all other-mode SFX are unaffected. Fully guarded: if M5.Mic.begin() fails, audio fx are
   skipped and everything else runs normally. Tune sensitivity via AUDIO_GAIN (lower = more).
+
+## SQUACH-CAM (ported from the other fork)
+Pure rendering, no radio/modes. Two parts:
+- Band effect (fxSquachCam, enum FX_SQUACHCAM): a night-vision trail-cam for the letterbox
+  bands - moving CRT scanlines, blinking REC dot, frame counter, and a squach silhouette
+  that lopes across the bottom band then hides. In the , / band-effect cycle of action modes
+  (order: ...TOASTERS, SQUACHCAM, OFF). Always available.
+- Full-screen menu backdrop + boot (extMenuSquachCam / extBootIntroSquach): a full trail-cam
+  menu screen + a power-on reveal where the squach lopes into frame. These are wired behind
+  two independent toggles in ext_display.h: SQUACHCAM_BOOT (default true = squach trail-cam
+  boot reveal) and SQUACHCAM_MENU (default false = keep the matrix/pig menu backdrop). Current
+  setup: squach boot + squach band bars + pig matrix menu. Flip either toggle to change.
+Tuning lives at the top of each function (roamer speed scamX/scmX, hide interval, REC blink).
+
+## Fix: menu->main freezes (mic/speaker I2S conflict)
+Cause: audio-reactive grabs the mic on menu entry (M5.Speaker.end + M5.Mic.begin), but the
+SFX engine (SFX::update(), pumped every loop from display.cpp) keeps calling M5.Speaker.tone()
+- e.g. the MENU_CLICK fired on every menu move/select. Calling the speaker while the mic owns
+the shared I2S bus stalls the peripheral -> freeze, worst at the menu->main transition (the
+select sound fires the same instant the mode changes, before the bus is handed back).
+Fix: a shared flag `g_audioMicActive` (defined in ext_display.cpp, extern in sfx.cpp). It is
+set true BEFORE the bus is taken (and the speaker is stopped first) and cleared only AFTER the
+speaker is restored. While set, every speaker access in sfx.cpp (update/startSequence/play
+priority-stop/stop/tone) is skipped. Audio-reactive still works; menu SFX are simply silent
+while the mic is live (already the intended tradeoff). Fallback: set AUDIO_REACTIVE=false to
+disable the mic entirely.

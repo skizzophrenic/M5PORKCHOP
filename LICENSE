@@ -19,29 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-
-THIRD-PARTY COMPONENTS:
-
-This project includes code from:
-
-1. ESP32 Rainbow ZX Spectrum Emulator
-   Copyright (c) Alvaro Alea Fernandez
-   License: GPL v2
-   Source: https://github.com/atomic14/esp32-zxspectrum
-
-2. Z80 CPU Emulator
-   Copyright (c) Santiago Romero Iglesias
-   License: GPL v2
-
-3. ZX Spectrum 48K ROM
-   Copyright (c) 1982 Sinclair Research Ltd
-   Included for educational and preservation purposes only.
-
-4. M5 Porkchop by 0ct0sec
-   Copyright (c) 0ct0sec
-   License : MIT
-   https://github.com/0ct0sec/M5PORKCHOP
-
-The combination of MIT and GPL components means the final project
-must comply with GPL v2 requirements for distribution.

@@ -113,4 +113,12 @@ void extPushNative(M5Canvas& top, M5Canvas& main, M5Canvas& bottom);
 void extMenuPig();            // big animated pig shown on the TFT during menus/text screens
 void extBootIntro();          // one-time matrix->pig reveal animation, call once at boot
 
+// SQUACH-CAM trail-cam options (independent). The band effect is ALWAYS available in the
+// , / cycle regardless of these.
+extern volatile bool g_audioMicActive;   // true while the menu mic holds the I2S bus
+static constexpr bool SQUACHCAM_BOOT = true;    // true: squach trail-cam power-on reveal at boot
+static constexpr bool SQUACHCAM_MENU = false;   // false: keep the matrix/pig menu backdrop
+void extMenuSquachCam();      // SQUACH-CAM full-screen menu backdrop
+void extBootIntroSquach();    // SQUACH-CAM trail-cam power-on reveal
+
 #endif // PORK_EXT_DISPLAY_H

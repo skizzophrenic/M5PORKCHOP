@@ -207,7 +207,7 @@ extern Porkchop porkchop;
 
 void Display::init() {
     extInit();   // bring up external ILI9341 (shares SD SPI bus)
-    extBootIntro();   // one-time matrix->pig reveal on the external screen
+    if (SQUACHCAM_BOOT) extBootIntroSquach(); else extBootIntro();   // boot reveal
     M5.Display.setRotation(1);
     
     // CRITICAL: Set 8-bit mode for display AND sprites to avoid color conversion crashes
@@ -479,7 +479,7 @@ void Display::clear() {
 void Display::renderLivingBackdrop() {
     // Menu / text screens live on the built-in display, so the external TFT shows a
     // big animated pig instead. Drawn directly to the panel (no 32KB scale buffer).
-    extMenuPig();
+    if (SQUACHCAM_MENU) extMenuSquachCam(); else extMenuPig();
 }
 
 // Modes that own the big TFT full-screen. Everything else (menu + text

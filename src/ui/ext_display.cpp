@@ -24,7 +24,7 @@ LGFX_ExtILI9341 extDisplay;
 
 // ---------------- Effect selection ----------------
 enum BandFx : uint8_t { FX_MATRIX = 0, FX_TICKER, FX_SPECTRUM, FX_FIRE,
-                        FX_STARFIELD, FX_PLASMA, FX_SUNSET, FX_TOASTERS, FX_OFF, FX_COUNT };
+                        FX_STARFIELD, FX_PLASMA, FX_SUNSET, FX_TOASTERS, FX_SQUACHCAM, FX_OFF, FX_COUNT };
 uint8_t extBandEffect = FX_MATRIX;
 static bool fxDirty = true;          // clear bands on next draw after a switch
 
@@ -489,6 +489,83 @@ static constexpr uint32_t BAND_MS = 30;   // min ms between band redraws (~33 fp
                                           // Lower = smoother (flicker fuses) but more
                                           // SPI/CPU load shared with SD + WiFi. Try 20
                                           // if stable; raise if SD stutters.
+// ---- SQUACH-CAM: cryptid trail-cam band effect (night vision + REC + roamer) ----
+//   #00FF.. night-vision wash w/ moving CRT scanlines, a blinking REC dot, a frame
+//   counter, and a Squach silhouette that lopes across the lower band, then hides
+//   ("caught on the trail cam"). Erase-by-rewash each frame -> no flash.
+static int      scamX = -40;
+static bool     scamLegPhase = false;
+static bool     scamHidden = false;
+static uint32_t scamHideUntil = 0;
+static uint8_t  scamScan = 0;
+static uint16_t scamFrame = 0;
+static uint32_t scamRecMs = 0;
+static bool     scamRecOn = true;
+
+static const uint16_t SCAM_BRIGHT = 0x07E0;   // pure green
+static const uint16_t SCAM_DIM    = 0x0200;   // dark green scanline
+static const uint16_t SCAM_RED    = 0xF800;   // REC dot
+
+// scanline wash for one band (y0..y0+BAND_H), full coverage -> overwrites old frame
+static void scamWash(int y0) {
+    for (int y = 0; y < BAND_H; y++) {
+        bool lit = (((y + scamScan) % 3) == 0);
+        extDisplay.drawFastHLine(0, y0 + y, SCR_W, lit ? SCAM_DIM : TFT_BLACK);
+    }
+    // a few drifting noise specks for vibe
+    for (int i = 0; i < 4; i++)
+        extDisplay.drawPixel(random(SCR_W), y0 + random(BAND_H), SCAM_BRIGHT);
+}
+
+static void scamDrawSquach(int x, bool leg, uint16_t col) {
+    int by = BOT_Y;
+    extDisplay.fillRect(x + 6, by + 2,  8, 8,  col);   // head
+    extDisplay.fillRect(x + 4, by + 8,  12, 15, col);  // torso
+    extDisplay.fillRect(x + 1, by + 9,  3, 11, col);   // arm L
+    extDisplay.fillRect(x + 16, by + 9, 3, 11, col);   // arm R
+    if (leg) { extDisplay.fillRect(x + 5,  by + 23, 3, 6, col);
+               extDisplay.fillRect(x + 12, by + 23, 3, 4, col); }
+    else     { extDisplay.fillRect(x + 5,  by + 23, 3, 4, col);
+               extDisplay.fillRect(x + 12, by + 23, 3, 6, col); }
+    // two eyeshine dots
+    extDisplay.drawPixel(x + 8,  by + 5, 0xFFE0);
+    extDisplay.drawPixel(x + 11, by + 5, 0xFFE0);
+}
+
+static void fxSquachCam() {
+    uint32_t now = millis();
+    scamScan = (scamScan + 1) % 3;
+    scamFrame++;
+
+    // ---- top band: night-vision wash + OSD ----
+    scamWash(TOP_Y);
+    extDisplay.setTextSize(1);
+    // REC blink
+    if (now - scamRecMs > 600) { scamRecMs = now; scamRecOn = !scamRecOn; }
+    if (scamRecOn) extDisplay.fillCircle(8, TOP_Y + 8, 4, SCAM_RED);
+    extDisplay.setTextColor(SCAM_BRIGHT, TFT_BLACK);
+    extDisplay.setCursor(18, TOP_Y + 4);  extDisplay.print("REC  SQUACH-CAM");
+    extDisplay.setCursor(SCR_W - 56, TOP_Y + 4);
+    extDisplay.printf("F%05u", scamFrame);
+
+    // ---- bottom band: night-vision wash + roaming squach ----
+    scamWash(BOT_Y);
+    extDisplay.setTextColor(SCAM_DIM, TFT_BLACK);
+    extDisplay.setCursor(SCR_W - 64, BOT_Y + BAND_H - 9);
+    extDisplay.print("NIGHTVISION");
+
+    if (scamHidden) {
+        if (now >= scamHideUntil) { scamHidden = false; scamX = -40; }
+    } else {
+        if ((scamFrame & 1) == 0) { scamX += 3; scamLegPhase = !scamLegPhase; }
+        scamDrawSquach(scamX, scamLegPhase, SCAM_BRIGHT);
+        if (scamX > SCR_W) {                 // walked off -> hide for a bit
+            scamHidden = true;
+            scamHideUntil = now + 2500 + random(4000);
+        }
+    }
+}
+
 static uint32_t fxLast = 0;
 static void extDrawBands() {
     uint32_t now = millis();
@@ -505,6 +582,7 @@ static void extDrawBands() {
         case FX_PLASMA:   fxPlasma();   break;
         case FX_SUNSET:   fxSunset();   break;
         case FX_TOASTERS: fxToasters(); break;
+        case FX_SQUACHCAM:fxSquachCam();break;   // cryptid trail-cam
         default:          /* FX_OFF: leave black */ break;
     }
     extDisplay.endWrite();
@@ -552,15 +630,19 @@ static int16_t micBuf[MIC_SAMPLES];
 static bool    micActive  = false;
 static float   audioLevel = 0.0f;             // 0..1 smoothed loudness
 static constexpr float AUDIO_GAIN = 1500.0f;  // lower = more sensitive (tune to taste)
+volatile bool g_audioMicActive = false;   // true while the mic owns the shared I2S bus (SFX stays off it)
 
 static void audioEnterMenu() {
     if (!AUDIO_REACTIVE || micActive) return;
+    g_audioMicActive = true;                   // block SFX from the speaker BEFORE we take the bus
+    M5.Speaker.stop();                         // silence anything mid-tone
     M5.Speaker.end();                          // free the I2S bus
     if (M5.Mic.begin()) {
         micActive = true;
         M5.Mic.record(micBuf, MIC_SAMPLES, 16000);
     } else {
         M5.Speaker.begin();                    // mic unavailable -> restore speaker, no audio fx
+        g_audioMicActive = false;
     }
 }
 static void audioExitMenu() {
@@ -569,6 +651,7 @@ static void audioExitMenu() {
     M5.Speaker.begin();                        // hand the bus back to SFX
     micActive  = false;
     audioLevel = 0.0f;
+    g_audioMicActive = false;                  // re-enable SFX only after the speaker is back
 }
 static void audioUpdate() {
     if (!micActive || M5.Mic.isRecording()) return;   // wait for the capture to finish
@@ -660,6 +743,103 @@ static void drawPig() {
         extDisplay.setCursor(x0 + 5 * cw - 6, y0);
         extDisplay.print(zzz);
     }
+}
+
+// ============ SQUACH-CAM full-screen menu backdrop + boot reveal ============
+// Reuses the SCAM_* night-vision palette from the band effect above. Incremental
+// (erase-by-rewash on the roamer only) so it never flashes -- same discipline as
+// the matrix-pig backdrop it replaces.
+static bool     scmBaseDrawn = false;
+static uint32_t scmLast = 0;
+static int      scmX = -60, scmPrevX = -60;
+static bool     scmLeg = false, scmHidden = false;
+static uint32_t scmHideUntil = 0;
+static bool     scmRec = true;
+static uint32_t scmRecMs = 0;
+static uint16_t scmFrame = 0;
+
+// fixed-phase night-vision scanlines over a rect (entry + erase use same phase)
+static void scmField(int x, int y, int w, int h) {
+    for (int yy = 0; yy < h; yy++)
+        extDisplay.drawFastHLine(x, y + yy, w, ((y + yy) % 3 == 0) ? SCAM_DIM : TFT_BLACK);
+}
+// big squach silhouette (~60w x 110h), feet at baseY
+static void scmSquach(int x, int baseY, bool leg, uint16_t col) {
+    extDisplay.fillRect(x + 18, baseY - 110, 24, 26, col);   // head
+    extDisplay.fillRect(x + 8,  baseY - 86,  44, 56, col);   // torso
+    extDisplay.fillRect(x + 0,  baseY - 82,  10, 40, col);   // arm L
+    extDisplay.fillRect(x + 50, baseY - 82,  10, 40, col);   // arm R
+    if (leg) { extDisplay.fillRect(x + 12, baseY - 30, 12, 30, col);
+               extDisplay.fillRect(x + 34, baseY - 30, 12, 22, col); }
+    else     { extDisplay.fillRect(x + 12, baseY - 30, 12, 22, col);
+               extDisplay.fillRect(x + 34, baseY - 30, 12, 30, col); }
+    extDisplay.fillRect(x + 24, baseY - 100, 4, 4, 0xFFE0);  // eyeshine
+    extDisplay.fillRect(x + 32, baseY - 100, 4, 4, 0xFFE0);
+}
+static void scmCorners() {
+    uint16_t c = SCAM_BRIGHT; int L = 16;
+    extDisplay.drawFastHLine(4, 4, L, c);              extDisplay.drawFastVLine(4, 4, L, c);
+    extDisplay.drawFastHLine(SCR_W - 4 - L, 4, L, c);  extDisplay.drawFastVLine(SCR_W - 5, 4, L, c);
+    extDisplay.drawFastHLine(4, SCR_H - 5, L, c);      extDisplay.drawFastVLine(4, SCR_H - 4 - L, L, c);
+    extDisplay.drawFastHLine(SCR_W - 4 - L, SCR_H - 5, L, c); extDisplay.drawFastVLine(SCR_W - 5, SCR_H - 4 - L, L, c);
+}
+
+void extMenuSquachCam() {
+    if (!scmBaseDrawn) {
+        extDisplay.fillScreen(TFT_BLACK);
+        scmField(0, 0, SCR_W, SCR_H);
+        scmCorners();
+        extDisplay.setTextSize(2);
+        extDisplay.setTextColor(SCAM_BRIGHT, TFT_BLACK);
+        extDisplay.setCursor(40, 12); extDisplay.print("SQUACH-CAM");
+        extDisplay.setTextSize(1);
+        extDisplay.setTextColor(SCAM_DIM, TFT_BLACK);
+        extDisplay.setCursor(40, 32); extDisplay.print("// CRYPTID NETWORK ONLINE //");
+        scmBaseDrawn = true; scmX = scmPrevX = -60; scmHidden = false;
+        menuEnterMs = millis();
+    }
+    uint32_t now = millis();
+    if (now - scmLast < 40) return;          // ~25fps
+    scmLast = now; scmFrame++;
+
+    if (now - scmRecMs > 600) { scmRecMs = now; scmRec = !scmRec; }
+    extDisplay.fillCircle(24, 19, 6, scmRec ? SCAM_RED : TFT_BLACK);
+    extDisplay.setTextColor(SCAM_BRIGHT, TFT_BLACK);
+    extDisplay.setCursor(SCR_W - 86, SCR_H - 16); extDisplay.printf("REC F%05u", scmFrame);
+
+    int baseY = SCR_H - 24;
+    int ex = scmPrevX - 4, ew = 72;
+    if (ex < 0) { ew += ex; ex = 0; }
+    if (ex + ew > SCR_W) ew = SCR_W - ex;
+    if (ew > 0) scmField(ex, baseY - 116, ew, 120);     // erase old footprint
+
+    if (scmHidden) {
+        if (now >= scmHideUntil) { scmHidden = false; scmX = scmPrevX = -60; }
+    } else {
+        scmPrevX = scmX; scmX += 5; scmLeg = !scmLeg;
+        scmSquach(scmX, baseY, scmLeg, SCAM_BRIGHT);
+        if (scmX > SCR_W) { scmHidden = true; scmHideUntil = now + 2500 + random(3500); }
+    }
+}
+
+void extBootIntroSquach() {
+    extDisplay.fillScreen(TFT_BLACK);
+    scmField(0, 0, SCR_W, SCR_H);
+    scmCorners();
+    extDisplay.setTextSize(2);
+    extDisplay.setTextColor(SCAM_BRIGHT, TFT_BLACK);
+    extDisplay.setCursor(40, 12); extDisplay.print("SQUACH-CAM");
+    extDisplay.setTextColor(SCAM_RED, TFT_BLACK);
+    extDisplay.setCursor(40, 36); extDisplay.print("> REC");
+    for (int x = -60; x < 130; x += 12) {                // squach lopes into frame
+        scmField(x - 16, SCR_H - 140, 84, 124);
+        scmSquach(x, SCR_H - 24, (x / 12) & 1, SCAM_BRIGHT);
+        delay(45);
+    }
+    delay(350);
+    extDisplay.fillScreen(TFT_WHITE); delay(40);         // power-on flash
+    extDisplay.fillScreen(TFT_BLACK);
+    menuBaseDrawn = false; scmBaseDrawn = false; mmInit = false;
 }
 
 static uint32_t menuLast = 0;
